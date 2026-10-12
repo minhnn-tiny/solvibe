@@ -1,0 +1,30 @@
+{
+  "id": "63008",
+  "protocol": "Sorella L2 Angstrom",
+  "what_is_at_risk": "Liquidity providers' accrued, unclaimed swap-tax rewards, paid in the chain's native ether and held by the AngstromL2 hook as Uniswap v4 ether claims. In the measured run the honest LP's deposited liquidity was also locked.",
+  "loss_type": "theft",
+  "who_loses": "Honest liquidity providers whose rewards are still unclaimed (the last LPs to claim also cannot withdraw their liquidity).",
+  "who_gains": "The attacker, who adds a one-block position just below a tick boundary and removes it in the same block.",
+  "scenario": "The report's PoC #3 with three separate accounts: an honest LP adds 1e22 liquidity on [0,50) at tick 17, a trader pays 49 ether of swap tax over 10 swaps (all credited to the honest LP), then the attacker moves the price to tick 20, adds 2e25 liquidity on [10,20), makes a 5 gwei priority-fee swap down to tick 19, and removes the position.",
+  "measured": {
+    "unit": "ether of the mock chain's native coin (1e18 wei); exact wei values are in loss/run_vulnerable_386baff.log",
+    "user_funds_in_scenario": 49.0,
+    "user_loss": 48.99999755,
+    "attacker_gain": 48.877274256875928,
+    "loss_pct_of_user_funds": 99.999995
+  },
+  "worst_case_pct_of_user_funds": "100% of the LPs' pending, unclaimed rewards in the pool",
+  "worst_case_basis": "The report's sizing rule (attack liquidity = L * R / swap tax) gives the attacker a reward equal to all pending rewards R, and the run measured 99.999995% of R taken. The take is capped only by the ether the hook holds, which is the LPs' pending rewards plus any unclaimed protocol revenue.",
+  "scales_with": "The pending, unclaimed LP rewards held by the hook. The attacker's position size grows with pending rewards divided by the attacker's swap tax (here 2e25 liquidity in one tick range, held for one block).",
+  "repeatable": "yes",
+  "concrete_usd": null,
+  "why_no_usd": "The run uses a local mock chain and mock token, the audited code was fixed before deployment, and live TVL and prices were deliberately not looked up. Amounts are in the mock chain's ether.",
+  "fix_check": {
+    "commit": "386baff with only src/libraries/TickIterator.sol replaced by the file from c01b6c7",
+    "result": "Same attack: the attacker collects only 0.0245 ether of rewards (its fair share of its own swap tax) and ends with a net loss of 0.0982 ether. The honest LP claims 49.0000122 ether of rewards and removes its full liquidity. Loss 0."
+  },
+  "confidence": "measured",
+  "loss_test": "pilot/tasks/63008/loss/Loss63008_AngstromL2.t.sol",
+  "command": "forge test --offline --match-path test/Loss63008_AngstromL2.t.sol --match-test test_loss_stealAllRewards -vv",
+  "notes": "Vulnerable run: honest LP pending rewards 48.999999999999999999 ether before the attack. The attacker's position showed 48.99999755 ether of pending rewards and the hook paid it out on removal. Attacker costs: swap tax 0.0245 ether, JIT tax 0.098 ether, plus price movement; net profit 48.877 ether valued at the tick-17 price. After the attack the honest LP's pending rewards read 49.0245 ether, but the hook held only 0.1225 ether, of which 0.098 is protocol revenue, so 48.99999755 ether of the honest LP's rewards have no ether behind them. The honest LP's reward claim (liquidity delta 0) and its full removal both revert: the hook's afterRemoveLiquidity panics with arithmetic underflow (0x11) when it burns more ether claims than it holds, wrapped as HookCallFailed. So the honest LP received 0 rewards and could not withdraw its principal of 14.978 ether plus 9.9995 tokens (1e18 units). That principal lock is measured but not counted in the percentage, whose denominator is the honest LP's pending rewards before the attack. Derived from mechanism, not measured: new swap taxes are credited to LPs as they arrive, so they do not close the gap; the lock lifts only if protocol revenue or a direct top-up refills the hook, or, with several LPs, by paying earlier claimers out of later claimers' rewards. Setup: throwaway git clone --local of pilot/repos/sorellaLabs__l2-angstrom at 386baff, lib/ copied from pilot/repos/prepared/l2-angstrom@386baff/lib, .gitmodules and the lib gitlinks removed so forge does not try to fetch submodules, test copied to test/, run offline with pilot/scripts/dock.sh. The test inherits AngstromL2Test, so it must be scoped with --match-test. Run logs: pilot/tasks/63008/loss/run_vulnerable_386baff.log and pilot/tasks/63008/loss/run_fix_TickIterator_c01b6c7.log."
+}

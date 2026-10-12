@@ -1,0 +1,113 @@
+{
+  "id": "65026",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-12-panoptic/blob/main/contracts/CollateralTracker.sol# L1359-L1360",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      1359,
+      1360
+    ]
+  ],
+  "filename": "65026_CollateralTracker.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 1664,
+  "vulnerability_title": "[H-02] Cross-contract reentrancy in liquidation enables conversion of phantom shares to real shares, draining `CollateralTracker` assets",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "**Option 1: Reentrancy guard (Recommended):** Add a `nonReentrant` modifier to `CollateralTracker.settleLiquidation` to prevent re-entering the contract or other trackers during the settlement process.\n\n**Option 2: Restrict phantom share transfers:** Modify `CollateralTracker.transferFrom` (and `transfer`) to explicitly forbid transferring shares if the balance indicates the presence of phantom shares.\n```\n\nfunction transferFrom(address from, address to, uint256 amount) public override returns (bool) {\n+   // Prevent moving phantom shares\n+   if (balanceOf[from] > type(uint248).max) revert Errors.PhantomSharesAreNotTransferable();\n\n    _accrueInterest(from, IS_NOT_DEPOSIT);\n    if (panopticPool().numberOfLegs(from) != 0) revert Errors.PositionCountNotZero();\n    return ERC20Minimal.transferFrom(from, to, amount);\n}\n```\n\n**Option 3: Move ETH refund:** Move the ETH refund logic out of `CollateralTracker` and into `PanopticPool._liquidate` (specifically, at the very end of the function), ensuring all settlements and revocations are complete before making external calls.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-12-panoptic-next-core/submissions/S-195)\n\n**[Panoptic mitigated](https://github.com/code-423n4/2026-02-panoptic-next-core-mitigation?tab=readme-ov-file# mitigation-of-high--medium-severity-issues):**\n\n> Enhance reentrancy protection and add protocol loss tracking.\n\n**Status:** Mitigation confirmed. Full details in reports from [Valves](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-2), [edoscoba](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-17), and [Nyx](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-44).\n\n---",
+    "fix_code_blocks": [
+      "function transferFrom(address from, address to, uint256 amount) public override returns (bool) {\n+   // Prevent moving phantom shares\n+   if (balanceOf[from] > type(uint248).max) revert Errors.PhantomSharesAreNotTransferable();\n\n    _accrueInterest(from, IS_NOT_DEPOSIT);\n    if (panopticPool().numberOfLegs(from) != 0) revert Errors.PositionCountNotZero();\n    return ERC20Minimal.transferFrom(from, to, amount);\n}"
+    ]
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "A comprehensive Foundry test case demonstrates this vulnerability. The PoC performs the following steps:\n\n1. Sets up a pool with liquidity in `token1`.\n2. Creates a malicious liquidator contract.\n3. Triggers liquidation with `msg.value = 1 wei` to force the ETH refund path.\n4. In the `receive()` fallback, the liquidator transfers `ct1` phantom shares from the liquidatee to itself.\n5. After liquidation completes, the liquidator holds valid shares and redeems them for the underlying assets.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-12-panoptic-next-core/submissions/S-195)",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "settleLiquidation",
+        "start_line": 1262,
+        "end_line": 1362,
+        "code": "    function settleLiquidation(\n        address liquidator,\n        address liquidatee,\n        int256 bonus\n    ) external payable onlyPanopticPool {\n        if (bonus < 0) {\n            uint256 bonusAbs;\n\n            unchecked {\n                bonusAbs = uint256(-bonus);\n            }\n            address _poolManager = address(poolManager());\n\n            if (_poolManager == address(0)) {\n                uint256 underlyingTokenBalance = ERC20Minimal(underlyingToken()).balanceOf(\n                    liquidator\n                );\n                if (underlyingTokenBalance < bonusAbs)\n                    revert Errors.NotEnoughTokens(\n                        underlyingToken(),\n                        bonusAbs,\n                        underlyingTokenBalance\n                    );\n                SafeTransferLib.safeTransferFrom(\n                    underlyingToken(),\n                    liquidator,\n                    msg.sender,\n                    bonusAbs\n                );\n            }\n            _mint(liquidatee, convertToShares(bonusAbs));\n\n            s_depositedAssets += uint128(bonusAbs);\n\n            uint256 liquidateeBalance = balanceOf[liquidatee];\n\n            if (type(uint248).max > liquidateeBalance) {\n                balanceOf[liquidatee] = 0;\n                // keep checked to catch under/overflows\n                _internalSupply += type(uint248).max - liquidateeBalance;\n            } else {\n                // keep checked to catch under/overflows\n                balanceOf[liquidatee] = liquidateeBalance - type(uint248).max;\n            }\n            if (_poolManager != address(0)) {\n                _settleCurrencyDelta(liquidator, int256(bonusAbs));\n            }\n        } else {\n            uint256 liquidateeBalance = balanceOf[liquidatee];\n\n            if (type(uint248).max > liquidateeBalance) {\n                // keep checked to catch under/overflows\n                _internalSupply += type(uint248).max - liquidateeBalance;\n                liquidateeBalance = 0;\n            } else {\n                // keep checked to catch under/overflows\n                liquidateeBalance -= type(uint248).max;\n            }\n            balanceOf[liquidatee] = liquidateeBalance;\n\n            uint256 bonusShares = convertToShares(uint256(bonus));\n\n            // if requested amount is larger than user balance, transfer their balance and mint the remaining shares\n            if (bonusShares > liquidateeBalance) {\n                _transferFrom(liquidatee, liquidator, liquidateeBalance);\n\n                // this is paying out protocol loss, so correct for that in the amount of shares to be minted\n                // X: total assets in vault\n                // Y: total supply of shares\n                // Z: desired value (assets) of shares to be minted\n                // N: total shares corresponding to Z\n                // T: transferred shares from liquidatee which are a component of N but do not contribute toward protocol loss\n                // Z = N * X / (Y + N - T)\n                // Z * (Y + N - T) = N * X\n                // ZY + ZN - ZT = NX\n                // ZY - ZT = N(X - Z)\n                // N = (ZY - ZT) / (X - Z)\n                // N = Z(Y - T) / (X - Z)\n                // subtract delegatee balance from N since it was already transferred to the delegator\n                uint256 _totalSupply = totalSupply();\n\n                // keep checked to catch any casting/math errors\n                _mint(\n                    liquidator,\n                    Math.min(\n                        Math.mulDivCapped(\n                            uint256(bonus),\n                            _totalSupply - liquidateeBalance,\n                            uint256(Math.max(1, int256(totalAssets()) - bonus))\n                        ) - liquidateeBalance,\n                        _totalSupply * DECIMALS\n                    )\n                );\n            } else {\n                _transferFrom(liquidatee, liquidator, bonusShares);\n            }\n\n            // refund liquidator if they attached value expecting to settle a negative bonus in the native currency\n            if (msg.value > 0) SafeTransferLib.safeTransferETH(liquidator, msg.value);\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1359,
+            1360
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:40.443541",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the reentrancy issue in the `settleLiquidation` function, which is confirmed by the presence of an external call before state updates.",
+      "content_reasoning": "The code contains the `settleLiquidation` function with an external call to `SafeTransferLib.safeTransferETH`, matching the described vulnerability.",
+      "functions_found": [
+        "settleLiquidation",
+        "transferFrom"
+      ],
+      "variables_found": [
+        "liquidator",
+        "liquidatee",
+        "bonus",
+        "balanceOf",
+        "_internalSupply"
+      ],
+      "patterns_found": [
+        "external call before state update",
+        "reentrancy window"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report lacks a tag, but it should be tagged for reentrancy issues.",
+      "suggested_tag": "reentrancy",
+      "alternative_tags": [
+        "cross-contract reentrancy"
+      ],
+      "correction_explanation": "The vulnerability is a classic reentrancy issue, which should be tagged accordingly."
+    },
+    "mando_classification": {
+      "primary_category": "reentrancy",
+      "secondary_categories": [],
+      "confidence": 100,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability is a clear case of reentrancy, fitting directly into the MANDO category for reentrancy issues."
+    },
+    "scsvs_classification": {
+      "primary_category": "G6",
+      "primary_category_name": "Communications",
+      "secondary_categories": [
+        "C4"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": false,
+      "reasoning": "The issue involves unsafe external calls leading to reentrancy, which is covered under communications in SCSVS. Additionally, it affects a vault component, hence C4 is relevant.",
+      "vulnerability_type": "Cross-contract reentrancy due to unsafe external call"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-03-20T15:21:46.767719",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

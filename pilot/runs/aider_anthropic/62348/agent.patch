@@ -1,0 +1,106 @@
+diff --git a/src/types/Position.sol b/src/types/Position.sol
+index 7dad931..3b54c45 100644
+--- a/src/types/Position.sol
++++ b/src/types/Position.sol
+@@ -77,40 +77,75 @@ library PositionLibrary {
+         returns (bool isRemoved)
+     {
+         FungibleState state = self.fungibleStates[fungible];
+-        uint256 index = state.index();
+-        uint256 newBalance = state.balance() - amount;
+-
+-        if (index != 0) {
+-            if (newBalance != 0) {
+-                state = toFungibleState(index, newBalance);
+-            } else {
+-                state = FungibleState.wrap(0);
+-
+-                // remove a fungible from the fungibles array
+-                assembly ("memory-safe") {
+-                    let slot := add(self.slot, FUNGIBLES_OFFSET)
+-                    let len := sload(slot)
+-                    mstore(0x00, slot)
+-                    let dataSlot := keccak256(0x00, 0x20)
+-
+-                    if iszero(eq(index, len)) {
+-                        sstore(add(dataSlot, sub(index, 1)), sload(add(dataSlot, sub(len, 1))))
+-                    }
+-
+-                    sstore(add(dataSlot, sub(len, 1)), 0)
+-                    sstore(slot, sub(len, 1))
+-                }
+-            }
++        uint256 currentIndex = state.index();
++
++        // If fungible is not held, return false
++        if (currentIndex == 0) {
++            return false;
++        }
+ 
+-            // update fungible state
++        uint256 currentBalance = state.balance();
++        
++        // Revert if trying to remove more than held
++        require(currentBalance >= amount, "Insufficient balance");
++
++        uint256 newBalance = currentBalance - amount;
++
++        if (newBalance > 0) {
++            // Update the balance, keep the same index
++            state = toFungibleState(currentIndex, newBalance);
++            
+             assembly ("memory-safe") {
+                 mstore(0x00, fungible)
+                 mstore(0x20, add(self.slot, FUNGIBLE_STATES_OFFSET))
+                 sstore(keccak256(0x00, 0x40), state)
+             }
++        } else {
++            // Remove fungible completely
++            // Clear the fungible state
++            assembly ("memory-safe") {
++                mstore(0x00, fungible)
++                mstore(0x20, add(self.slot, FUNGIBLE_STATES_OFFSET))
++                sstore(keccak256(0x00, 0x40), 0)
++            }
++
++            // Remove from fungibles array (swap with last and pop)
++            assembly ("memory-safe") {
++                let slot := add(self.slot, FUNGIBLES_OFFSET)
++                let len := sload(slot)
++                mstore(0x00, slot)
++                let dataSlot := keccak256(0x00, 0x20)
++                
++                // Convert 1-based index to 0-based
++                let elementSlot := add(dataSlot, sub(currentIndex, 1))
++                let lastElementSlot := add(dataSlot, sub(len, 1))
++
++                // If not the last element, swap with last
++                if iszero(eq(elementSlot, lastElementSlot)) {
++                    let lastFungible := sload(lastElementSlot)
++                    sstore(elementSlot, lastFungible)
++                    
++                    // Update the moved fungible's state with new index
++                    mstore(0x00, lastFungible)
++                    mstore(0x20, add(self.slot, FUNGIBLE_STATES_OFFSET))
++                    let stateSlot := keccak256(0x00, 0x40)
++                    let movedState := sload(stateSlot)
++                    
++                    // Extract balance from moved state and create new state with updated index
++                    // State format: index in lower bits, balance in upper bits
++                    // We need to preserve the balance and update the index to currentIndex
++                    let movedBalance := shr(128, movedState)
++                    let newState := or(currentIndex, shl(128, movedBalance))
++                    sstore(stateSlot, newState)
++                }
+ 
+-            isRemoved = true;
++                // Clear last slot and decrease length
++                sstore(lastElementSlot, 0)
++                sstore(slot, sub(len, 1))
++            }
+         }
++
++        return true;
+     }
+ 
+     /// @notice Adds a non-fungible to a position

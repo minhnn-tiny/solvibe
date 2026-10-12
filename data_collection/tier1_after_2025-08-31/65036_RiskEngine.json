@@ -1,0 +1,109 @@
+{
+  "id": "65036",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-12-panoptic/blob/main/contracts/RiskEngine.sol# L2018-L2038",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      2018,
+      2038
+    ]
+  ],
+  "filename": "65036_RiskEngine.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 2403,
+  "vulnerability_title": "[M-09] Incorrect collateral calculation for delayed swap strategies",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "**Runnable PoC (Foundry test):**\n\n* PoC file (custom, entire file included): `2025-12-panoptic/test/foundry/poc/H017_DelayedSwap_MaxNotNetting.t.sol`\n* Test: `test_POC_H017_delayedSwap_requirementUsesMax_notNetting`\n\n**How to run:**\n```\n\ncd 2025-12-panoptic\n\nanvil --silent --port 8545 &\n\nforge test --fork-url http://127.0.0.1:8545 \\\n  --match-path test/foundry/poc/H017_DelayedSwap_MaxNotNetting.t.sol \\\n  --match-test test_POC_H017\n```\n\n**PoC source (full file):**\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-12-panoptic-next-core/submissions/S-1049)\n\n**PoC shared dependency:**\n\nFile: `2025-12-panoptic/test/foundry/poc/utils/PoCUtils.sol`\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-12-panoptic-next-core/submissions/S-1049)\n\n**[Panoptic mitigated](https://github.com/code-423n4/2026-02-panoptic-next-core-mitigation?tab=readme-ov-file# mitigation-of-high--medium-severity-issues):**\n\n> Netting the credit against the loan legs.\n\n**Status:** Mitigation confirmed. Full details in reports from [Valves](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-10), [edoscoba](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-25), and [Nyx](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-34).\n\n---",
+    "poc_code_blocks": [
+      "cd 2025-12-panoptic\n\nanvil --silent --port 8545 &\n\nforge test --fork-url http://127.0.0.1:8545 \\\n  --match-path test/foundry/poc/H017_DelayedSwap_MaxNotNetting.t.sol \\\n  --match-test test_POC_H017"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_computeDelayedSwap",
+        "start_line": 1994,
+        "end_line": 2041,
+        "code": "\n    function _computeDelayedSwap(\n        TokenId tokenId,\n        uint128 positionSize,\n        uint256 index,\n        uint256 partnerIndex,\n        int24 atTick\n    ) internal view returns (uint256) {\n        unchecked {\n            // can only be called when partnerIndex is the credit\n            LeftRightUnsigned amountsMoved = PanopticMath.getAmountsMoved(\n                tokenId,\n                positionSize,\n                index,\n                false\n            );\n\n            LeftRightUnsigned amountsMovedP = PanopticMath.getAmountsMoved(\n                tokenId,\n                positionSize,\n                partnerIndex,\n                false\n            );\n\n            uint256 loanAmount = tokenId.tokenType(index) == 0\n                ? amountsMoved.rightSlot()\n                : amountsMoved.leftSlot();\n            uint256 required = Math.mulDivRoundingUp(\n                loanAmount,\n                SELLER_COLLATERAL_RATIO + DECIMALS,\n                DECIMALS\n            );\n\n            uint256 creditAmount = tokenId.tokenType(partnerIndex) == 0\n                ? amountsMovedP.rightSlot()\n                : amountsMovedP.leftSlot();\n\n            uint256 convertedCredit = tokenId.tokenType(partnerIndex) == 0\n                ? PanopticMath.convert0to1RoundingUp(creditAmount, Math.getSqrtRatioAtTick(atTick))\n                : PanopticMath.convert1to0RoundingUp(creditAmount, Math.getSqrtRatioAtTick(atTick));\n\n            if (required > convertedCredit) {\n                return required;\n            } else {\n                return convertedCredit;\n            }\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            2018,
+            2038
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:52.372547",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of incorrect collateral calculation due to flawed financial logic in the `_computeDelayedSwap` function.",
+      "content_reasoning": "The content mentions the `_computeDelayedSwap` function and variables like `loanAmount`, `required`, and `convertedCredit`, which are present in the code. The pattern of using `max(loanRequirement, creditValue)` instead of netting is evident.",
+      "functions_found": [
+        "_computeDelayedSwap"
+      ],
+      "variables_found": [
+        "loanAmount",
+        "required",
+        "convertedCredit"
+      ],
+      "patterns_found": [
+        "max(loanRequirement, creditValue)"
+      ],
+      "issues": [
+        "Incorrect financial logic leading to inflated collateral requirements"
+      ]
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "No existing tag is present. The issue relates to business logic errors in financial calculations.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "financial_logic"
+      ],
+      "correction_explanation": "The issue is primarily about incorrect business logic in financial calculations, which affects collateral requirements."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 70,
+      "mando_applicable": false,
+      "reasoning": "The MANDO categories do not specifically cover business logic errors related to financial calculations, which is the core issue here."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue is a business logic error in the financial calculation of collateral requirements, which fits well under the SCSVS G4 category.",
+      "vulnerability_type": "Incorrect financial logic leading to inflated collateral requirements"
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-03-20T15:21:21.320249",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

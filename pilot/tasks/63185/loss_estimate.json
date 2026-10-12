@@ -1,0 +1,30 @@
+{
+  "id": "63185",
+  "protocol": "Ammplify",
+  "what_is_at_risk": "No user funds. TimedAdminFacet in the itos-finance Commons library holds no ether or tokens, and its owner role only grants and removes admin rights. What breaks is the ability to hand the owner role to a new address.",
+  "loss_type": "no direct loss",
+  "who_loses": "No one loses funds. The protocol team cannot move the owner role to a new address.",
+  "who_gains": "No one.",
+  "scenario": "The owner calls transferOwnership(0xBEEF) and waits past the delay. The pending owner's acceptOwnership reverts, the old owner keeps control and can still grant admin rights, and a second transferOwnership reverts ExistingPrecommitFound because the first request can never be used or cancelled. No ether moved: facet, old owner and new owner balances were unchanged.",
+  "measured": {
+    "unit": "wei of ether",
+    "user_funds_in_scenario": 0,
+    "user_loss": 0,
+    "attacker_gain": 0,
+    "loss_pct_of_user_funds": 0
+  },
+  "worst_case_pct_of_user_funds": "0 (direct loss)",
+  "worst_case_basis": "No function in TimedAdminFacet, BaseAdminFacet or AdminLib moves value. The bug only stops the owner role from changing hands, and the current owner keeps every power it had.",
+  "scales_with": "Nothing: no funds are involved.",
+  "repeatable": "no",
+  "concrete_usd": null,
+  "why_no_usd": "No funds move, so there is nothing to price.",
+  "fix_check": {
+    "commit": "621c233 with only src/Util/TimedAdmin.sol replaced by the file from c6cb8ee (the fix commit's other change, src/Test/ForkableTest.sol, is unrelated)",
+    "result": "The pending owner accepts and the owner becomes 0xBEEF. The new owner can start another transfer and grant rights. 0 wei moved, the same as on the vulnerable code."
+  },
+  "confidence": "measured",
+  "loss_test": "pilot/tasks/63185/loss/Loss63185_Commons.t.sol",
+  "command": "forge test --offline --match-path test/Loss63185_Commons.t.sol -vv",
+  "notes": "The test does not measure a loss. It records who controls the contract after the failed handover and checks that no ether moved. Measured on the vulnerable code: acceptOwnership by the pending owner fails, owner() is still the old owner, the old owner still grants rights, and transferOwnership to a new address reverts ExistingPrecommitFound(OWNER_USE_ID). The last point goes further than the report. After the first attempt the owner precommit is stuck, because acceptOwnership always reverts before it deletes the entry, and vetoRights only deletes the rights entries, not the owner entry. So the owner cannot retry or redirect the handover. The report says the bug may leave the contract 'without an effective admin'; the test shows the old owner stays in control. INDIRECT RISK, not quantified: if the owner key is lost or compromised it cannot be rotated away through this facet, and a compromised owner can still grant admin rights after the time delay. What those rights control in Ammplify comes from the report text only; the Ammplify code is not in the local repos and was not read. A diamond-level facet replacement might be a way to recover, but this was not checked. Setup: throwaway git clone --local of pilot/repos/itos-finance__Commons at 621c233, lib/ copied from pilot/repos/prepared/itos-finance__Commons@621c233/lib, .gitmodules and the lib gitlinks removed, every other test/*.t.sol deleted (they do not compile with the pinned forge-std), run offline with pilot/scripts/dock.sh. Run logs: pilot/tasks/63185/loss/run_vulnerable_621c233.log and pilot/tasks/63185/loss/run_fix_TimedAdmin_c6cb8ee.log."
+}

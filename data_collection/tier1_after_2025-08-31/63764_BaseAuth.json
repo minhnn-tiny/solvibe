@@ -1,0 +1,177 @@
+{
+  "id": "63764",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-10-sequence/blob/ccc328beeadd28fdbde53b034098c865104fcaf3/src/modules/auth/BaseAuth.sol# L120-L140",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      120,
+      140
+    ],
+    [
+      1,
+      39
+    ],
+    [
+      120,
+      140
+    ],
+    [
+      1,
+      39
+    ]
+  ],
+  "filename": "63764_BaseAuth.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 174,
+  "vulnerability_title": "[M-03] `BaseAuth.recoverSapientSignature` returns a constant instead of signer image hash, breaking sapient signer flows",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Return the actual signer image hash from `BaseAuth.recoverSapientSignature()` to conform to `ISapient` and maintain merkle image correctness.\n\nTwo straightforward approaches:\n\n* Extend `signatureValidation(...)` to also return the derived `imageHash` (it already computes it in the dynamic branch via `BaseSig.recover(...)`) and return that from `recoverSapientSignature()`.\n* Or directly call `BaseSig.recover(_payload, _signature, false, address(0))` inside `recoverSapientSignature()` and return the `imageHash`.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "Add PoC test into `test/modules/BaseSig.t.sol` (BaseSigTest), import `BaseAuth.sol`, Add a helper contract `MinimalSapient`\n```\n\n+ import { BaseAuth } from \"../../src/modules/auth/BaseAuth.sol\";\n```\n\nHelper contract:\n```\n\ncontract MinimalSapient is BaseAuth {\n  function _updateImageHash(bytes32) internal override {}\n  function _isValidImage(bytes32) internal view override returns (bool) { return true; }\n}\n```\n\nPoC test:\n```\n\n  function test_BaseAuth_recoverSapientSignature_ReturnsConstant() external {\n    MinimalSapient sap = new MinimalSapient();\n\n    Payload.Decoded memory payload;\n    // Minimal dynamic signature:\n    // - signatureFlag = 0x00 (no chain id, no checkpoint bytes, 1-byte threshold)\n    // - threshold byte = 0x00 (threshold = 0)\n    // - no branch content -> weight defaults to 0, passes since threshold=0\n    bytes memory innerSig = hex\"0000\";\n\n    bytes32 ret = sap.recoverSapientSignature(payload, innerSig);\n    assertEq(ret, bytes32(uint256(1)));\n  }\n```\n\nBefore running the test, run a server using the following command:\n```\n\ncd ../sequence.js\npnpm build:packages\npnpm dev:server\n```\n\nThen run the test from repo root:\n```\n\nforge test --mt test_BaseAuth_recoverSapientSignature_ReturnsConstant -vvv\n```\n\n* The new helper contract `MinimalSapient` inherits `BaseAuth`, implements `_updateImageHash()` and `_isValidImage()` trivially to allow calls.\n* The PoC test deploys `MinimalSapient`, crafts a minimal valid dynamic base-auth signature with `threshold = 0` and no branch content so it passes `signatureValidation()`, then calls `recoverSapientSignature(...)`.\n* Asserts that the function returns `bytes32(uint256(1))`, demonstrating the incorrect constant return instead of a real image hash.\n\n**Test result:** Test passes, confirming the function returns a constant rather than a true image hash.\n\n---",
+    "poc_code_blocks": [
+      "+ import { BaseAuth } from \"../../src/modules/auth/BaseAuth.sol\";",
+      "contract MinimalSapient is BaseAuth {\n  function _updateImageHash(bytes32) internal override {}\n  function _isValidImage(bytes32) internal view override returns (bool) { return true; }\n}",
+      "function test_BaseAuth_recoverSapientSignature_ReturnsConstant() external {\n    MinimalSapient sap = new MinimalSapient();\n\n    Payload.Decoded memory payload;\n    // Minimal dynamic signature:\n    // - signatureFlag = 0x00 (no chain id, no checkpoint bytes, 1-byte threshold)\n    // - threshold byte = 0x00 (threshold = 0)\n    // - no branch content -> weight defaults to 0, passes since threshold=0\n    bytes memory innerSig = hex\"0000\";\n\n    bytes32 ret = sap.recoverSapientSignature(payload, innerSig);\n    assertEq(ret, bytes32(uint256(1)));\n  }",
+      "cd ../sequence.js\npnpm build:packages\npnpm dev:server",
+      "forge test --mt test_BaseAuth_recoverSapientSignature_ReturnsConstant -vvv"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "recoverSapientSignature",
+        "start_line": 120,
+        "end_line": 140,
+        "code": "  function recoverSapientSignature(\n    Payload.Decoded memory _payload,\n    bytes calldata _signature\n  ) external view returns (bytes32) {\n    // Copy parent wallets + add caller at the end\n    address[] memory parentWallets = new address[](_payload.parentWallets.length + 1);\n\n    for (uint256 i = 0; i < _payload.parentWallets.length; i++) {\n      parentWallets[i] = _payload.parentWallets[i];\n    }\n\n    parentWallets[_payload.parentWallets.length] = msg.sender;\n    _payload.parentWallets = parentWallets;\n\n    (bool isValid,) = signatureValidation(_payload, _signature);\n    if (!isValid) {\n      revert InvalidSapientSignature(_payload, _signature);\n    }\n\n    return bytes32(uint256(1));\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            120,
+            140
+          ],
+          [
+            120,
+            140
+          ]
+        ]
+      },
+      {
+        "code": "// SPDX-License-Identifier: Apache-2.0\npragma solidity ^0.8.27;\n\nimport { Payload } from \"../Payload.sol\";\n\nimport { Storage } from \"../Storage.sol\";\nimport { IAuth } from \"../interfaces/IAuth.sol\";\nimport { IERC1271, IERC1271_MAGIC_VALUE_HASH } from \"../interfaces/IERC1271.sol\";\n\nimport { IPartialAuth } from \"../interfaces/IPartialAuth.sol\";\nimport { ISapient } from \"../interfaces/ISapient.sol\";\nimport { BaseSig } from \"./BaseSig.sol\";\n\nimport { SelfAuth } from \"./SelfAuth.sol\";\n\nusing Payload for Payload.Decoded;\n\n/// @title BaseAuth\n/// @author Agustin Aguilar, Michael Standen\n/// @notice Base contract for the auth module\nabstract contract BaseAuth is IAuth, IPartialAuth, ISapient, IERC1271, SelfAuth {\n\n  /// @dev keccak256(\"org.sequence.module.auth.static\")\n  bytes32 private constant STATIC_SIGNATURE_KEY =\n    bytes32(0xc852adf5e97c2fc3b38f405671e91b7af1697ef0287577f227ef10494c2a8e86);\n\n  /// @notice Error thrown when the sapient signature is invalid\n  error InvalidSapientSignature(Payload.Decoded _payload, bytes _signature);\n  /// @notice Error thrown when the signature weight is invalid\n  error InvalidSignatureWeight(uint256 _threshold, uint256 _weight);\n  /// @notice Error thrown when the static signature has expired\n  error InvalidStaticSignatureExpired(bytes32 _opHash, uint256 _expires);\n  /// @notice Error thrown when the static signature has the wrong caller\n  error InvalidStaticSignatureWrongCaller(bytes32 _opHash, address _caller, address _expectedCaller);\n\n  /// @notice Event emitted when a static signature is set\n  event StaticSignatureSet(bytes32 _hash, address _address, uint96 _timestamp);\n\n  function _getStaticSignature(\n    bytes32 _hash\n  ) internal view returns (address, uint256) {\n    uint256 word = uint256(Storage.readBytes32Map(STATIC_SIGNATURE_KEY, _hash));\n    return (address(uint160(word >> 96)), uint256(uint96(word)));\n  }\n\n  function _setStaticSignature(bytes32 _hash, address _address, uint256 _timestamp) internal {\n    Storage.writeBytes32Map(\n      STATIC_SIGNATURE_KEY, _hash, bytes32(uint256(uint160(_address)) << 96 | (_timestamp & 0xffffffffffffffffffffffff))\n    );\n  }\n\n  /// @notice Get the static signature for a specific hash\n  /// @param _hash The hash to get the static signature for\n  /// @return address The address associated with the static signature",
+        "start_line": 1,
+        "end_line": 39,
+        "context_start_line": 1,
+        "context_end_line": 54,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "// SPDX-License-Identifier: Apache-2.0\npragma solidity ^0.8.27;\n\nimport { Payload } from \"../Payload.sol\";\n\nimport { Storage } from \"../Storage.sol\";\nimport { IAuth } from \"../interfaces/IAuth.sol\";\nimport { IERC1271, IERC1271_MAGIC_VALUE_HASH } from \"../interfaces/IERC1271.sol\";\n\nimport { IPartialAuth } from \"../interfaces/IPartialAuth.sol\";\nimport { ISapient } from \"../interfaces/ISapient.sol\";\nimport { BaseSig } from \"./BaseSig.sol\";\n\nimport { SelfAuth } from \"./SelfAuth.sol\";\n\nusing Payload for Payload.Decoded;\n\n/// @title BaseAuth\n/// @author Agustin Aguilar, Michael Standen\n/// @notice Base contract for the auth module\nabstract contract BaseAuth is IAuth, IPartialAuth, ISapient, IERC1271, SelfAuth {\n\n  /// @dev keccak256(\"org.sequence.module.auth.static\")\n  bytes32 private constant STATIC_SIGNATURE_KEY =\n    bytes32(0xc852adf5e97c2fc3b38f405671e91b7af1697ef0287577f227ef10494c2a8e86);\n\n  /// @notice Error thrown when the sapient signature is invalid\n  error InvalidSapientSignature(Payload.Decoded _payload, bytes _signature);\n  /// @notice Error thrown when the signature weight is invalid\n  error InvalidSignatureWeight(uint256 _threshold, uint256 _weight);\n  /// @notice Error thrown when the static signature has expired\n  error InvalidStaticSignatureExpired(bytes32 _opHash, uint256 _expires);\n  /// @notice Error thrown when the static signature has the wrong caller\n  error InvalidStaticSignatureWrongCaller(bytes32 _opHash, address _caller, address _expectedCaller);\n\n  /// @notice Event emitted when a static signature is set\n  event StaticSignatureSet(bytes32 _hash, address _address, uint96 _timestamp);\n\n  function _getStaticSignature(\n    bytes32 _hash\n  ) internal view returns (address, uint256) {\n    uint256 word = uint256(Storage.readBytes32Map(STATIC_SIGNATURE_KEY, _hash));\n    return (address(uint160(word >> 96)), uint256(uint96(word)));\n  }\n\n  function _setStaticSignature(bytes32 _hash, address _address, uint256 _timestamp) internal {\n    Storage.writeBytes32Map(\n      STATIC_SIGNATURE_KEY, _hash, bytes32(uint256(uint160(_address)) << 96 | (_timestamp & 0xffffffffffffffffffffffff))\n    );\n  }\n\n  /// @notice Get the static signature for a specific hash\n  /// @param _hash The hash to get the static signature for\n  /// @return address The address associated with the static signature",
+        "start_line": 1,
+        "end_line": 39,
+        "context_start_line": 1,
+        "context_end_line": 54,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:08:06.032922",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue with the function returning a constant value instead of the expected signer image hash.",
+      "content_reasoning": "The content mentions the relevant functions and variables, specifically `recoverSapientSignature()` and `ISapient.recoverSapientSignature()`, which are present in the code.",
+      "functions_found": [
+        "recoverSapientSignature",
+        "signatureValidation"
+      ],
+      "variables_found": [
+        "_payload",
+        "_signature",
+        "parentWallets"
+      ],
+      "patterns_found": [
+        "constant return value",
+        "interface violation"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to reflect the nature of the vulnerability.",
+      "suggested_tag": "interface_violation",
+      "alternative_tags": [
+        "functionality_issue"
+      ],
+      "correction_explanation": "The issue is primarily about a violation of the expected interface contract, which should be captured by a specific tag."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": false,
+      "reasoning": "The MANDO categories do not adequately capture the nature of the issue, which is more about interface compliance and functionality rather than access control or denial of service."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G1"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue relates to the business logic of the contract, specifically the incorrect implementation of a function that violates an interface contract.",
+      "vulnerability_type": "Function returns incorrect value, violating interface contract"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The function now correctly returns the signer image hash by calling the BaseSig.recover method.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "recoverSapientSignature",
+          "fixed_function_code": "function recoverSapientSignature(\n    Payload.Decoded memory _payload,\n    bytes calldata _signature\n  ) external view returns (bytes32) {\n    // Copy parent wallets + add caller at the end\n    address[] memory parentWallets = new address[](_payload.parentWallets.length + 1);\n\n    for (uint256 i = 0; i < _payload.parentWallets.length; i++) {\n      parentWallets[i] = _payload.parentWallets[i];\n    }\n\n    parentWallets[_payload.parentWallets.length] = msg.sender;\n    _payload.parentWallets = parentWallets;\n\n    (bool isValid, bytes32 imageHash) = signatureValidation(_payload, _signature);\n    if (!isValid) {\n      revert InvalidSapientSignature(_payload, _signature);\n    }\n\n    return imageHash; // Return the actual image hash instead of a constant\n  }",
+          "reasoning": "This function now returns the actual signer image hash, ensuring compliance with the ISapient interface and maintaining the integrity of the signature verification process."
+        }
+      ],
+      "key_changes": [
+        "Replaced the constant return value with the actual image hash derived from the signature validation.",
+        "Ensured that the function signature remains compatible with the ISapient interface."
+      ],
+      "security_improvements": [
+        "Improved compliance with the interface contract, reducing the risk of unexpected behavior in dependent contracts.",
+        "Enhanced the overall integrity of the signature verification process."
+      ],
+      "additional_recommendations": "Consider adding more comprehensive tests to cover edge cases in signature validation and ensure that the image hash is correctly derived in all scenarios.",
+      "confidence": 90,
+      "fix_code": "function recoverSapientSignature(\n    Payload.Decoded memory _payload,\n    bytes calldata _signature\n  ) external view returns (bytes32) {\n    // Copy parent wallets + add caller at the end\n    address[] memory parentWallets = new address[](_payload.parentWallets.length + 1);\n\n    for (uint256 i = 0; i < _payload.parentWallets.length; i++) {\n      parentWallets[i] = _payload.parentWallets[i];\n    }\n\n    parentWallets[_payload.parentWallets.length] = msg.sender;\n    _payload.parentWallets = parentWallets;\n\n    (bool isValid, bytes32 imageHash) = signatureValidation(_payload, _signature);\n    if (!isValid) {\n      revert InvalidSapientSignature(_payload, _signature);\n    }\n\n    return imageHash; // Return the actual image hash instead of a constant\n  }",
+      "expected_fixed_blocks": 3,
+      "returned_fixed_blocks": 1,
+      "block_count_match": false,
+      "generated_by": "openai",
+      "generation_date": "2026-04-25T16:12:53.122897"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-25T16:12:53.122920",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

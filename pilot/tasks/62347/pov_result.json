@@ -1,0 +1,47 @@
+{
+  "id": "62347",
+  "protocol": "Licredity",
+  "firm": "Cyfrin",
+  "finding": "Proxy-based self-liquidation creates bad debt for lenders (Cyfrin C-1 / 7.1.1)",
+  "pov_test": "test/PoV62347_Licredity.t.sol::test_seize_ownPosition_using_external_contract",
+  "pov_source": "data_collection/tier1_after_2025-08-31/62347.md (published Cyfrin PoC, adapted verbatim)",
+  "vulnerability_kind": "missing_code",
+  "vulnerability_note": "The fix ADDS a guard (Locker.isRegistered -> CannotSeizeRegisteredPosition). The bug is the absence of that guard, so it predates the blame-designated VIC.",
+  "commits": {
+    "vic_blame": "3f679078d3161e692edfa6b038fbb0029ef3ea1d",
+    "pvic": "e29d07eaf22bd9782b0d54ed43431047ba60ca9d",
+    "audited_snapshot": "e8ae10a7d9f27529e39ca277bf56cef01a807817",
+    "fix": "0e0d5132afc50618f7b8de4fc62993eb6f9ded1b",
+    "fix_reported_as": "e9490bb3f82fdd829288a76af5d421c10570e6ba (PR#57 branch head, squash-merged; not present in main history)"
+  },
+  "runs": [
+    {
+      "commit": "e8ae10a",
+      "role": "audited vulnerable snapshot",
+      "expected": "PASS",
+      "observed": "PASS",
+      "detail": "self-liquidation succeeds, no revert"
+    },
+    {
+      "commit": "e29d07e",
+      "role": "parent of VIC (PVIC)",
+      "expected": "compile + FAIL (per IDEA.md)",
+      "observed": "PASS",
+      "detail": "parent is ALSO vulnerable; guard never existed before the fix"
+    },
+    {
+      "commit": "0e0d513",
+      "role": "fix (Cyfrin C-1)",
+      "expected": "FAIL",
+      "observed": "FAIL",
+      "detail": "reverts CannotSeizeRegisteredPosition()"
+    }
+  ],
+  "oracle_valid": true,
+  "oracle_basis": "Differential holds: PASS on vulnerable code, FAIL on the fix. This proves the PoV is a real oracle and not trivially always-passing.",
+  "parent_check": "NOT satisfied and not applicable for this finding type. See process_log.md 'Challenge: missing-check vulnerabilities'.",
+  "sandbox": "Docker image solvibe-tools:1, network off (pilot/scripts/dock.sh), local audited code only",
+  "solc": "0.8.30",
+  "deps": "soldeer: forge-std 1.9.7, uniswap-v4-core 4 (identical across the three commits; copied offline)",
+  "parent_status": "has the bug (checked: attack passes on the parent)"
+}

@@ -1,0 +1,151 @@
+{
+  "id": "65033",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-12-panoptic/blob/fe557748210a529ae414d7c487b6514be0d9e220/contracts/PanopticPool.sol# L1388-L1389",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      1388,
+      1389
+    ],
+    [
+      76,
+      76
+    ]
+  ],
+  "filename": "65033_PanopticPool.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 2156,
+  "vulnerability_title": "[M-06] `dispatchFrom()` liveness DoS via `StaleOracle`: spot price manipulation blocks liquidations, force exercises, and premium settlements",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "The `StaleOracle` gate exists to prevent liquidation paths from executing at a potentially manipulated spot price. Removing it outright reintroduces price-manipulation attacks against liquidation pricing and accounting. Consider the following alternatives:\n\n1. **Two-step liquidation (Mark and Execute)**\n\n   * Mark insolvency using TWAP/median-based criteria without reverting on divergence.\n   * Execute liquidation after a delay or once oracle state catches up.\n2. **Degraded mode: Proceed using oracle ticks only**\n\n   * If `abs(currentTick - twapTick) > threshold`, proceed but substitute `currentTick` with `twapTick` (or `medianTick`/`latestTick`) for all liquidation/settlement pricing inputs.\n3. **Rate-limited/Governance-guarded bypass**\n\n   * Allow a privileged actor (or tightly scoped guardian role) to bypass the gate for emergency liquidation of specific accounts/pools.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "PoC demonstrates end-to-end that:\n\n1. A valid liquidation **succeeds** when spot price is within the `tickDeltaLiquidation` threshold.\n2. The **same valid liquidation reverts** with `Errors.StaleOracle` when spot is moved out-of-range.\n3. Force exercise and premium settlement are similarly blocked when out-of-range.\n\n**Test Coverage**\n\n| Test | What it proves |\n| --- | --- |\n| `test_PoC_LiquidationExecutes_WhenInsolvent_AndPriceInRange` | Valid liquidation executes when `abs(currentTick - twapTick) <= tickDeltaLiquidation` |\n| `test_PoC_LiquidationDoS_BlocksValidLiquidation_WhenPriceOutOfRange` | Same valid liquidation reverts with `Errors.StaleOracle` when spot is out-of-range |\n| `test_PoC_ForceExerciseExecutes_WhenPriceInRange` | Valid force exercise executes in-range (emits `ForcedExercised`) |\n| `test_PoC_ForceExerciseDoS_BlocksValidForceExercise_WhenPriceOutOfRange` | Force exercise blocked by `Errors.StaleOracle` when out-of-range |\n| `test_PoC_PremiumSettlementExecutes_WhenPriceInRange` | Premium settlement executes in-range (emits `PremiumSettled`) |\n| `test_PoC_PremiumSettlementDoS_BlocksValidSettlement_WhenPriceOutOfRange` | Settlement blocked by `Errors.StaleOracle` when out-of-range |\n| `test_PoC_StaleOracleBoundary_StrictGreaterThan_WhenReachable` | Gate is strict `>` (not `>=`) at exact boundary |",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "dispatchFrom",
+        "start_line": 1360,
+        "end_line": 1476,
+        "code": "    function dispatchFrom(\n        TokenId[] calldata positionIdListFrom,\n        address account,\n        TokenId[] calldata positionIdListTo,\n        TokenId[] calldata positionIdListToFinal,\n        LeftRightUnsigned usePremiaAsCollateral\n    ) external payable {\n        // Assert the account we are liquidating is actually insolvent\n        int24 twapTick = getTWAP();\n        int24 currentTick = getCurrentTick();\n\n        TokenId tokenId;\n\n        uint256 solvent;\n        uint256 numberOfTicks;\n        {\n            _validatePositionList(account, positionIdListTo);\n\n            // Enforce maximum delta between TWAP and currentTick to prevent extreme price manipulation\n            int24 spotTick;\n            int24 latestTick;\n            (spotTick, , latestTick, ) = riskEngine().getOracleTicks(currentTick, s_oraclePack);\n\n            unchecked {\n                (RiskParameters riskParameters, ) = getRiskParameters(0);\n                int256 MAX_TWAP_DELTA_LIQUIDATION = int256(\n                    uint256(riskParameters.tickDeltaLiquidation())\n                );\n                if (Math.abs(currentTick - twapTick) > MAX_TWAP_DELTA_LIQUIDATION)\n                    revert Errors.StaleOracle();\n            }\n\n            // Ensure the account is insolvent at twapTick (in place of medianTick), currentTick, spotTick, and latestTick\n            int24[] memory atTicks = new int24[](4);\n            atTicks[0] = spotTick;\n            atTicks[1] = twapTick;\n            atTicks[2] = latestTick;\n            atTicks[3] = currentTick;\n\n            solvent = _checkSolvencyAtTicks(\n                account,\n                0,\n                positionIdListTo,\n                currentTick,\n                atTicks,\n                COMPUTE_PREMIA_AS_COLLATERAL,\n                NO_BUFFER\n            );\n            numberOfTicks = atTicks.length;\n        }\n        {\n            uint256 toLength = positionIdListTo.length;\n            uint256 finalLength = positionIdListToFinal.length;\n            // if account is solvent at all ticks, this is a force exercise or a settlePremium.\n            if (solvent == numberOfTicks) {\n                unchecked {\n                    tokenId = positionIdListTo[toLength - 1];\n                    if (toLength == finalLength) {\n                        // same length, that's a settle\n                        {\n                            bytes32 toHash = EfficientHash.efficientKeccak256(\n                                abi.encodePacked(positionIdListTo)\n                            );\n                            bytes32 finalHash = EfficientHash.efficientKeccak256(\n                                abi.encodePacked(positionIdListToFinal)\n                            );\n                            if (toHash != finalHash) {\n                                revert Errors.InputListFail();\n                            }\n                        }\n                        _settlePremium(account, tokenId, twapTick, currentTick);\n                    } else if (toLength == (finalLength + 1)) {\n                        // final is one element shorter, that's a force exercise\n                        if (tokenId.countLongs() == 0 || tokenId.validateIsExercisable() == 0)\n                            revert Errors.NoLegsExercisable();\n                        _forceExercise(account, tokenId, twapTick, currentTick);\n                    } else if (finalLength == 0) {\n                        // if final length was zero, this was intended to be liquidation, but revert because not margin called and solvent at some of the tested ticks\n                        revert Errors.NotMarginCalled();\n                    } else {\n                        // otherwise, wrong input lists\n                        revert Errors.InputListFail();\n                    }\n                    // ensure the callee is still solvent after the operation\n                    bool premiaAsCollateral = usePremiaAsCollateral.rightSlot() > 0;\n                    _validateSolvency(\n                        account,\n                        positionIdListToFinal,\n                        NO_BUFFER,\n                        premiaAsCollateral,\n                        0\n                    );\n                }\n            } else if (solvent == 0) {\n                // if account is insolvent at all ticks, this is a liquidation\n\n                // if the positions lengths are the same, this was intended as a settlePremia, but revert because account is insolvent\n                if (toLength == finalLength) revert Errors.AccountInsolvent(solvent, 4);\n\n                if (positionIdListToFinal.length != 0) revert Errors.InputListFail();\n                // if the final position list has a non-zero length, this can't be a complete liquidation, revert\n                _liquidate(account, positionIdListTo, twapTick, currentTick);\n            } else {\n                // otherwise, revert because the account is not fully margin called\n                revert Errors.NotMarginCalled();\n            }\n        }\n\n        // ensure the caller is still solvent after the operation\n        _validateSolvency(\n            msg.sender,\n            positionIdListFrom,\n            NO_BUFFER,\n            usePremiaAsCollateral.leftSlot() > 0,\n            0\n        );\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1388,
+            1389
+          ]
+        ]
+      },
+      {
+        "code": "    event PremiumSettled(\n        address indexed user,\n        TokenId indexed tokenId,\n        uint256 legIndex,\n        LeftRightSigned settledAmounts\n    );\n\n    /// @notice Emitted when an option is burned.\n    /// @param recipient User that burnt the option\n    /// @param positionSize The number of contracts burnt, expressed in terms of the asset\n    /// @param tokenId TokenId of the burnt option\n    /// @param premiaByLeg LeftRight packing for the amount of premia settled for token0 (right) and token1 (left) for each leg of `tokenId`\n    event OptionBurnt(\n        address indexed recipient,\n        uint128 positionSize,\n        TokenId indexed tokenId,\n        LeftRightSigned[4] premiaByLeg\n    );\n\n    /// @notice Emitted when an option is minted.\n    /// @param recipient User that minted the option\n    /// @param tokenId TokenId of the created option\n    /// @param balanceData The `PositionBalance` data for `tokenId` containing the number of contracts, pool utilizations, and ticks at mint\n    event OptionMinted(\n        address indexed recipient,\n        TokenId indexed tokenId,\n        PositionBalance balanceData\n    );\n\n    /*//////////////////////////////////////////////////////////////\n                         IMMUTABLES & CONSTANTS",
+        "start_line": 76,
+        "end_line": 76,
+        "context_start_line": 61,
+        "context_end_line": 91,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:48.666016",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of the `dispatchFrom()` function reverting due to the `StaleOracle` error when the price deviation exceeds a threshold.",
+      "content_reasoning": "The code snippet includes the `dispatchFrom()` function and the logic that checks the price deviation, which matches the described vulnerability.",
+      "functions_found": [
+        "dispatchFrom"
+      ],
+      "variables_found": [
+        "twapTick",
+        "currentTick",
+        "MAX_TWAP_DELTA_LIQUIDATION"
+      ],
+      "patterns_found": [
+        "unconditional revert on price deviation"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged for better categorization and searchability.",
+      "suggested_tag": "denial_of_service",
+      "alternative_tags": [
+        "economic_exploitation"
+      ],
+      "correction_explanation": "The issue primarily relates to a denial of service due to the function reverting under certain conditions, which aligns with the denial_of_service tag."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [],
+      "confidence": 95,
+      "mando_applicable": true,
+      "reasoning": "The issue is a classic denial of service as it prevents the execution of critical operations like liquidations and settlements due to the price deviation check."
+    },
+    "scsvs_classification": {
+      "primary_category": "C3",
+      "primary_category_name": "Oracle",
+      "secondary_categories": [
+        "G8",
+        "C8"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability involves oracle data (price deviation) leading to a denial of service, which fits well under the Oracle category. Additionally, it impacts liquidity pool operations, hence the secondary category.",
+      "vulnerability_type": "Oracle manipulation leading to denial of service"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Implement a degraded mode where the function proceeds using oracle ticks only when the current tick deviates significantly from the TWAP, preventing denial of service while maintaining security against price manipulation.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "dispatchFrom",
+          "fixed_function_code": "function dispatchFrom(\n        TokenId[] calldata positionIdListFrom,\n        address account,\n        TokenId[] calldata positionIdListTo,\n        TokenId[] calldata positionIdListToFinal,\n        LeftRightUnsigned usePremiaAsCollateral\n    ) external payable {\n        // Assert the account we are liquidating is actually insolvent\n        int24 twapTick = getTWAP();\n        int24 currentTick = getCurrentTick();\n\n        TokenId tokenId;\n\n        uint256 solvent;\n        uint256 numberOfTicks;\n        {\n            _validatePositionList(account, positionIdListTo);\n\n            // Enforce maximum delta between TWAP and currentTick to prevent extreme price manipulation\n            int24 spotTick;\n            int24 latestTick;\n            (spotTick, , latestTick, ) = riskEngine().getOracleTicks(currentTick, s_oraclePack);\n\n            unchecked {\n                (RiskParameters riskParameters, ) = getRiskParameters(0);\n                int256 MAX_TWAP_DELTA_LIQUIDATION = int256(\n                    uint256(riskParameters.tickDeltaLiquidation())\n                );\n                if (Math.abs(currentTick - twapTick) > MAX_TWAP_DELTA_LIQUIDATION) {\n                    // Use twapTick instead of currentTick if deviation is too high\n                    currentTick = twapTick;\n                }\n            }\n\n            // Ensure the account is insolvent at twapTick (in place of medianTick), currentTick, spotTick, and latestTick\n            int24[] memory atTicks = new int24[](4);\n            atTicks[0] = spotTick;\n            atTicks[1] = twapTick;\n            atTicks[2] = latestTick;\n            atTicks[3] = currentTick;\n\n            solvent = _checkSolvencyAtTicks(\n                account,\n                0,\n                positionIdListTo,\n                currentTick,\n                atTicks,\n                COMPUTE_PREMIA_AS_COLLATERAL,\n                NO_BUFFER\n            );\n            numberOfTicks = atTicks.length;\n        }\n        {\n            uint256 toLength = positionIdListTo.length;\n            uint256 finalLength = positionIdListToFinal.length;\n            // if account is solvent at all ticks, this is a force exercise or a settlePremium.\n            if (solvent == numberOfTicks) {\n                unchecked {\n                    tokenId = positionIdListTo[toLength - 1];\n                    if (toLength == finalLength) {\n                        // same length, that's a settle\n                        {\n                            bytes32 toHash = EfficientHash.efficientKeccak256(\n                                abi.encodePacked(positionIdListTo)\n                            );\n                            bytes32 finalHash = EfficientHash.efficientKeccak256(\n                                abi.encodePacked(positionIdListToFinal)\n                            );\n                            if (toHash != finalHash) {\n                                revert Errors.InputListFail();\n                            }\n                        }\n                        _settlePremium(account, tokenId, twapTick, currentTick);\n                    } else if (toLength == (finalLength + 1)) {\n                        // final is one element shorter, that's a force exercise\n                        if (tokenId.countLongs() == 0 || tokenId.validateIsExercisable() == 0)\n                            revert Errors.NoLegsExercisable();\n                        _forceExercise(account, tokenId, twapTick, currentTick);\n                    } else if (finalLength == 0) {\n                        // if final length was zero, this was intended to be liquidation, but revert because not margin called and solvent at some of the tested ticks\n                        revert Errors.NotMarginCalled();\n                    } else {\n                        // otherwise, wrong input lists\n                        revert Errors.InputListFail();\n                    }\n                    // ensure the callee is still solvent after the operation\n                    bool premiaAsCollateral = usePremiaAsCollateral.rightSlot() > 0;\n                    _validateSolvency(\n                        account,\n                        positionIdListToFinal,\n                        NO_BUFFER,\n                        premiaAsCollateral,\n                        0\n                    );\n                }\n            } else if (solvent == 0) {\n                // if account is insolvent at all ticks, this is a liquidation\n\n                // if the positions lengths are the same, this was intended as a settlePremia, but revert because account is insolvent\n                if (toLength == finalLength) revert Errors.AccountInsolvent(solvent, 4);\n\n                if (positionIdListToFinal.length != 0) revert Errors.InputListFail();\n                // if the final position list has a non-zero length, this can't be a complete liquidation, revert\n                _liquidate(account, positionIdListTo, twapTick, currentTick);\n            } else {\n                // otherwise, revert because the account is not fully margin called\n                revert Errors.NotMarginCalled();\n            }\n        }\n\n        // ensure the caller is still solvent after the operation\n        _validateSolvency(\n            msg.sender,\n            positionIdListFrom,\n            NO_BUFFER,\n            usePremiaAsCollateral.leftSlot() > 0,\n            0\n        );\n    }",
+          "reasoning": "The fix allows the function to proceed using the TWAP tick when the current tick deviates significantly, thus preventing denial of service while maintaining security against price manipulation. This ensures that operations can continue even when the spot price is manipulated, without compromising the integrity of the liquidation process."
+        }
+      ],
+      "key_changes": [
+        "Implemented a degraded mode using TWAP when current tick deviates significantly.",
+        "Removed unconditional reversion on stale oracle condition.",
+        "Ensured operations can proceed securely even under potential price manipulation."
+      ],
+      "security_improvements": [
+        "Prevents denial of service by allowing operations to continue under manipulated conditions.",
+        "Maintains security against price manipulation by using a more stable price reference.",
+        "Improves system resilience and reliability in volatile market conditions."
+      ],
+      "additional_recommendations": "Consider implementing a two-step liquidation process for further robustness, where insolvency is marked first and liquidation is executed after a delay or once oracle state stabilizes.",
+      "confidence": 95,
+      "fix_code": "function dispatchFrom(\n        TokenId[] calldata positionIdListFrom,\n        address account,\n        TokenId[] calldata positionIdListTo,\n        TokenId[] calldata positionIdListToFinal,\n        LeftRightUnsigned usePremiaAsCollateral\n    ) external payable {\n        // Assert the account we are liquidating is actually insolvent\n        int24 twapTick = getTWAP();\n        int24 currentTick = getCurrentTick();\n\n        TokenId tokenId;\n\n        uint256 solvent;\n        uint256 numberOfTicks;\n        {\n            _validatePositionList(account, positionIdListTo);\n\n            // Enforce maximum delta between TWAP and currentTick to prevent extreme price manipulation\n            int24 spotTick;\n            int24 latestTick;\n            (spotTick, , latestTick, ) = riskEngine().getOracleTicks(currentTick, s_oraclePack);\n\n            unchecked {\n                (RiskParameters riskParameters, ) = getRiskParameters(0);\n                int256 MAX_TWAP_DELTA_LIQUIDATION = int256(\n                    uint256(riskParameters.tickDeltaLiquidation())\n                );\n                if (Math.abs(currentTick - twapTick) > MAX_TWAP_DELTA_LIQUIDATION) {\n                    // Use twapTick instead of currentTick if deviation is too high\n                    currentTick = twapTick;\n                }\n            }\n\n            // Ensure the account is insolvent at twapTick (in place of medianTick), currentTick, spotTick, and latestTick\n            int24[] memory atTicks = new int24[](4);\n            atTicks[0] = spotTick;\n            atTicks[1] = twapTick;\n            atTicks[2] = latestTick;\n            atTicks[3] = currentTick;\n\n            solvent = _checkSolvencyAtTicks(\n                account,\n                0,\n                positionIdListTo,\n                currentTick,\n                atTicks,\n                COMPUTE_PREMIA_AS_COLLATERAL,\n                NO_BUFFER\n            );\n            numberOfTicks = atTicks.length;\n        }\n        {\n            uint256 toLength = positionIdListTo.length;\n            uint256 finalLength = positionIdListToFinal.length;\n            // if account is solvent at all ticks, this is a force exercise or a settlePremium.\n            if (solvent == numberOfTicks) {\n                unchecked {\n                    tokenId = positionIdListTo[toLength - 1];\n                    if (toLength == finalLength) {\n                        // same length, that's a settle\n                        {\n                            bytes32 toHash = EfficientHash.efficientKeccak256(\n                                abi.encodePacked(positionIdListTo)\n                            );\n                            bytes32 finalHash = EfficientHash.efficientKeccak256(\n                                abi.encodePacked(positionIdListToFinal)\n                            );\n                            if (toHash != finalHash) {\n                                revert Errors.InputListFail();\n                            }\n                        }\n                        _settlePremium(account, tokenId, twapTick, currentTick);\n                    } else if (toLength == (finalLength + 1)) {\n                        // final is one element shorter, that's a force exercise\n                        if (tokenId.countLongs() == 0 || tokenId.validateIsExercisable() == 0)\n                            revert Errors.NoLegsExercisable();\n                        _forceExercise(account, tokenId, twapTick, currentTick);\n                    } else if (finalLength == 0) {\n                        // if final length was zero, this was intended to be liquidation, but revert because not margin called and solvent at some of the tested ticks\n                        revert Errors.NotMarginCalled();\n                    } else {\n                        // otherwise, wrong input lists\n                        revert Errors.InputListFail();\n                    }\n                    // ensure the callee is still solvent after the operation\n                    bool premiaAsCollateral = usePremiaAsCollateral.rightSlot() > 0;\n                    _validateSolvency(\n                        account,\n                        positionIdListToFinal,\n                        NO_BUFFER,\n                        premiaAsCollateral,\n                        0\n                    );\n                }\n            } else if (solvent == 0) {\n                // if account is insolvent at all ticks, this is a liquidation\n\n                // if the positions lengths are the same, this was intended as a settlePremia, but revert because account is insolvent\n                if (toLength == finalLength) revert Errors.AccountInsolvent(solvent, 4);\n\n                if (positionIdListToFinal.length != 0) revert Errors.InputListFail();\n                // if the final position list has a non-zero length, this can't be a complete liquidation, revert\n                _liquidate(account, positionIdListTo, twapTick, currentTick);\n            } else {\n                // otherwise, revert because the account is not fully margin called\n                revert Errors.NotMarginCalled();\n            }\n        }\n\n        // ensure the caller is still solvent after the operation\n        _validateSolvency(\n            msg.sender,\n            positionIdListFrom,\n            NO_BUFFER,\n            usePremiaAsCollateral.leftSlot() > 0,\n            0\n        );\n    }",
+      "expected_fixed_blocks": 2,
+      "returned_fixed_blocks": 1,
+      "block_count_match": false,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:25:34.243674"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:25:34.243696",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

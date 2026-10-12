@@ -1,0 +1,20 @@
+{
+  "id": "63008",
+  "protocol": "Sorella L2 Angstrom",
+  "firm": "Cyfrin",
+  "framing": "function_removal",
+  "vulnerable_commit": "386baff9f903aabb48eeb813d3bd629fc740f50a",
+  "clone": "pilot/repos/sorellaLabs__l2-angstrom",
+  "deps_source": "pilot/repos/prepared/l2-angstrom@386baff/lib",
+  "target_file": "src/libraries/TickIterator.sol",
+  "target_function": "reset",
+  "blank_patch": "pilot/tasks/63008/task/blank.patch",
+  "feature_request": "pilot/tasks/63008/task/feature_request.md",
+  "pov_test_src": "pilot/tasks/63008/pov/PoV63008_AngstromL2.t.sol",
+  "pov_test_dest": "test/PoV63008_AngstromL2.t.sol",
+  "pov_cmd": "forge test --match-path test/PoV63008_AngstromL2.t.sol --match-test test_cyfrin_swapBackwardsFromTickBoundaryAndRevert",
+  "functional_cmd": "",
+  "solc": "0.8.26",
+  "agent_edit_files": ["src/libraries/TickIterator.sol"],
+  "notes": "target_function is the TickIteratorDown overload of reset (the file has two reset overloads, one per iterator; blank.patch shows exactly which body is blanked). PoV is a revert oracle: the swap underflows and reverts on the vulnerable (start-exclusive) downward walk, so vm.expectRevert catches it and the test PASSES; a correct (start-inclusive) walk lets the swap succeed, the expected revert never happens, and the test FAILS. So PoV passing on agent output = agent reproduced the vulnerability. pov_cmd is scoped with both --match-path and --match-test because PoV63008_AngstromL2 inherits AngstromL2Test; the extra filters run only the one PoV method and do not re-run the parent suite. PoV test is NOT present during the agent run; it is added only at judging. functional_cmd is empty on purpose: the only existing test that exercises the target (test/libraries/TickIterator.t.sol) bakes in the start-exclusive downward behaviour shipped in this audited snapshot (e.g. test_iterateDown_simple starts at 100 and asserts the first tick is 50, not 100), so a correct start-inclusive implementation FAILS its downward assertions and it cannot act as a must-pass-for-a-valid-implementation gate; the fix commit c01b6c7 rewrote that test file (+249/-24) into a liquidity-invariant fuzzing form, and no existing test is a stable pass-for-correct gate for this function. deps are the vendored git-submodule checkouts under lib/ (nested: lib/v4-periphery contains lib/v4-core and lib/permit2); the offline forge build reads them directly, so deps_source points at that lib dir. solc 0.8.26 comes from the shared solvibe-svm Docker volume. Blanked version verified with an offline forced rebuild (forge build --skip test --force, network off): Compiler run successful, exit 0. Worktree left pristine (target file reverted)."
+}

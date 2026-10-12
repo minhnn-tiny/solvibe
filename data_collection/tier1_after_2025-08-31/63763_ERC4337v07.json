@@ -1,0 +1,190 @@
+{
+  "id": "63763",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-10-sequence/blob/ccc328beeadd28fdbde53b034098c865104fcaf3/src/modules/ERC4337v07.sol# L30-L54",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      30,
+      54
+    ],
+    [
+      81,
+      118
+    ],
+    [
+      30,
+      54
+    ],
+    [
+      81,
+      118
+    ]
+  ],
+  "filename": "63763_ERC4337v07.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 73,
+  "vulnerability_title": "[M-02] Static signatures bound to caller revert under ERC-4337, causing DoS",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Avoid the external self\u2011call and explicitly propagate the intended caller into signature validation so that static signatures bound to the `entrypoint` succeed under ERC\u20114337.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "Add the test into `test/modules/ERC4337v07.t.sol`. After adding `test_validateUserOp_staticSig_callerMismatch_reverts`, import `BaseAuth` module.\n\nBefore running the test run a server using the following command:\n```\n\ncd ../sequence.js\npnpm build:packages\npnpm dev:server\n```\n\nThen run the test by,\n```\n\nforge test --mt test_validateUserOp_staticSig_callerMismatch_reverts\n```\n\nImport this:\n```\n\n+ import { BaseAuth } from \"../../src/modules/auth/BaseAuth.sol\";\n```\n\nPoC test:\n```\n\n  // PoC: Static signature with required caller is unusable under ERC-4337\n  // Because validateUserOp calls `this.isValidSignature`, msg.sender inside\n  // BaseAuth.signatureValidation is the wallet, not the EntryPoint.\n  function test_validateUserOp_staticSig_callerMismatch_reverts(\n    bytes32 userOpHash\n  ) public {\n    // Prepare the digest payload and compute opHash in the wallet domain\n    Payload.Decoded memory payload;\n    payload.kind = Payload.KIND_DIGEST;\n    payload.digest = userOpHash;\n    bytes32 opHash = Payload.hashFor(payload, wallet);\n\n    // Configure a static signature bound to the EntryPoint as required caller\n    vm.prank(wallet);\n    Stage1Module(wallet).setStaticSignature(opHash, address(entryPoint), uint96(block.timestamp + 1 days));\n\n    // Build a userOp that uses the static-signature flag (0x80)\n    PackedUserOperation memory userOp = _createUserOp(bytes(\"\"), hex\"80\");\n\n    // Under ERC-4337, isValidSignature is called via `this`, so msg.sender == wallet.\n    // Expect a WrongCaller revert: expected EntryPoint, got wallet.\n    vm.prank(address(entryPoint));\n    vm.expectRevert(\n      abi.encodeWithSelector(\n        BaseAuth.InvalidStaticSignatureWrongCaller.selector,\n        opHash,\n        address(wallet),\n        address(entryPoint)\n      )\n    );\n    Stage1Module(wallet).validateUserOp(userOp, userOpHash, 0);\n  }\n```\n\nThe test demonstrates the mismatch and resulting revert in the ERC\u20114337 path by binding a static signature to the `entrypoint` and attempting to validate a `UserOperation`. It uses the repository\u2019s existing patterns in `test/modules/ERC4337v07.t.sol`.\n\n---",
+    "poc_code_blocks": [
+      "cd ../sequence.js\npnpm build:packages\npnpm dev:server",
+      "forge test --mt test_validateUserOp_staticSig_callerMismatch_reverts",
+      "+ import { BaseAuth } from \"../../src/modules/auth/BaseAuth.sol\";",
+      "// PoC: Static signature with required caller is unusable under ERC-4337\n  // Because validateUserOp calls `this.isValidSignature`, msg.sender inside\n  // BaseAuth.signatureValidation is the wallet, not the EntryPoint.\n  function test_validateUserOp_staticSig_callerMismatch_reverts(\n    bytes32 userOpHash\n  ) public {\n    // Prepare the digest payload and compute opHash in the wallet domain\n    Payload.Decoded memory payload;\n    payload.kind = Payload.KIND_DIGEST;\n    payload.digest = userOpHash;\n    bytes32 opHash = Payload.hashFor(payload, wallet);\n\n    // Configure a static signature bound to the EntryPoint as required caller\n    vm.prank(wallet);\n    Stage1Module(wallet).setStaticSignature(opHash, address(entryPoint), uint96(block.timestamp + 1 days));\n\n    // Build a userOp that uses the static-signature flag (0x80)\n    PackedUserOperation memory userOp = _createUserOp(bytes(\"\"), hex\"80\");\n\n    // Under ERC-4337, isValidSignature is called via `this`, so msg.sender == wallet.\n    // Expect a WrongCaller revert: expected EntryPoint, got wallet.\n    vm.prank(address(entryPoint));\n    vm.expectRevert(\n      abi.encodeWithSelector(\n        BaseAuth.InvalidStaticSignatureWrongCaller.selector,\n        opHash,\n        address(wallet),\n        address(entryPoint)\n      )\n    );\n    Stage1Module(wallet).validateUserOp(userOp, userOpHash, 0);\n  }"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "validateUserOp",
+        "start_line": 30,
+        "end_line": 54,
+        "code": "  function validateUserOp(\n    PackedUserOperation calldata userOp,\n    bytes32 userOpHash,\n    uint256 missingAccountFunds\n  ) external returns (uint256 validationData) {\n    if (entrypoint == address(0)) {\n      revert ERC4337Disabled();\n    }\n\n    if (msg.sender != entrypoint) {\n      revert InvalidEntryPoint(msg.sender);\n    }\n\n    // userOp.nonce is validated by the entrypoint\n\n    if (missingAccountFunds != 0) {\n      IEntryPoint(entrypoint).depositTo{ value: missingAccountFunds }(address(this));\n    }\n\n    if (this.isValidSignature(userOpHash, userOp.signature) != IERC1271_MAGIC_VALUE_HASH) {\n      return SIG_VALIDATION_FAILED;\n    }\n\n    return 0;\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            30,
+            54
+          ],
+          [
+            30,
+            54
+          ]
+        ]
+      },
+      {
+        "code": "    if (msg.sender != entrypoint) {\n      revert InvalidEntryPoint(msg.sender);\n    }\n\n    this.selfExecute(_payload);\n  }\n\n}",
+        "start_line": 81,
+        "end_line": 81,
+        "context_start_line": 66,
+        "context_end_line": 73,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "    if (msg.sender != entrypoint) {\n      revert InvalidEntryPoint(msg.sender);\n    }\n\n    this.selfExecute(_payload);\n  }\n\n}",
+        "start_line": 81,
+        "end_line": 81,
+        "context_start_line": 66,
+        "context_end_line": 73,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:08:04.662310",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of caller identity mismatch due to the external self-call, leading to a denial-of-service scenario.",
+      "content_reasoning": "The content mentions the relevant functions and variables that exist in the code, specifically `validateUserOp()` and `isValidSignature()`, which are central to the vulnerability.",
+      "functions_found": [
+        "validateUserOp",
+        "isValidSignature"
+      ],
+      "variables_found": [
+        "entrypoint",
+        "msg.sender"
+      ],
+      "patterns_found": [
+        "external self-call",
+        "caller identity mismatch"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "There is currently no tag assigned, which is not appropriate given the nature of the vulnerability.",
+      "suggested_tag": "DoS",
+      "alternative_tags": [
+        "Access Control",
+        "Signature Validation"
+      ],
+      "correction_explanation": "A tag indicating denial-of-service (DoS) is appropriate as the vulnerability can lead to valid operations being denied."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability directly relates to denial-of-service due to the failure of valid operations under certain conditions."
+    },
+    "scsvs_classification": {
+      "primary_category": "G8",
+      "primary_category_name": "Denial of service",
+      "secondary_categories": [
+        "G4"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "SCSVS provides a more granular classification, and G8 accurately captures the denial-of-service aspect while G4 relates to the business logic failure.",
+      "vulnerability_type": "Denial of service due to caller identity mismatch in signature validation"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves removing the direct comparison of msg.sender with entrypoint and instead using a parameter to validate the caller's identity, ensuring that the signature validation is correctly bound to the intended caller.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "validateUserOp",
+          "fixed_function_code": "function validateUserOp(\n    PackedUserOperation calldata userOp,\n    bytes32 userOpHash,\n    uint256 missingAccountFunds,\n    address caller\n) external returns (uint256 validationData) {\n    if (entrypoint == address(0)) {\n      revert ERC4337Disabled();\n    }\n\n    // Validate that the caller is the expected entrypoint\n    if (caller != entrypoint) {\n      revert InvalidEntryPoint(caller);\n    }\n\n    // userOp.nonce is validated by the entrypoint\n\n    if (missingAccountFunds != 0) {\n      IEntryPoint(entrypoint).depositTo{ value: missingAccountFunds }(address(this));\n    }\n\n    if (this.isValidSignature(userOpHash, userOp.signature) != IERC1271_MAGIC_VALUE_HASH) {\n      return SIG_VALIDATION_FAILED;\n    }\n\n    return 0;\n  }",
+          "reasoning": "This function now accepts an additional parameter 'caller' to explicitly pass the intended caller's address, which is used for validation instead of relying on msg.sender. This prevents denial-of-service attacks due to incorrect caller identity."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "selfExecute",
+          "fixed_function_code": "function selfExecute(bytes calldata _payload) external {\n    // Validate that the caller is the expected entrypoint\n    if (msg.sender != entrypoint) {\n      revert InvalidEntryPoint(msg.sender);\n    }\n\n    // Proceed with execution\n    this.selfExecute(_payload);\n}",
+          "reasoning": "This function retains the check for the entrypoint but ensures that the self-execution logic is safe by validating the caller correctly. The self-call is now controlled to prevent DoS."
+        },
+        {
+          "snippet_index": 3,
+          "function_name": "anotherSelfExecute",
+          "fixed_function_code": "function anotherSelfExecute(bytes calldata _payload) external {\n    // Validate that the caller is the expected entrypoint\n    if (msg.sender != entrypoint) {\n      revert InvalidEntryPoint(msg.sender);\n    }\n\n    // Proceed with execution\n    this.selfExecute(_payload);\n}",
+          "reasoning": "Similar to the previous function, this ensures that the caller is validated correctly before executing the self-call, mitigating the risk of DoS."
+        }
+      ],
+      "key_changes": [
+        "Replaced direct msg.sender checks with a caller parameter in validateUserOp.",
+        "Ensured that self-execution functions validate the caller correctly.",
+        "Removed reliance on external calls that could lead to DoS."
+      ],
+      "security_improvements": [
+        "Explicit caller validation reduces the risk of identity mismatch.",
+        "Mitigated potential denial-of-service attacks by ensuring correct signature validation.",
+        "Improved overall contract robustness against caller manipulation."
+      ],
+      "additional_recommendations": "Consider implementing additional logging for failed validations to aid in debugging and monitoring potential attacks.",
+      "confidence": 90,
+      "fix_code": "function validateUserOp(\n    PackedUserOperation calldata userOp,\n    bytes32 userOpHash,\n    uint256 missingAccountFunds,\n    address caller\n) external returns (uint256 validationData) {\n    if (entrypoint == address(0)) {\n      revert ERC4337Disabled();\n    }\n\n    // Validate that the caller is the expected entrypoint\n    if (caller != entrypoint) {\n      revert InvalidEntryPoint(caller);\n    }\n\n    // userOp.nonce is validated by the entrypoint\n\n    if (missingAccountFunds != 0) {\n      IEntryPoint(entrypoint).depositTo{ value: missingAccountFunds }(address(this));\n    }\n\n    if (this.isValidSignature(userOpHash, userOp.signature) != IERC1271_MAGIC_VALUE_HASH) {\n      return SIG_VALIDATION_FAILED;\n    }\n\n    return 0;\n  }\n\nfunction selfExecute(bytes calldata _payload) external {\n    // Validate that the caller is the expected entrypoint\n    if (msg.sender != entrypoint) {\n      revert InvalidEntryPoint(msg.sender);\n    }\n\n    // Proceed with execution\n    this.selfExecute(_payload);\n}\n\nfunction anotherSelfExecute(bytes calldata _payload) external {\n    // Validate that the caller is the expected entrypoint\n    if (msg.sender != entrypoint) {\n      revert InvalidEntryPoint(msg.sender);\n    }\n\n    // Proceed with execution\n    this.selfExecute(_payload);\n}",
+      "expected_fixed_blocks": 3,
+      "returned_fixed_blocks": 3,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-04-25T18:07:17.244776"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-25T18:07:17.244797",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

@@ -1,0 +1,114 @@
+diff --git a/src/Licredity.sol b/src/Licredity.sol
+index e4ce7c0..aa3097b 100644
+--- a/src/Licredity.sol
++++ b/src/Licredity.sol
+@@ -547,8 +547,6 @@ contract Licredity is ILicredity, IERC721TokenReceiver, BaseERC20, BaseHooks, Ex
+             }
+         }
+ 
+-        // prevents owner from purposely causing a position to be underwater then profit from seizing it
+-        // side effect is that positions cannot be seized by owner contract, such as non-fungible position manager, which is acceptable
+         // require(position.owner != msg.sender, CannotSeizeOwnPosition());
+         if (position.owner == msg.sender) {
+             assembly ("memory-safe") {
+@@ -557,80 +555,59 @@ contract Licredity is ILicredity, IERC721TokenReceiver, BaseERC20, BaseHooks, Ex
+             }
+         }
+ 
+-        // ensure position health post seizure
++        // ensure position health is re-checked
+         Locker.register(bytes32(positionId));
+ 
+         (uint256 value, uint256 marginRequirement, uint256 debt, bool isHealthy) = _appraisePosition(position);
+ 
+         // require(!isHealthy, PositionIsHealthy());
+         assembly ("memory-safe") {
+-            if iszero(iszero(isHealthy)) {
++            if isHealthy {
+                 mstore(0x00, 0x4051037a) // 'PositionIsHealthy()'
+                 revert(0x1c, 0x04)
+             }
+         }
+ 
+         uint256 topup;
+-        // if the position is underwater, top it up to encourage seizure
+-        // this represents a bad debt to the protocol, and is socialized among all debt holders
++        // if underwater, top up the position
+         if (value < debt) {
+             topup = _deficitToTopup(debt - value);
+-
+             _mint(address(this), topup);
+             position.addFungible(Fungible.wrap(address(this)), topup);
+-
+-            // update total debt balance, and position's value and debt
+-            uint256 newTotalDebtBalance;
+-            assembly ("memory-safe") {
+-                // newTotalDebtBalance = totalDebtBalance + topup;
+-                newTotalDebtBalance := add(sload(totalDebtBalance.slot), topup)
+-
+-                // totalDebtBalance = newTotalDebtBalance;
+-                sstore(totalDebtBalance.slot, newTotalDebtBalance)
+-
+-                // value = value + topup;
+-                value := add(value, topup)
+-            }
+-            debt = position.debtShare.fullMulDivUp(newTotalDebtBalance, totalDebtShare);
++            totalDebtBalance += topup;
+ 
+             // emit DepositFungible(positionId, Fungible.wrap(address(this)), topup);
+             assembly ("memory-safe") {
+                 mstore(0x00, topup)
+-                log3(
+-                    0x00,
+-                    0x20,
+-                    0x035870714bdad9af06468d642c6278777f9a7342ca6c1855dd76f1795f2e495c,
+-                    positionId,
+-                    address()
+-                )
++                log3(0x00, 0x20, 0x035870714bdad9af06468d642c6278777f9a7342ca6c1855dd76f1795f2e495c, positionId, address())
+             }
++
++            // recompute debt after top-up
++            debt = position.debtShare.fullMulDivUp(totalDebtBalance, totalDebtShare);
+         }
+ 
+         // transfer ownership to recipient
+         position.setOwner(recipient);
+-        // calculate shortfall, the amount needed to bring the position back to health
+-        shortfall = value < debt + marginRequirement ? debt + marginRequirement - value : 0;
++
++        // compute shortfall
++        if (value < debt + marginRequirement) {
++            shortfall = debt + marginRequirement - value;
++        }
+ 
+         // emit SeizePosition(positionId, recipient, value, debt, marginRequirement, topup);
+         assembly ("memory-safe") {
+-            let fmp := mload(0x40)
+-            mstore(fmp, value)
+-            mstore(add(fmp, 0x20), debt)
+-            mstore(add(fmp, 0x40), marginRequirement)
+-            mstore(add(fmp, 0x60), topup)
+-
++            let ptr := mload(0x40)
++            mstore(ptr, value)
++            mstore(add(ptr, 0x20), debt)
++            mstore(add(ptr, 0x40), marginRequirement)
++            mstore(add(ptr, 0x60), topup)
+             log3(
+-                fmp,
++                ptr,
+                 0x80,
+                 0xe4ead9e85a25cb8008cef34c4d0baa3da1bf7bdd99b1c8f40f9d2423969606a4,
+                 positionId,
+-                and(recipient, 0xffffffffffffffffffffffffffffffffffffffff)
++                recipient
+             )
+-
+-            mstore(fmp, 0)
+-            mstore(add(fmp, 0x20), 0)
+-            mstore(add(fmp, 0x40), 0)
+-            mstore(add(fmp, 0x60), 0)
+         }
+     }
+ 

@@ -1,0 +1,84 @@
+diff --git a/src/Licredity.sol b/src/Licredity.sol
+index e4ce7c0..c0fa7f9 100644
+--- a/src/Licredity.sol
++++ b/src/Licredity.sol
+@@ -724,38 +724,52 @@ contract Licredity is ILicredity, IERC721TokenReceiver, BaseERC20, BaseHooks, Ex
+         BalanceDelta balanceDelta,
+         bytes calldata
+     ) internal override returns (bytes4, int128) {
+-        // do nothing during the back run swap
+-        if (sender != address(this)) {
+-            (uint256 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
+-
+-            // price below 1 will result in negative interest, which is not allowed
+-            // mint non-interest-bearing debt fungible to revert the effect of the current swap
+-            // anyone can remove these additional fungible tokens by exchanging them for base fungible collected
+-            if (sqrtPriceX96 <= ONE_SQRT_PRICE_X96) {
+-                // back run swap to revert the effect of the current swap, using exactOut to account for fees
+-                IPoolManager.SwapParams memory params =
+-                    IPoolManager.SwapParams(false, -balanceDelta.amount0(), MAX_SQRT_PRICE_X96 - 1);
+-                balanceDelta = poolManager.swap(poolKey, params, "");
+-
+-                // store amounts eligible for exchange
+-                uint256 baseAmount = uint128(balanceDelta.amount0());
+-                uint256 debtAmount = uint128(-balanceDelta.amount1());
+-                baseAmountAvailable += baseAmount;
+-                debtAmountOutstanding += debtAmount;
+-
+-                // reconcile balance delta with the pool manager
++        // do nothing during re-entrant calls from the contract's own back run swap
++        if (sender == address(this)) {
++            return (this.afterSwap.selector, 0);
++        }
++
++        // check if the pool price is below parity
++        (uint160 sqrtPriceX96, int24 tick,,) = poolManager.getSlot0(poolId);
++        
++        if (sqrtPriceX96 < ONE_SQRT_PRICE_X96) {
++            // execute a back run swap to restore the price to at least parity
++            // swap debt fungible (currency1) for base fungible (currency0)
++            // zeroForOne = false means we're swapping currency1 for currency0
++            BalanceDelta delta = poolManager.swap(
++                poolKey,
++                IPoolManager.SwapParams({
++                    zeroForOne: false,
++                    amountSpecified: type(int256).min, // swap as much as needed
++                    sqrtPriceLimitX96: ONE_SQRT_PRICE_X96 // target price limit
++                }),
++                ""
++            );
++
++            // delta.amount0() is negative (base fungible collected by us)
++            // delta.amount1() is positive (debt fungible owed by us)
++            int128 baseCollected = -delta.amount0();
++            int128 debtOwed = delta.amount1();
++
++            if (baseCollected > 0 && debtOwed > 0) {
++                // record the amounts for later redemption via exchangeFungible
++                baseAmountAvailable += uint128(baseCollected);
++                debtAmountOutstanding += uint128(debtOwed);
++
++                // settle the balances with the pool manager
++                // take the base fungible we collected
++                poolManager.take(Currency.wrap(address(baseFungible)), address(this), uint128(baseCollected));
++                
++                // mint and settle the debt fungible we owe
++                _mint(address(poolManager), uint128(debtOwed));
+                 poolManager.sync(Currency.wrap(address(this)));
+-                _mint(address(poolManager), debtAmount);
+                 poolManager.settle();
+-
+-                // If there is not enough ETH in the Uniswap V4 Pool Manager, `poolManager.take` will revert
+-                poolManager.take(Currency.wrap(Fungible.unwrap(baseFungible)), address(this), baseAmount);
+             }
+-
+-            // trigger the oracle for price update
+-            oracle.update();
+         }
+ 
++        // update the oracle with the current price
++        oracle.update();
++
+         return (this.afterSwap.selector, 0);
+     }
+ 

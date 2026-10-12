@@ -1,0 +1,135 @@
+{
+  "id": "65044",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-12-panoptic/blob/fe557748210a529ae414d7c487b6514be0d9e220/contracts/RiskEngine.sol# L929",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      929,
+      929
+    ]
+  ],
+  "filename": "65044_RiskEngine.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 2403,
+  "vulnerability_title": "[M-17] High divergence check in `isSafeMode` is unreachable dead code providing false sense of security",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Recalculate the threshold based on actual achievable divergence. A threshold of approximately 600-700 ticks would be reachable under extreme conditions while still providing meaningful protection or use different metrics",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "1. Create a test file `HighDivergenceTest.t.sol` in `test/foundry/core/`.\n2. Paste the PoC code provided below into the file.\n3. Save the file.\n4. Run the test: `ETH_RPC_URL=\"<YOUR_MAINNET_RPC_URL>\" forge test --match-path test/foundry/core/HighDivergenceTest.t.sol -vv`.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-12-panoptic-next-core/submissions/S-920)\n\n**Panoptic marked as informative.**\n\n---",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "isSafeMode",
+        "start_line": 908,
+        "end_line": 940,
+        "code": "    function isSafeMode(\n        int24 currentTick,\n        OraclePack oraclePack\n    ) public pure returns (uint8 safeMode) {\n        // Extract the relevant EMAs from oraclePack\n        (int24 spotEMA, int24 fastEMA, int24 slowEMA, , int24 medianTick) = oraclePack.getEMAs();\n\n        unchecked {\n            // can never miscart because all math is int24 or below\n            // Condition 1: Check for a sudden deviation of the spot price from the spot EMA.\n            // This is your primary defense against a flash crash or single-block manipulation.\n            bool externalShock = Math.abs(currentTick - spotEMA) > MAX_TICKS_DELTA;\n\n            // Condition 2: Check for high internal volatility by comparing the spot and fast EMAs.\n            // If the spot EMA is moving much faster than the fast EMA, it signals an unstable market.\n            // We use a smaller threshold here (e.g., half of the main delta) to be more sensitive to internal stress.\n            bool internalDisagreement = Math.abs(spotEMA - fastEMA) > (MAX_TICKS_DELTA / 2);\n\n            // Condition 3: Check for high internal divergence due to staleness by comparing the median and slow EMAs.\n            // If the median tick is deviating too much from the slow EMA, it signals an unstable market.\n            // We use a larger threshold here (e.g., twice of the main delta) to be less sensitive to lag.\n            bool highDivergence = Math.abs(medianTick - slowEMA) > (MAX_TICKS_DELTA * 2);\n\n            // check lock mode, add value = 3 to returned safeMode.\n            uint8 lockMode = oraclePack.lockMode();\n\n            safeMode =\n                uint8(externalShock ? 1 : 0) +\n                uint8(internalDisagreement ? 1 : 0) +\n                uint8(highDivergence ? 1 : 0) +\n                lockMode;\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            929,
+            929
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:36:01.367223",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of unreachable code in the `isSafeMode` function due to the high divergence threshold being mathematically unreachable.",
+      "content_reasoning": "The content mentions the `isSafeMode` function and the variables `medianTick`, `slowEMA`, and `MAX_TICKS_DELTA`, which are present in the code. The described pattern of unreachable code due to the high divergence threshold is evident.",
+      "functions_found": [
+        "isSafeMode"
+      ],
+      "variables_found": [
+        "medianTick",
+        "slowEMA",
+        "MAX_TICKS_DELTA"
+      ],
+      "patterns_found": [
+        "unreachable code",
+        "dead code"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag. The issue relates to business logic flaws due to unreachable code, which affects the intended security mechanism.",
+      "suggested_tag": "business_logic_flaw",
+      "alternative_tags": [
+        "dead_code"
+      ],
+      "correction_explanation": "The issue is primarily a business logic flaw as the intended security mechanism is non-functional due to unreachable code."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 50,
+      "mando_applicable": false,
+      "reasoning": "The MANDO categories do not specifically cover business logic flaws or unreachable code issues, which are the core of this vulnerability."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G11"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue is a business logic flaw where the intended security mechanism is ineffective due to unreachable code. SCSVS provides a more precise classification under 'Business logic'.",
+      "vulnerability_type": "Unreachable code leading to ineffective security mechanism"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Adjust the threshold for the high divergence check to a more realistic value based on empirical data, ensuring the condition can be triggered under extreme market conditions.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "isSafeMode",
+          "fixed_function_code": "function isSafeMode(\n        int24 currentTick,\n        OraclePack oraclePack\n    ) public pure returns (uint8 safeMode) {\n        // Extract the relevant EMAs from oraclePack\n        (int24 spotEMA, int24 fastEMA, int24 slowEMA, , int24 medianTick) = oraclePack.getEMAs();\n\n        unchecked {\n            // can never miscart because all math is int24 or below\n            // Condition 1: Check for a sudden deviation of the spot price from the spot EMA.\n            // This is your primary defense against a flash crash or single-block manipulation.\n            bool externalShock = Math.abs(currentTick - spotEMA) > MAX_TICKS_DELTA;\n\n            // Condition 2: Check for high internal volatility by comparing the spot and fast EMAs.\n            // If the spot EMA is moving much faster than the fast EMA, it signals an unstable market.\n            // We use a smaller threshold here (e.g., half of the main delta) to be more sensitive to internal stress.\n            bool internalDisagreement = Math.abs(spotEMA - fastEMA) > (MAX_TICKS_DELTA / 2);\n\n            // Condition 3: Check for high internal divergence due to staleness by comparing the median and slow EMAs.\n            // Adjusted threshold to a realistic value based on empirical data.\n            bool highDivergence = Math.abs(medianTick - slowEMA) > 650; // Adjusted threshold\n\n            // check lock mode, add value = 3 to returned safeMode.\n            uint8 lockMode = oraclePack.lockMode();\n\n            safeMode =\n                uint8(externalShock ? 1 : 0) +\n                uint8(internalDisagreement ? 1 : 0) +\n                uint8(highDivergence ? 1 : 0) +\n                lockMode;\n        }\n    }",
+          "reasoning": "The function now uses a more realistic threshold for the high divergence condition, making it possible to trigger under extreme market conditions, thus providing the intended protection against oracle manipulation."
+        }
+      ],
+      "key_changes": [
+        "Adjusted the threshold for high divergence from MAX_TICKS_DELTA * 2 to 650."
+      ],
+      "security_improvements": [
+        "Ensures the high divergence condition is reachable and effective.",
+        "Improves the contract's ability to detect and respond to extreme market conditions."
+      ],
+      "additional_recommendations": "Regularly review and update thresholds based on market data to ensure continued effectiveness.",
+      "confidence": 90,
+      "fix_code": "function isSafeMode(\n        int24 currentTick,\n        OraclePack oraclePack\n    ) public pure returns (uint8 safeMode) {\n        // Extract the relevant EMAs from oraclePack\n        (int24 spotEMA, int24 fastEMA, int24 slowEMA, , int24 medianTick) = oraclePack.getEMAs();\n\n        unchecked {\n            // can never miscart because all math is int24 or below\n            // Condition 1: Check for a sudden deviation of the spot price from the spot EMA.\n            // This is your primary defense against a flash crash or single-block manipulation.\n            bool externalShock = Math.abs(currentTick - spotEMA) > MAX_TICKS_DELTA;\n\n            // Condition 2: Check for high internal volatility by comparing the spot and fast EMAs.\n            // If the spot EMA is moving much faster than the fast EMA, it signals an unstable market.\n            // We use a smaller threshold here (e.g., half of the main delta) to be more sensitive to internal stress.\n            bool internalDisagreement = Math.abs(spotEMA - fastEMA) > (MAX_TICKS_DELTA / 2);\n\n            // Condition 3: Check for high internal divergence due to staleness by comparing the median and slow EMAs.\n            // Adjusted threshold to a realistic value based on empirical data.\n            bool highDivergence = Math.abs(medianTick - slowEMA) > 650; // Adjusted threshold\n\n            // check lock mode, add value = 3 to returned safeMode.\n            uint8 lockMode = oraclePack.lockMode();\n\n            safeMode =\n                uint8(externalShock ? 1 : 0) +\n                uint8(internalDisagreement ? 1 : 0) +\n                uint8(highDivergence ? 1 : 0) +\n                lockMode;\n        }\n    }",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:29:11.269443"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:29:11.269459",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

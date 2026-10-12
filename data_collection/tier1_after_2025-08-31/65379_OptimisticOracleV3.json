@@ -1,0 +1,123 @@
+{
+  "id": "65379",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/UMAprotocol/protocol/blob/6a23be19d8a0dbee4475db9ff52ce4d9572212b5/packages/core/contracts/optimistic-oracle-v3/implementation/OptimisticOracleV3.sol#L122",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      122,
+      122
+    ]
+  ],
+  "filename": "65379_OptimisticOracleV3.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 502,
+  "vulnerability_title": "If multiple users call `DefaultSession::assertResults` all but the first caller lose their bonds",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "markdown_blocks",
+    "snippets": [
+      {
+        "code": "function assertResults(\n        uint256 sessionId,\n        string calldata resultCid,\n        address[] calldata proposedWinners,\n        uint256[] calldata totalXPs,\n        uint256[] calldata totalTimes\n    ) external returns (bytes32 assertionId) {\n        require(SessionManager(sessionManager).getSessionState(sessionId) == SessionState.Ended, GameNotEnded());\n        return assertDataFor(\n            sessionId, resultCid, resolutionGitRepoAtCommitHash, proposedWinners, totalXPs, totalTimes, msg.sender\n        );\n    }",
+        "block_index": 0,
+        "confidence": 85,
+        "reason": "Code block from markdown after removing Recommendation/PoC sections"
+      },
+      {
+        "code": "function assertDataFor(\n        uint256 sessionId,\n        string calldata resultCid,\n        string memory resolutionGitRepoAtCommitHash,\n        address[] calldata winners,\n        uint256[] calldata totalXPs,\n        uint256[] calldata totalTimes,\n        address asserter\n    ) internal returns (bytes32 assertionId) {\n        asserter = asserter == address(0) ? msg.sender : asserter;\n        uint256 bond = optimisticOracle.getMinimumBond(address(usdc)); /\n        usdc.safeTransferFrom(msg.sender, address(this), bond);  <--------\n        usdc.forceApprove(address(optimisticOracle), bond); <-------\n}",
+        "block_index": 1,
+        "confidence": 85,
+        "reason": "Code block from markdown after removing Recommendation/PoC sections"
+      },
+      {
+        "code": "function recordResults(uint256 sessionId, bytes32 assertionId) public {\n\n        require(SessionManager(sessionManager).getSessionState(sessionId) == SessionState.Ended, GameNotEnded());\n        require(\n            sessionId == assertions[assertionId].sessionId,\n            SessionIdMismatch(sessionId, assertions[assertionId].sessionId)\n        );\n        require(assertions[assertionId].resolved, AssertionNotInitialized(assertionId));\n        require(winners[sessionId].length == 0, WinnersAlreadyRecorded(sessionId));\n        ...\n\n        winners[sessionId] = assertion.winners;\n    }",
+        "block_index": 2,
+        "confidence": 85,
+        "reason": "Code block from markdown after removing Recommendation/PoC sections"
+      },
+      {
+        "code": "function test_RecordResults_double() public { //@audit\n        // Mock SessionManager to return Ended state\n        vm.mockCall(\n            sessionManager, abi.encodeCall(SessionManager.getSessionState, gameId), abi.encode(SessionState.Ended)\n        );\n\n        string memory resultCid = \"QmTestResultCID\";\n        address[] memory proposedWinners = new address[](2);\n        proposedWinners[0] = player1;\n        proposedWinners[1] = player2;\n\n        uint256[] memory totalXPs = new uint256[](2);\n        totalXPs[0] = 200;\n        totalXPs[1] = 150;\n\n        uint256[] memory totalTimes = new uint256[](2);\n        totalTimes[0] = 30;\n        totalTimes[1] = 45;\n\n        vm.mockCall(\n            optimisticOracle,\n            abi.encodeWithSelector(OptimisticOracleV3Interface.assertTruth.selector),\n            abi.encode(keccak256(\"assertionId43\"))\n        );\n        bytes32 assertionId =\n            defaultSession.assertResults(gameId, resultCid, proposedWinners, Solarray.uint256s(200, 150), totalTimes);\n\n        vm.mockCall(\n            optimisticOracle,\n            abi.encodeWithSelector(OptimisticOracleV3Interface.assertTruth.selector),\n            abi.encode(keccak256(\"assertionId44\"))\n        );\n        bytes32 assertionIdtwo =\n            defaultSession.assertResults(gameId, resultCid, proposedWinners, Solarray.uint256s(200, 150), totalTimes); //second assertion with the same values\n\n        // 2. Call the callback to mark the assertion as resolved\n        vm.prank(address(optimisticOracle));\n        defaultSession.assertionResolvedCallback(assertionId, true);\n\n        vm.startPrank(address(optimisticOracle));\n        vm.expectRevert();\n        defaultSession.assertionResolvedCallback(assertionIdtwo, true);\n    }",
+        "block_index": 4,
+        "confidence": 85,
+        "reason": "Code block from markdown after removing Recommendation/PoC sections"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T16:58:44.695665",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of multiple users losing their bonds due to the lack of restrictions on multiple calls to `assertResults`.",
+      "content_reasoning": "The content mentions the relevant functions and variables that are involved in the vulnerability, such as `assertResults`, `assertDataFor`, and the bond transfer logic.",
+      "functions_found": [
+        "assertResults",
+        "assertDataFor",
+        "recordResults"
+      ],
+      "variables_found": [
+        "sessionId",
+        "resultCid",
+        "proposedWinners",
+        "totalXPs",
+        "totalTimes"
+      ],
+      "patterns_found": [
+        "multiple calls leading to fund loss",
+        "permissionless function allowing multiple assertions"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 85,
+      "reasoning": "The report lacks a tag that reflects the nature of the vulnerability, which is related to user funds being lost due to improper handling of multiple assertions.",
+      "suggested_tag": "fund_loss",
+      "alternative_tags": [
+        "assertion_issue",
+        "bond_loss"
+      ],
+      "correction_explanation": "A tag indicating the loss of funds due to assertion issues would provide clarity on the vulnerability's impact."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": true,
+      "reasoning": "The issue can lead to denial of service for users who attempt to assert results after the first caller, as they lose their funds without recovering them."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "C3"
+      ],
+      "confidence": 85,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability primarily relates to the business logic of handling assertions and the implications of multiple calls, which can lead to financial loss for users. Additionally, it involves the use of an oracle, which is relevant to the C3 category.",
+      "vulnerability_type": "Multiple calls to assertResults lead to fund loss for users."
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-04-16T17:12:54.062516",
+    "model": "gpt-4o-mini",
+    "code_input_source": "markdown_blocks"
+  }
+}

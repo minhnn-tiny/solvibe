@@ -1,0 +1,119 @@
+{
+  "id": "65038",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-12-panoptic/blob/main/contracts/types/OraclePack.sol# L536-L567",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      536,
+      567
+    ],
+    [
+      552,
+      558
+    ]
+  ],
+  "filename": "65038_OraclePack.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 636,
+  "vulnerability_title": "[M-11] An attacker can manipulate oracle easily",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Modify the oracle mechanism so that the oracle is updated continuously with the current tick as time progresses, similar to Uniswap TWAP, rather than allowing only one update per epoch. This would prevent attackers from locking in manipulated values for an entire epoch period.\n```\n\n// File: contracts/types/OraclePack.sol, lines 536-567\nfunction computeInternalMedian(\n    OraclePack oraclePack,\n    int24 currentTick,\n    uint96 EMAperiods,\n    int24 clampDelta\n) internal view returns (int24 _medianTick, OraclePack _updatedOraclePack) {\n    unchecked {\n        _medianTick = getMedianTick(oraclePack);\n\n        uint256 currentEpoch;\n        bool differentEpoch;\n        int256 timeDelta;\n        {\n            currentEpoch = (block.timestamp >> 6) & 0xFFFFFF;\n            uint256 recordedEpoch = oraclePack.epoch();\n            differentEpoch = currentEpoch != recordedEpoch;\n-           timeDelta = int256(uint256(uint24(currentEpoch - recordedEpoch))) * 64;\n+           // Calculate actual time delta in seconds\n+           timeDelta = int256(block.timestamp) - int256(oraclePack.timestamp());\n        }\n-       // only proceed if last entry is in a different epoch\n-       if (differentEpoch) {\n+       // Update oracle if enough time has passed (e.g., at least 64 seconds)\n+       if (timeDelta >= 64) {\n            int24 clampedTick = clampTick(currentTick, oraclePack, clampDelta);\n            _updatedOraclePack = insertObservation(\n                oraclePack,\n                clampedTick,\n                currentEpoch,\n                timeDelta,\n                EMAperiods\n            );\n+           // Allow multiple updates within the same epoch if enough time has passed\n        }\n    }\n}\n```\n\nAlternatively, restrict `pokeOracle()` to only be callable by trusted addresses or implement a commit-reveal scheme to prevent frontrunning.",
+    "fix_code_blocks": [
+      "// File: contracts/types/OraclePack.sol, lines 536-567\nfunction computeInternalMedian(\n    OraclePack oraclePack,\n    int24 currentTick,\n    uint96 EMAperiods,\n    int24 clampDelta\n) internal view returns (int24 _medianTick, OraclePack _updatedOraclePack) {\n    unchecked {\n        _medianTick = getMedianTick(oraclePack);\n\n        uint256 currentEpoch;\n        bool differentEpoch;\n        int256 timeDelta;\n        {\n            currentEpoch = (block.timestamp >> 6) & 0xFFFFFF;\n            uint256 recordedEpoch = oraclePack.epoch();\n            differentEpoch = currentEpoch != recordedEpoch;\n-           timeDelta = int256(uint256(uint24(currentEpoch - recordedEpoch))) * 64;\n+           // Calculate actual time delta in seconds\n+           timeDelta = int256(block.timestamp) - int256(oraclePack.timestamp());\n        }\n-       // only proceed if last entry is in a different epoch\n-       if (differentEpoch) {\n+       // Update oracle if enough time has passed (e.g., at least 64 seconds)\n+       if (timeDelta >= 64) {\n            int24 clampedTick = clampTick(currentTick, oraclePack, clampDelta);\n            _updatedOraclePack = insertObservation(\n                oraclePack,\n                clampedTick,\n                currentEpoch,\n                timeDelta,\n                EMAperiods\n            );\n+           // Allow multiple updates within the same epoch if enough time has passed\n        }\n    }\n}"
+    ]
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "The following test demonstrates the vulnerability by showing that an attacker can manipulate the oracle by frontrunning `pokeOracle()` calls and gradually moving the oracle across multiple epochs, with the manipulated value locked in for the entire 64-second epoch period.\n\nTo run this PoC, add the following test function to `test/foundry/core/Misc.t.sol`:\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-12-panoptic-next-core/submissions/S-1177)\n\nThis test can be run with `forge test --match-test test_PoC_OracleManipulation -vvv` to demonstrate the vulnerability. The test shows that:\n\n1. An attacker can manipulate the pool price using swaps (simulating flash loans) and call `pokeOracle()` to update the oracle.\n2. Once updated in an epoch, the oracle cannot be corrected for the remainder of that 64-second epoch, even if a legitimate user attempts to update it with the correct price.\n3. The attacker can repeat this process across multiple epochs to gradually manipulate the oracle by up to 149 ticks per epoch (limited by `MAX_CLAMP_DELTA`).\n4. The cumulative manipulation affects all positions that rely on the oracle for pricing, causing incorrect solvency validations and potentially unfair liquidations.\n\n**Panoptic disputed**\n\n---",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "computeInternalMedian",
+        "start_line": 536,
+        "end_line": 567,
+        "code": "    function computeInternalMedian(\n        OraclePack oraclePack,\n        int24 currentTick,\n        uint96 EMAperiods,\n        int24 clampDelta\n    ) internal view returns (int24 _medianTick, OraclePack _updatedOraclePack) {\n        unchecked {\n            // return the average of the rank 3 and 4 values\n            _medianTick = getMedianTick(oraclePack);\n\n            uint256 currentEpoch;\n            bool differentEpoch;\n            int256 timeDelta;\n            {\n                currentEpoch = (block.timestamp >> 6) & 0xFFFFFF; // 64-long epoch, taken mod 2**24\n                uint256 recordedEpoch = oraclePack.epoch();\n                differentEpoch = currentEpoch != recordedEpoch;\n                timeDelta = int256(uint256(uint24(currentEpoch - recordedEpoch))) * 64; // take a rought time delta, based on the epochs\n            }\n            // only proceed if last entry is in a different epoch\n            if (differentEpoch) {\n                int24 clampedTick = clampTick(currentTick, oraclePack, clampDelta);\n                _updatedOraclePack = insertObservation(\n                    oraclePack,\n                    clampedTick,\n                    currentEpoch,\n                    timeDelta,\n                    EMAperiods\n                );\n            }\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            536,
+            567
+          ],
+          [
+            552,
+            558
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:54.710999",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the oracle manipulation vulnerability present in the code, specifically the ability to manipulate the oracle by calling `pokeOracle()`.",
+      "content_reasoning": "The content mentions functions and variables such as `pokeOracle()`, `computeInternalMedian()`, `currentEpoch`, and `differentEpoch`, which are present in the extracted code and are relevant to the described vulnerability.",
+      "functions_found": [
+        "computeInternalMedian",
+        "pokeOracle"
+      ],
+      "variables_found": [
+        "currentEpoch",
+        "differentEpoch",
+        "timeDelta"
+      ],
+      "patterns_found": [
+        "oracle manipulation",
+        "epoch-based update"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged to reflect the oracle manipulation vulnerability.",
+      "suggested_tag": "oracle_manipulation",
+      "alternative_tags": [
+        "front_running"
+      ],
+      "correction_explanation": "The vulnerability is primarily about oracle manipulation, which can be exploited through frontrunning, hence both tags are relevant."
+    },
+    "mando_classification": {
+      "primary_category": "front_running",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability involves manipulating the oracle by frontrunning legitimate updates, which aligns with the MANDO category of front_running."
+    },
+    "scsvs_classification": {
+      "primary_category": "C3",
+      "primary_category_name": "Oracle",
+      "secondary_categories": [
+        "G4"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue is specifically related to oracle manipulation, which is best categorized under SCSVS's Oracle category. The business logic aspect of the vulnerability also maps to G4.",
+      "vulnerability_type": "Oracle manipulation through frontrunning and flash loans"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-03-20T15:24:26.891658",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

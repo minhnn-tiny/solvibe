@@ -1,0 +1,128 @@
+{
+  "id": "63714",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-10-hybra-finance/blob/74c2b93e8a4796c1d41e1fbaa07e40b426944c44/ve33/contracts/GovernanceHYBR.sol# L370",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      370,
+      370
+    ],
+    [
+      359,
+      415
+    ]
+  ],
+  "filename": "63714_GovernanceHYBR.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 636,
+  "vulnerability_title": "[M-07] Claiming rewards in `GovernanceHYBR` will always revert",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Add a getter function in `VoterV3.sol` that returns an array of addresses and use that instead when claiming rewards:\n```\n\n    function getPoolVote(uint tokenId) external view returns (address[] memory) {\n        return poolVote[tokenId];\n    }\n```\n\nProof of concept\n\n1. Copy `MockERC20.sol` from `cl/contracts/mocks/` to `ve33/contracts/test/`\n2. Change `MockERC20.sol` solc version to `pragma solidity ^0.8.0;` for tests to run and import it in `C4PoCTestbed.t.sol`\n3. Paste following in `C4PoCTestbed.t.sol` contract level:\n\n   \n```\n\n   contract C4PoCTestbed is Test, CLContractsImporter {\n   ...\n   address public USDC;\n   address public USDT;\n   address public DAI;\n   address public gHybrOperator;\n   \n```\n\n4. Paste the following function to `C4PoCTestbed.t.sol` to initialize parameters.\n\n   \n```\n\n   function lastPhase() internal {\n       // Deploy USDC, USDT, DAI, and WETH\n       USDC = address(new MockERC20(\"USDC\", \"USDC\", 6));\n       USDT = address(new MockERC20(\"USDT\", \"USDT\", 6));\n       DAI = address(new MockERC20(\"DAI\", \"DAI\", 18));\n\n       // We need to initialize Bribe Factory properly for the tests to run\n       bribeFactoryV3.initialize(address(voter), address(gaugeManager), address(permissionsRegistry), address(tokenHandler));\n\n       // We need to set roles so that we can whitelist the mock tokens\n       permissionsRegistry.setRoleFor(address(team), \"GOVERNANCE\");\n\n       // Whitelisting the mock tokens\n       vm.startPrank(address(team));\n       tokenHandler.whitelistToken(address(USDC));\n       tokenHandler.whitelistToken(address(USDT));\n       tokenHandler.whitelistToken(address(DAI));\n       tokenHandler.whitelistConnector(address(USDC));\n       tokenHandler.whitelistConnector(address(USDT));\n       tokenHandler.whitelistConnector(address(DAI));\n       vm.stopPrank();\n\n       // Creating the pools\n       address pairA = thenaFiFactory.createPair(address(USDC), address(USDT), true);\n       address pairB = thenaFiFactory.createPair(address(USDC), address(DAI), true);\n\n       // Creating the gauges\n       gaugeManager.createGauge(pairA, 0);\n       gaugeManager.createGauge(pairB, 0);\n\n       // Set Voter and operator on GrowthHYBR\n       gHybr.setVoter(address(voter));\n       gHybr.setOperator(address(gHybrOperator));\n   }\n   \n```\n\n5. Paste the following in the `C4PoCTestbed.t.sol`\u2019s `setUp()` function\n\n   \n```\n\n   function setUp() public virtual {\n       ...\n       gHybrOperator = makeAddr(\"operator\");\n       ...\n       lastPhase();\n   }\n   \n```\n\n6. Add this test to `C4PoC.t.sol`\n\n   \n```\n\n       function testMappingRevert() external {\n       // Deal Alice tokens and deposit\n       address alice = makeAddr(\"alice\");\n       deal(address(hybr), address(alice), 100e18);\n       vm.startPrank(alice);\n       hybr.approve(address(gHybr), type(uint256).max);\n       gHybr.deposit(100e18, address(alice));\n\n       // Warp 1 week\n       vm.warp(block.timestamp + 1 weeks + 301);\n\n       // Voting for pools with gHYBR NFT\n       address[] memory poolVotes = thenaFiFactory.pairs();\n       uint256[] memory weights = new uint256[](poolVotes.length);\n       weights[0] = 50;\n       weights[1] = 50;\n       vm.startPrank(address(gHybrOperator));\n       gHybr.vote(poolVotes, weights);\n\n       // Warp more time\n       vm.warp(block.timestamp + 48 hours);\n\n       // Attempt to claim rewards\n       vm.startPrank(address(gHybrOperator));\n       vm.expectRevert();\n       gHybr.claimRewards();\n   }\n   \n```\n\n   Run with `forge test --mt testMappingRevert -vvvv`\n\n**[Hybra Finance mitigated](https://github.com/code-423n4/2025-11-hybra-finance-mitigation?tab=readme-ov-file# mitigations-of-high--medium-severity-issues):**\n\n> fixed Claiming rewards in GovernanceHYBR\n\n**Status:** Mitigation confirmed. Full details in the [mitigation review reports from niffylord, rayss, and ZanyBonzy](https://code4rena.com/audits/2025-11-hybra-finance-mitigation-review/submissions/S-13).\n\n---",
+    "fix_code_blocks": [
+      "function getPoolVote(uint tokenId) external view returns (address[] memory) {\n        return poolVote[tokenId];\n    }",
+      "contract C4PoCTestbed is Test, CLContractsImporter {\n   ...\n   address public USDC;\n   address public USDT;\n   address public DAI;\n   address public gHybrOperator;",
+      "function lastPhase() internal {\n       // Deploy USDC, USDT, DAI, and WETH\n       USDC = address(new MockERC20(\"USDC\", \"USDC\", 6));\n       USDT = address(new MockERC20(\"USDT\", \"USDT\", 6));\n       DAI = address(new MockERC20(\"DAI\", \"DAI\", 18));\n\n       // We need to initialize Bribe Factory properly for the tests to run\n       bribeFactoryV3.initialize(address(voter), address(gaugeManager), address(permissionsRegistry), address(tokenHandler));\n\n       // We need to set roles so that we can whitelist the mock tokens\n       permissionsRegistry.setRoleFor(address(team), \"GOVERNANCE\");\n\n       // Whitelisting the mock tokens\n       vm.startPrank(address(team));\n       tokenHandler.whitelistToken(address(USDC));\n       tokenHandler.whitelistToken(address(USDT));\n       tokenHandler.whitelistToken(address(DAI));\n       tokenHandler.whitelistConnector(address(USDC));\n       tokenHandler.whitelistConnector(address(USDT));\n       tokenHandler.whitelistConnector(address(DAI));\n       vm.stopPrank();\n\n       // Creating the pools\n       address pairA = thenaFiFactory.createPair(address(USDC), address(USDT), true);\n       address pairB = thenaFiFactory.createPair(address(USDC), address(DAI), true);\n\n       // Creating the gauges\n       gaugeManager.createGauge(pairA, 0);\n       gaugeManager.createGauge(pairB, 0);\n\n       // Set Voter and operator on GrowthHYBR\n       gHybr.setVoter(address(voter));\n       gHybr.setOperator(address(gHybrOperator));\n   }",
+      "function setUp() public virtual {\n       ...\n       gHybrOperator = makeAddr(\"operator\");\n       ...\n       lastPhase();\n   }",
+      "function testMappingRevert() external {\n       // Deal Alice tokens and deposit\n       address alice = makeAddr(\"alice\");\n       deal(address(hybr), address(alice), 100e18);\n       vm.startPrank(alice);\n       hybr.approve(address(gHybr), type(uint256).max);\n       gHybr.deposit(100e18, address(alice));\n\n       // Warp 1 week\n       vm.warp(block.timestamp + 1 weeks + 301);\n\n       // Voting for pools with gHYBR NFT\n       address[] memory poolVotes = thenaFiFactory.pairs();\n       uint256[] memory weights = new uint256[](poolVotes.length);\n       weights[0] = 50;\n       weights[1] = 50;\n       vm.startPrank(address(gHybrOperator));\n       gHybr.vote(poolVotes, weights);\n\n       // Warp more time\n       vm.warp(block.timestamp + 48 hours);\n\n       // Attempt to claim rewards\n       vm.startPrank(address(gHybrOperator));\n       vm.expectRevert();\n       gHybr.claimRewards();\n   }"
+    ]
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "claimRewards",
+        "start_line": 362,
+        "end_line": 415,
+        "code": "    function claimRewards() external onlyOperator {\n        require(voter != address(0), \"Voter not set\");\n        require(rewardsDistributor != address(0), \"Distributor not set\");\n              \n        // Claim rebase rewards from RewardsDistributor\n        uint256  rebaseAmount = IRewardsDistributor(rewardsDistributor).claim(veTokenId);\n        rebase += rebaseAmount;\n        // Claim bribes from voted pools\n        address[] memory votedPools = IVoter(voter).poolVote(veTokenId);\n        \n        for (uint256 i = 0; i < votedPools.length; i++) {\n            if (votedPools[i] != address(0)) {\n                address gauge = IGaugeManager(gaugeManager).gauges(votedPools[i]);\n                \n                if (gauge != address(0)) {\n                    // Prepare arrays for single bribe claim\n                    address[] memory bribes = new address[](1);\n                    address[][] memory tokens = new address[][](1);\n                    \n                    // Claim internal bribe (trading fees)\n                    address internalBribe = IGaugeManager(gaugeManager).internal_bribes(gauge);\n                    if (internalBribe != address(0)) {\n                        uint256 tokenCount = IBribe(internalBribe).rewardsListLength();\n                        if (tokenCount > 0) {\n                            address[] memory bribeTokens = new address[](tokenCount);\n                            for (uint256 j = 0; j < tokenCount; j++) {\n                                bribeTokens[j] = IBribe(internalBribe).bribeTokens(j);\n                            }\n                            bribes[0] = internalBribe;\n                            tokens[0] = bribeTokens;\n                            // Call claimBribes for this single bribe\n                            IGaugeManager(gaugeManager).claimBribes(bribes, tokens, veTokenId);\n                        }\n                    }\n                    \n                    // Claim external bribe\n                    address externalBribe = IGaugeManager(gaugeManager).external_bribes(gauge);\n                    if (externalBribe != address(0)) {\n                        uint256 tokenCount = IBribe(externalBribe).rewardsListLength();\n                        if (tokenCount > 0) {\n                            address[] memory bribeTokens = new address[](tokenCount);\n                            for (uint256 j = 0; j < tokenCount; j++) {\n                                bribeTokens[j] = IBribe(externalBribe).bribeTokens(j);\n                            }\n                            bribes[0] = externalBribe;\n                            tokens[0] = bribeTokens;\n                            // Call claimBribes for this single bribe\n                            IGaugeManager(gaugeManager).claimBribes(bribes, tokens, veTokenId);\n                        }\n                    }\n                }\n            }\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            370,
+            370
+          ]
+        ]
+      },
+      {
+        "code": "            \n            // Step 2: If current available >= amount, pass directly\n            if (currentAvailable >= amount) {\n                return;\n            }\n            \n            // Step 3: Not enough, clean expired locks and recalculate\n            _cleanExpired(from);\n            uint256 finalAvailable = totalBalance > lockedBalance[from] ? totalBalance - lockedBalance[from] : 0;\n            \n            // Step 4: Check final available balance\n            require(finalAvailable >= amount, \"Tokens locked\");\n        }\n    }\n    \n    /**\n     * @notice Claim all rewards from voting and rebase\n     */\n    function claimRewards() external onlyOperator {\n        require(voter != address(0), \"Voter not set\");\n        require(rewardsDistributor != address(0), \"Distributor not set\");\n              \n        // Claim rebase rewards from RewardsDistributor\n        uint256  rebaseAmount = IRewardsDistributor(rewardsDistributor).claim(veTokenId);\n        rebase += rebaseAmount;\n        // Claim bribes from voted pools\n        address[] memory votedPools = IVoter(voter).poolVote(veTokenId);\n        \n        for (uint256 i = 0; i < votedPools.length; i++) {\n            if (votedPools[i] != address(0)) {\n                address gauge = IGaugeManager(gaugeManager).gauges(votedPools[i]);\n                \n                if (gauge != address(0)) {\n                    // Prepare arrays for single bribe claim\n                    address[] memory bribes = new address[](1);\n                    address[][] memory tokens = new address[][](1);\n                    \n                    // Claim internal bribe (trading fees)\n                    address internalBribe = IGaugeManager(gaugeManager).internal_bribes(gauge);\n                    if (internalBribe != address(0)) {\n                        uint256 tokenCount = IBribe(internalBribe).rewardsListLength();\n                        if (tokenCount > 0) {\n                            address[] memory bribeTokens = new address[](tokenCount);\n                            for (uint256 j = 0; j < tokenCount; j++) {\n                                bribeTokens[j] = IBribe(internalBribe).bribeTokens(j);\n                            }\n                            bribes[0] = internalBribe;\n                            tokens[0] = bribeTokens;\n                            // Call claimBribes for this single bribe\n                            IGaugeManager(gaugeManager).claimBribes(bribes, tokens, veTokenId);\n                        }\n                    }\n                    \n                    // Claim external bribe\n                    address externalBribe = IGaugeManager(gaugeManager).external_bribes(gauge);\n                    if (externalBribe != address(0)) {\n                        uint256 tokenCount = IBribe(externalBribe).rewardsListLength();\n                        if (tokenCount > 0) {\n                            address[] memory bribeTokens = new address[](tokenCount);\n                            for (uint256 j = 0; j < tokenCount; j++) {\n                                bribeTokens[j] = IBribe(externalBribe).bribeTokens(j);\n                            }\n                            bribes[0] = externalBribe;\n                            tokens[0] = bribeTokens;\n                            // Call claimBribes for this single bribe\n                            IGaugeManager(gaugeManager).claimBribes(bribes, tokens, veTokenId);\n                        }\n                    }\n                }\n            }\n        }\n    }\n    \n \n\n    /**\n     * @notice Execute swap through the configured swapper module\n     * @param _params Swap parameters for the swapper module\n     */\n    function executeSwap(ISwapper.SwapParams calldata _params) external nonReentrant onlyOperator {\n        require(address(swapper) != address(0), \"Swapper not set\");\n\n        // Get token balance before swap\n        uint256 tokenBalance = IERC20(_params.tokenIn).balanceOf(address(this));\n        require(tokenBalance >= _params.amountIn, \"Insufficient token balance\");\n\n        // Approve swapper to spend tokens",
+        "start_line": 359,
+        "end_line": 415,
+        "context_start_line": 344,
+        "context_end_line": 430,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:07:56.553104",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of the function reverting due to incorrect fetching of the voted pools array.",
+      "content_reasoning": "The content mentions the relevant functions and variables, specifically the `claimRewards()` function and the `poolVote` mapping, which are present in the extracted code.",
+      "functions_found": [
+        "claimRewards",
+        "poolVote"
+      ],
+      "variables_found": [
+        "voter",
+        "rewardsDistributor",
+        "veTokenId"
+      ],
+      "patterns_found": [
+        "incorrect mapping access",
+        "function revert"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to reflect the nature of the vulnerability.",
+      "suggested_tag": "Function Reversion",
+      "alternative_tags": [
+        "Mapping Access Issue"
+      ],
+      "correction_explanation": "The issue pertains to a function reverting due to incorrect access to a mapping, which should be tagged accordingly."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The issue leads to a denial of service as the function cannot complete its intended operation due to the revert."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G9"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue is related to the business logic of the contract where the function fails to execute correctly due to incorrect mapping access.",
+      "vulnerability_type": "Function reverts due to incorrect mapping access"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-04-25T19:57:10.648013",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

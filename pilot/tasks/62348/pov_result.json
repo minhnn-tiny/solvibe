@@ -1,0 +1,41 @@
+{
+  "id": "62348",
+  "protocol": "Licredity",
+  "firm": "Cyfrin",
+  "finding": "Swap-and-pop without index fix-up corrupts Position's fungible array (Cyfrin C-2 / 7.1.2)",
+  "pov_test": "test/PoV62348_Licredity.t.sol::test_removeFungible_missingIndexFixup",
+  "pov_source": "data_collection/tier1_after_2025-08-31/62348.md (published Cyfrin PoC, adapted; split one helper to avoid stack-too-deep)",
+  "pov_style": "storage detector (asserts the moved element's FungibleState index word is left unchanged)",
+  "vulnerability_kind": "missing_code",
+  "vulnerability_note": "The fix ADDS the index fix-up (sstore of shl(192,index) into the state word). The bug is the absence of that write.",
+  "commits": {
+    "vic_blame": "f45abd742e6f01b5958ef34cd54a272daad8c530",
+    "pvic": "2a3047305f9e8ef7d68650da41ca68802d027a18",
+    "audited_snapshot": "e8ae10a7d9f27529e39ca277bf56cef01a807817",
+    "fix": "832d700152c336ed0a23bc2384e640cb30d8ce45",
+    "fix_reported_as": "ad095fc6d2de3f61f6c48ddfe60b98eff410f50d (PR#64 branch head, squash-merged; not in main history)"
+  },
+  "runs": [
+    {
+      "commit": "e8ae10a",
+      "role": "audited vulnerable snapshot",
+      "expected": "PASS",
+      "observed": "PASS",
+      "detail": "index word unchanged after swap-and-pop (0x...0002... stays)"
+    },
+    {
+      "commit": "832d700",
+      "role": "fix (Cyfrin C-2)",
+      "expected": "FAIL",
+      "observed": "FAIL",
+      "detail": "index corrected to 1 (0x...0001... != 0x...0002...), assertion fires"
+    }
+  ],
+  "parent_not_run": "PVIC not run; same missing-code kind as 62347, so the parent is expected to be vulnerable too.",
+  "oracle_valid": true,
+  "oracle_basis": "PASS on vulnerable code, FAIL on the fix.",
+  "sandbox": "Docker solvibe-tools:1, network off (pilot/scripts/dock.sh), local code only",
+  "solc": "0.8.30",
+  "deps": "soldeer: forge-std 1.9.7, uniswap-v4-core 4 (identical across commits; copied offline)",
+  "parent_status": "feature without the bug (code reading of parent 2a30473: its removeFungible updates the moved entry's index; the blamed commit f45abd7 dropped that line). Not run."
+}

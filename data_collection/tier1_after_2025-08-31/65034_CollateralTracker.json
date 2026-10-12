@@ -1,0 +1,106 @@
+{
+  "id": "65034",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-12-panoptic/blob/fe557748210a529ae414d7c487b6514be0d9e220/contracts/CollateralTracker.sol# L1595",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      1595,
+      1595
+    ]
+  ],
+  "filename": "65034_CollateralTracker.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 1664,
+  "vulnerability_title": "[M-07] Liquidator can receive an inflated bonus against PLPs on `PanopticPool._liquidate`",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Include the commission fee (in asset terms) in the `tokenPaid` returned from `settleBurn`, or return the commission separately and incorporate it into `netPaid` before calling `getLiquidationBonus`.\n\nSample mitigation (adjust return value to include commission):\n```\n\n// contracts/CollateralTracker.sol\nfunction settleBurn(...) external onlyPanopticPool returns (int128) {\n    (, int128 tokenPaid, uint256 _totalAssets, uint256 _totalSupply) = _updateBalancesAndSettle(\n        optionOwner,\n        false,\n        longAmount,\n        shortAmount,\n        ammDeltaAmount,\n        realizedPremium\n    );\n\n    if (realizedPremium != 0) {\n        uint128 commissionFee = ...;\n        uint256 sharesToBurn = Math.mulDivRoundingUp(commissionFee, _totalSupply, _totalAssets);\n        _burn(optionOwner, sharesToBurn);\n        tokenPaid += int128(uint128(commissionFee));\n    }\n\n    return tokenPaid;\n}\n```",
+    "fix_code_blocks": [
+      "// contracts/CollateralTracker.sol\nfunction settleBurn(...) external onlyPanopticPool returns (int128) {\n    (, int128 tokenPaid, uint256 _totalAssets, uint256 _totalSupply) = _updateBalancesAndSettle(\n        optionOwner,\n        false,\n        longAmount,\n        shortAmount,\n        ammDeltaAmount,\n        realizedPremium\n    );\n\n    if (realizedPremium != 0) {\n        uint128 commissionFee = ...;\n        uint256 sharesToBurn = Math.mulDivRoundingUp(commissionFee, _totalSupply, _totalAssets);\n        _burn(optionOwner, sharesToBurn);\n        tokenPaid += int128(uint128(commissionFee));\n    }\n\n    return tokenPaid;\n}"
+    ]
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "`test/foundry/core/PanopticPool.t.sol`\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-12-panoptic-next-core/submissions/S-463)\n\n**[Panoptic mitigated](https://github.com/code-423n4/2026-02-panoptic-next-core-mitigation?tab=readme-ov-file# mitigation-of-high--medium-severity-issues):**\n\n> Include commissions in `tokenPaid`.\n\n**Status:** Mitigation confirmed. Full details in reports from [Valves](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-9), [edoscoba](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-24), and [Nyx](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-39).\n\n---",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "settleBurn",
+        "start_line": 1595,
+        "end_line": 1663,
+        "code": "    function settleBurn(\n        address optionOwner,\n        int128 longAmount,\n        int128 shortAmount,\n        int128 ammDeltaAmount,\n        int128 realizedPremium,\n        RiskParameters riskParameters\n    ) external onlyPanopticPool returns (int128) {\n        (, int128 tokenPaid, uint256 _totalAssets, uint256 _totalSupply) = _updateBalancesAndSettle(\n            optionOwner,\n            false, // isCreation = false\n            longAmount,\n            shortAmount,\n            ammDeltaAmount,\n            realizedPremium\n        );\n\n        if (realizedPremium != 0) {\n            uint128 commissionFee;\n            // compute the minimum of the notionalFee and the premiumFee\n            {\n                uint128 commissionP;\n                unchecked {\n                    commissionP = realizedPremium > 0\n                        ? uint128(realizedPremium)\n                        : uint128(-realizedPremium);\n                }\n                uint128 commissionFeeP = Math\n                    .mulDivRoundingUp(commissionP, riskParameters.premiumFee(), DECIMALS)\n                    .toUint128();\n                uint128 commissionN = uint256(int256(shortAmount) + int256(longAmount)).toUint128();\n                uint128 commissionFeeN;\n                unchecked {\n                    commissionFeeN = Math\n                        .mulDivRoundingUp(commissionN, 10 * riskParameters.notionalFee(), DECIMALS)\n                        .toUint128();\n                }\n                commissionFee = Math.min(commissionFeeP, commissionFeeN).toUint128();\n            }\n\n            uint256 sharesToBurn = Math.mulDivRoundingUp(commissionFee, _totalSupply, _totalAssets);\n\n            if (riskParameters.feeRecipient() == 0) {\n                _burn(optionOwner, sharesToBurn);\n                emit CommissionPaid(optionOwner, address(0), commissionFee, 0);\n            } else {\n                unchecked {\n                    _transferFrom(\n                        optionOwner,\n                        address(riskEngine()),\n                        (sharesToBurn * riskParameters.protocolSplit()) / DECIMALS\n                    );\n                    _transferFrom(\n                        optionOwner,\n                        address(uint160(riskParameters.feeRecipient())),\n                        (sharesToBurn * riskParameters.builderSplit()) / DECIMALS\n                    );\n                    emit CommissionPaid(\n                        optionOwner,\n                        address(uint160(riskParameters.feeRecipient())),\n                        uint128((commissionFee * riskParameters.protocolSplit()) / DECIMALS),\n                        uint128((commissionFee * riskParameters.protocolSplit()) / DECIMALS)\n                    );\n                }\n            }\n        }\n\n        return tokenPaid;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1595,
+            1595
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:49.963314",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of the `settleBurn` function not including commission in `tokenPaid`, leading to an inflated liquidation bonus.",
+      "content_reasoning": "The content mentions the `settleBurn` function and the variables `tokenPaid` and `commissionFee`, which are present in the code. The described pattern of not adjusting `tokenPaid` for commission is evident.",
+      "functions_found": [
+        "settleBurn"
+      ],
+      "variables_found": [
+        "tokenPaid",
+        "commissionFee"
+      ],
+      "patterns_found": [
+        "commission not included in tokenPaid"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report lacks a tag, but it should be tagged to reflect the business logic issue.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "liquidation_bonus"
+      ],
+      "correction_explanation": "The issue is primarily related to business logic where the commission is not accounted for in the liquidation process."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 70,
+      "mando_applicable": false,
+      "reasoning": "The issue is a business logic flaw related to liquidation bonuses, which does not fit neatly into any MANDO categories."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is a business logic issue where the commission is not included in the calculation of `tokenPaid`, leading to an inflated liquidation bonus.",
+      "vulnerability_type": "Business logic flaw in liquidation bonus calculation"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-03-20T15:22:49.127064",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

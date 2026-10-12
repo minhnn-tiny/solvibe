@@ -1,0 +1,62 @@
+diff --git a/src/types/Position.sol b/src/types/Position.sol
+index 7dad931..4b00047 100644
+--- a/src/types/Position.sol
++++ b/src/types/Position.sol
+@@ -78,39 +78,30 @@ library PositionLibrary {
+     {
+         FungibleState state = self.fungibleStates[fungible];
+         uint256 index = state.index();
+-        uint256 newBalance = state.balance() - amount;
+-
+-        if (index != 0) {
+-            if (newBalance != 0) {
+-                state = toFungibleState(index, newBalance);
+-            } else {
+-                state = FungibleState.wrap(0);
+ 
+-                // remove a fungible from the fungibles array
+-                assembly ("memory-safe") {
+-                    let slot := add(self.slot, FUNGIBLES_OFFSET)
+-                    let len := sload(slot)
+-                    mstore(0x00, slot)
+-                    let dataSlot := keccak256(0x00, 0x20)
++        if (index == 0) {
++            return false;
++        }
+ 
+-                    if iszero(eq(index, len)) {
+-                        sstore(add(dataSlot, sub(index, 1)), sload(add(dataSlot, sub(len, 1))))
+-                    }
++        uint256 newBalance = state.balance() - amount;
+ 
+-                    sstore(add(dataSlot, sub(len, 1)), 0)
+-                    sstore(slot, sub(len, 1))
+-                }
+-            }
++        if (newBalance > 0) {
++            self.fungibleStates[fungible] = toFungibleState(index, newBalance);
++            return true;
++        }
+ 
+-            // update fungible state
+-            assembly ("memory-safe") {
+-                mstore(0x00, fungible)
+-                mstore(0x20, add(self.slot, FUNGIBLE_STATES_OFFSET))
+-                sstore(keccak256(0x00, 0x40), state)
+-            }
++        uint256 arrayIndex = index - 1;
++        uint256 lastIndex = self.fungibles.length - 1;
+ 
+-            isRemoved = true;
++        if (arrayIndex != lastIndex) {
++            Fungible lastFungible = self.fungibles[lastIndex];
++            self.fungibles[arrayIndex] = lastFungible;
++            self.fungibleStates[lastFungible] = toFungibleState(index, self.fungibleStates[lastFungible].balance());
+         }
++
++        self.fungibles.pop();
++        self.fungibleStates[fungible] = FungibleState.wrap(bytes32(0));
++        return true;
+     }
+ 
+     /// @notice Adds a non-fungible to a position

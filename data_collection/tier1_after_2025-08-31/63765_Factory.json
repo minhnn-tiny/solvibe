@@ -1,0 +1,117 @@
+{
+  "id": "63765",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-10-sequence/blob/b0e5fb15bf6735ec9aaba02f5eca28a7882d815d/src/Factory.sol# L18-L26",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      18,
+      26
+    ]
+  ],
+  "filename": "63765_Factory.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 28,
+  "vulnerability_title": "[M-04] Factory `deploy` reverts instead of returning address when account already exists",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "```\n\n{\n    bytes memory code = abi.encodePacked(Wallet.creationCode, uint256(uint160(_mainModule)));\n\n+    bytes32 initCodeHash = keccak256(code);\n+    bytes32 raw = keccak256(abi.encodePacked(bytes1(0xff), address(this), _salt, initCodeHash));\n+    address predicted = address(uint160(uint256(raw)));\n\n+    // If contract already exists at predicted address, return it\n+    if (predicted.code.length != 0) {\n+        return predicted;\n+    }\n\n    assembly {\n        _contract := create2(callvalue(), add(code, 32), mload(code), _salt)\n    }\n    if (_contract == address(0)) {\n        revert DeployFailed(_mainModule, _salt);\n    }\n}\n```\n\n\n```\n\n[PASS] test_factory_double_deploy_PoC(address,bytes32) (runs: 257, \u03bc: 76183, ~: 76416)\nTraces:\n  [76416] AuditPoC::test_factory_double_deploy_PoC(0x00000000000000000000000000000000000003cC, 0x0000000000000000000000000000000000000000000000000000000000000025)\n    \u251c\u2500 [64550] Factory::deploy(0x00000000000000000000000000000000000003cC, 0x0000000000000000000000000000000000000000000000000000000000000025)\n    \u2502   \u251c\u2500 [28742] \u2192 new <unknown>@0x1a59e6b710e25Cfd61a082a5dD7Cf32585B552dA\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] 33 bytes of code\n    \u2502   \u2514\u2500 \u2190 [Return] 0x1a59e6b710e25Cfd61a082a5dD7Cf32585B552dA\n    \u251c\u2500 [0] VM::assertEq(33, 33, \"Wallet size mismatch\") [staticcall]\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [1257] Factory::deploy(0x00000000000000000000000000000000000003cC, 0x0000000000000000000000000000000000000000000000000000000000000025)\n    \u2502   \u2514\u2500 \u2190 [Return] 0x1a59e6b710e25Cfd61a082a5dD7Cf32585B552dA\n    \u251c\u2500 [0] VM::assertEq(33, 33, \"Wallet size mismatch\") [staticcall]\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u2514\u2500 \u2190 [Return]\n```",
+    "fix_code_blocks": [
+      "{\n    bytes memory code = abi.encodePacked(Wallet.creationCode, uint256(uint160(_mainModule)));\n\n+    bytes32 initCodeHash = keccak256(code);\n+    bytes32 raw = keccak256(abi.encodePacked(bytes1(0xff), address(this), _salt, initCodeHash));\n+    address predicted = address(uint160(uint256(raw)));\n\n+    // If contract already exists at predicted address, return it\n+    if (predicted.code.length != 0) {\n+        return predicted;\n+    }\n\n    assembly {\n        _contract := create2(callvalue(), add(code, 32), mload(code), _salt)\n    }\n    if (_contract == address(0)) {\n        revert DeployFailed(_mainModule, _salt);\n    }\n}",
+      "[PASS] test_factory_double_deploy_PoC(address,bytes32) (runs: 257, \u03bc: 76183, ~: 76416)\nTraces:\n  [76416] AuditPoC::test_factory_double_deploy_PoC(0x00000000000000000000000000000000000003cC, 0x0000000000000000000000000000000000000000000000000000000000000025)\n    \u251c\u2500 [64550] Factory::deploy(0x00000000000000000000000000000000000003cC, 0x0000000000000000000000000000000000000000000000000000000000000025)\n    \u2502   \u251c\u2500 [28742] \u2192 new <unknown>@0x1a59e6b710e25Cfd61a082a5dD7Cf32585B552dA\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] 33 bytes of code\n    \u2502   \u2514\u2500 \u2190 [Return] 0x1a59e6b710e25Cfd61a082a5dD7Cf32585B552dA\n    \u251c\u2500 [0] VM::assertEq(33, 33, \"Wallet size mismatch\") [staticcall]\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [1257] Factory::deploy(0x00000000000000000000000000000000000003cC, 0x0000000000000000000000000000000000000000000000000000000000000025)\n    \u2502   \u2514\u2500 \u2190 [Return] 0x1a59e6b710e25Cfd61a082a5dD7Cf32585B552dA\n    \u251c\u2500 [0] VM::assertEq(33, 33, \"Wallet size mismatch\") [staticcall]\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u2514\u2500 \u2190 [Return]"
+    ]
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "1. Deploy `Factory` and a wallet via `deploy(_mainModule, salt)` once (successful).\n2. Call `deploy(_mainModule, salt)` again with same parameters \u2014 create2 will find contract already exists, create2 returns `CreateCollision` and the function reverts with `DeployFailed(_mainModule, _salt)`.\n```\n\n// SPDX-License-Identifier: Apache-2.0\npragma solidity ^0.8.27;\n\nimport {FactoryTest} from \"test/Factory.t.sol\";\n\ncontract AuditPoC is FactoryTest {\n    function test_factory_double_deploy_PoC(address _mainModule, bytes32 _salt) public {\n        address result = factory.deploy(_mainModule, _salt);\n        assertEq(result.code.length, 33, \"Wallet size mismatch\");\n\n        result = factory.deploy(_mainModule, _salt);\n        assertEq(result.code.length, 33, \"Wallet size mismatch\");\n    }\n}\n```\n\n\n```\n\n  [1040431107] AuditPoC::test_factory_double_deploy_PoC(0xbFEA7B873B630d3E83310E2a540C06A45764f0Db, 0xb3f3825fdd0643210f22c977e8adbde170329c48ea748299ef741cfd038c001d)\n    \u251c\u2500 [61508] Factory::deploy(0xbFEA7B873B630d3E83310E2a540C06A45764f0Db, 0xb3f3825fdd0643210f22c977e8adbde170329c48ea748299ef741cfd038c001d)\n    \u2502   \u251c\u2500 [28742] \u2192 new <unknown>@0x50A3E320ebE97E988a1FDa7080a5F1eFE55E7b0B\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] 33 bytes of code\n    \u2502   \u2514\u2500 \u2190 [Return] 0x50A3E320ebE97E988a1FDa7080a5F1eFE55E7b0B\n    \u251c\u2500 [0] VM::assertEq(33, 33, \"Wallet size mismatch\") [staticcall]\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [1040360150] Factory::deploy(0xbFEA7B873B630d3E83310E2a540C06A45764f0Db, 0xb3f3825fdd0643210f22c977e8adbde170329c48ea748299ef741cfd038c001d)\n    \u2502   \u251c\u2500 [0] \u2192 new <unknown>@0x50A3E320ebE97E988a1FDa7080a5F1eFE55E7b0B\n    \u2502   \u2502   \u2514\u2500 \u2190 [CreateCollision]\n    \u2502   \u2514\u2500 \u2190 [Revert] DeployFailed(0xbFEA7B873B630d3E83310E2a540C06A45764f0Db, 0xb3f3825fdd0643210f22c977e8adbde170329c48ea748299ef741cfd038c001d)\n    \u2514\u2500 \u2190 [Revert] DeployFailed(0xbFEA7B873B630d3E83310E2a540C06A45764f0Db, 0xb3f3825fdd0643210f22c977e8adbde170329c48ea748299ef741cfd038c001d)\n```\n\n---",
+    "poc_code_blocks": [
+      "// SPDX-License-Identifier: Apache-2.0\npragma solidity ^0.8.27;\n\nimport {FactoryTest} from \"test/Factory.t.sol\";\n\ncontract AuditPoC is FactoryTest {\n    function test_factory_double_deploy_PoC(address _mainModule, bytes32 _salt) public {\n        address result = factory.deploy(_mainModule, _salt);\n        assertEq(result.code.length, 33, \"Wallet size mismatch\");\n\n        result = factory.deploy(_mainModule, _salt);\n        assertEq(result.code.length, 33, \"Wallet size mismatch\");\n    }\n}",
+      "[1040431107] AuditPoC::test_factory_double_deploy_PoC(0xbFEA7B873B630d3E83310E2a540C06A45764f0Db, 0xb3f3825fdd0643210f22c977e8adbde170329c48ea748299ef741cfd038c001d)\n    \u251c\u2500 [61508] Factory::deploy(0xbFEA7B873B630d3E83310E2a540C06A45764f0Db, 0xb3f3825fdd0643210f22c977e8adbde170329c48ea748299ef741cfd038c001d)\n    \u2502   \u251c\u2500 [28742] \u2192 new <unknown>@0x50A3E320ebE97E988a1FDa7080a5F1eFE55E7b0B\n    \u2502   \u2502   \u2514\u2500 \u2190 [Return] 33 bytes of code\n    \u2502   \u2514\u2500 \u2190 [Return] 0x50A3E320ebE97E988a1FDa7080a5F1eFE55E7b0B\n    \u251c\u2500 [0] VM::assertEq(33, 33, \"Wallet size mismatch\") [staticcall]\n    \u2502   \u2514\u2500 \u2190 [Return]\n    \u251c\u2500 [1040360150] Factory::deploy(0xbFEA7B873B630d3E83310E2a540C06A45764f0Db, 0xb3f3825fdd0643210f22c977e8adbde170329c48ea748299ef741cfd038c001d)\n    \u2502   \u251c\u2500 [0] \u2192 new <unknown>@0x50A3E320ebE97E988a1FDa7080a5F1eFE55E7b0B\n    \u2502   \u2502   \u2514\u2500 \u2190 [CreateCollision]\n    \u2502   \u2514\u2500 \u2190 [Revert] DeployFailed(0xbFEA7B873B630d3E83310E2a540C06A45764f0Db, 0xb3f3825fdd0643210f22c977e8adbde170329c48ea748299ef741cfd038c001d)\n    \u2514\u2500 \u2190 [Revert] DeployFailed(0xbFEA7B873B630d3E83310E2a540C06A45764f0Db, 0xb3f3825fdd0643210f22c977e8adbde170329c48ea748299ef741cfd038c001d)"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "deploy",
+        "start_line": 18,
+        "end_line": 26,
+        "code": "  function deploy(address _mainModule, bytes32 _salt) public payable returns (address _contract) {\n    bytes memory code = abi.encodePacked(Wallet.creationCode, uint256(uint160(_mainModule)));\n    assembly {\n      _contract := create2(callvalue(), add(code, 32), mload(code), _salt)\n    }\n    if (_contract == address(0)) {\n      revert DeployFailed(_mainModule, _salt);\n    }\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            18,
+            26
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:08:07.373557",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of the `Factory.deploy` function reverting instead of returning an address when the wallet already exists, which is a key point in the provided code.",
+      "content_reasoning": "The content mentions the `deploy` function and the use of `create2`, which are present in the extracted code. The described behavior of reverting on collision is also evident in the code.",
+      "functions_found": [
+        "deploy"
+      ],
+      "variables_found": [
+        "_mainModule",
+        "_salt",
+        "_contract"
+      ],
+      "patterns_found": [
+        "create2",
+        "revert on existing address"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 85,
+      "reasoning": "The report lacks a tag that reflects the nature of the vulnerability, which is related to the factory deployment process and its compliance with ERC-4337.",
+      "suggested_tag": "ERC-4337 Compliance Issue",
+      "alternative_tags": [
+        "Factory Deployment Issue",
+        "Create2 Collision"
+      ],
+      "correction_explanation": "A tag should be added to indicate the specific compliance issue with ERC-4337, as it is central to the vulnerability."
+    },
+    "mando_classification": {
+      "primary_category": "front_running",
+      "secondary_categories": [
+        "denial_of_service"
+      ],
+      "confidence": 80,
+      "mando_applicable": true,
+      "reasoning": "The primary issue relates to front-running, as the revert behavior can be exploited by attackers to pre-create wallets, leading to denial of service for legitimate users."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "I1"
+      ],
+      "confidence": 85,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue primarily affects the business logic of the contract, specifically how it handles wallet creation and compliance with ERC-4337. The integration aspect is also relevant due to the interaction with external systems (bundlers).",
+      "vulnerability_type": "Factory deployment reverts on existing address"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-04-25T01:08:29.623183",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

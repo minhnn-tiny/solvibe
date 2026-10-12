@@ -1,0 +1,47 @@
+{
+  "id": "62350",
+  "protocol": "Licredity",
+  "firm": "Cyfrin",
+  "finding": "decreaseDebtShare bypasses interest accrual (Cyfrin H-2 / 7.2.2)",
+  "pov_test": "test/PoV62350_Licredity.t.sol::test_decraseDebtBalance_doesntAccrueInterest",
+  "pov_source": "data_collection/tier1_after_2025-08-31/62350.md (published Cyfrin PoC, adapted verbatim)",
+  "vulnerability_kind": "missing_code",
+  "vulnerability_note": "The fix ADDS a line: it calls _collectInterest(false) at the start of decreaseDebtShare so interest is brought up to date before the repayment is computed. The bug is the absence of that accrual, so it predates the fix and there is no clean parent. Confirmed: the parent of the fix (30fc63c) is also vulnerable (PoV PASSES there too).",
+  "commits": {
+    "vic_blame": "n/a (missing_code: no vulnerability-introducing commit; the accrual was never there before the fix)",
+    "pvic": "n/a",
+    "audited_snapshot": "e8ae10a7d9f27529e39ca277bf56cef01a807817",
+    "fix": "0d54fae86cd2797f7f98eec2b4ebb2a57b89020d",
+    "fix_reported_as": "PR#59 (commits 8ca2a35, 81e54c0 per the report); those hashes are not present in main history. The squash-merged commit on main that adds the interest accrual to decreaseDebtShare is 0d54fae (H-2 / 7.2.2, #59)."
+  },
+  "runs": [
+    {
+      "commit": "e8ae10a",
+      "role": "audited vulnerable snapshot",
+      "expected": "PASS",
+      "observed": "PASS",
+      "detail": "no interest charged on direct repayment; amountRepaid == amountBorrowed"
+    },
+    {
+      "commit": "30fc63c",
+      "role": "parent of fix",
+      "expected": "PASS (also vulnerable)",
+      "observed": "PASS",
+      "detail": "parent is ALSO vulnerable; the accrual did not exist before the fix"
+    },
+    {
+      "commit": "0d54fae",
+      "role": "fix (Cyfrin H-2 / 7.2.2)",
+      "expected": "FAIL",
+      "observed": "FAIL",
+      "detail": "interest is accrued first, so the owed amount exceeds the borrower's balance and the full direct repayment reverts with an arithmetic underflow (panic 0x11) before the assertion is reached; interest is now charged"
+    }
+  ],
+  "oracle_valid": true,
+  "oracle_basis": "Differential holds: PASS on vulnerable code, FAIL on the fix. This proves the PoV detects the bug and is not trivially always-passing. On the fix the failure is a revert (interest accrual raises the owed amount above the borrower's holdings), which is a valid FAIL.",
+  "parent_check": "NOT satisfied and not applicable for this finding type. This is a missing_code finding: the fix adds interest accrual, so the parent of the fix is also vulnerable (verified: PoV PASSES at 30fc63c). There is no clean parent.",
+  "sandbox": "Docker image solvibe-tools:1, network off (pilot/scripts/dock.sh), local audited code only. Validation done in a throwaway git clone --local of the clone with the offline dependencies copied in; the shared clone and prepared snapshot were not mutated.",
+  "solc": "0.8.30",
+  "deps": "soldeer: forge-std 1.9.7, uniswap-v4-core 4 (identical foundry.toml/remappings/soldeer.lock across e8ae10a, 30fc63c and 0d54fae; copied offline)",
+  "parent_status": "has the bug (checked: attack passes on 30fc63c, the parent of the fix; git blame found no commit for this missing line)"
+}

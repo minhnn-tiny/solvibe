@@ -1,0 +1,30 @@
+{
+  "id": "63760",
+  "protocol": "Sequence",
+  "what_is_at_risk": "Every asset held by a Sequence v3 wallet that sits behind a checkpointer: native ETH and any tokens the wallet owns.",
+  "loss_type": "theft",
+  "who_loses": "The wallet owner (the users of the current, updated wallet configuration).",
+  "who_gains": "A signer who was removed from the wallet configuration but still appears in the stale configuration stored on chain.",
+  "scenario": "A Stage1 wallet deployed for config1 (Alice, threshold 1, checkpoint 1) holds 100 test ETH and 1,000,000 MOCK tokens; the checkpointer reports config2 (Bob only, checkpoint 2), so Alice is evicted. Alice's normal signature is rejected (UnusedSnapshot), but the same payload wrapped in a chained signature with the checkpointer bit unset is executed and sends all ETH and all MOCK to Alice.",
+  "measured": {
+    "unit": "ETH (test ether set with vm.deal; the MOCK token result is in notes)",
+    "user_funds_in_scenario": 100,
+    "user_loss": 100,
+    "attacker_gain": 100,
+    "loss_pct_of_user_funds": 100
+  },
+  "worst_case_pct_of_user_funds": "100",
+  "worst_case_basis": "The bypass yields a signature the wallet accepts as fully valid, and a valid signature authorises any batch of calls, including transfers of every asset and a config update that locks out the real owners. So the evicted signer can take everything the wallet holds.",
+  "scales_with": "The wallet's total balance across all assets. It also needs the evicted signer (or signers) to reach the threshold of the stale configuration still stored on chain.",
+  "repeatable": "yes",
+  "concrete_usd": null,
+  "why_no_usd": "The scenario uses test ether and a mock ERC20 token in a local, offline deployment, and the audited code was fixed before release. No real wallet or price is involved, so no dollar amount can be measured.",
+  "fix_check": {
+    "commit": "fa0fae3de26e189cf4f8a554b2d72f0a35297bc0",
+    "result": "Attack rejected: execute reverted (empty revert data) and the wallet kept 100 ETH and 1,000,000 MOCK, so loss is 0. The control (direct signature) is still rejected with UnusedSnapshot (0xccbb534f). The exact revert reason under the fix was not decoded."
+  },
+  "confidence": "measured",
+  "loss_test": "pilot/tasks/63760/loss/Loss63760_Sequence.t.sol",
+  "command": "forge test --offline --match-path test/Loss63760_Sequence.t.sol -vv",
+  "notes": "Run offline in Docker (pilot/scripts/dock.sh, no network) in throwaway clones at 0682fe1 (vulnerable) and fa0fae3 (fix), with deps copied from pilot/repos/prepared/0xsequence__wallet-contracts-v3@0682fe1/lib. The wallet is a real Factory + Stage1Module deployment, and the drain goes through the wallet's own execute path. The same payload also moved 1,000,000 of 1,000,000 MOCK tokens (100%). The control step shows the checkpointer normally blocks Alice, so the loss comes from the bypass alone. The denominator is the wallet's full balance of each asset before the attack. The attack works only while the on-chain configuration is behind the checkpointer, which is the normal state after an off-chain configuration update."
+}

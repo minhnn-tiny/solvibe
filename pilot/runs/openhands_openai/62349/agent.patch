@@ -1,0 +1,82 @@
+diff --git a/src/Licredity.sol b/src/Licredity.sol
+index e4ce7c0..af90706 100644
+--- a/src/Licredity.sol
++++ b/src/Licredity.sol
+@@ -720,42 +720,48 @@ contract Licredity is ILicredity, IERC721TokenReceiver, BaseERC20, BaseHooks, Ex
+     function _afterSwap(
+         address sender,
+         PoolKey calldata,
+-        IPoolManager.SwapParams calldata,
++        IPoolManager.SwapParams calldata params,
+         BalanceDelta balanceDelta,
+         bytes calldata
+     ) internal override returns (bytes4, int128) {
+-        // do nothing during the back run swap
+-        if (sender != address(this)) {
+-            (uint256 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
+-
+-            // price below 1 will result in negative interest, which is not allowed
+-            // mint non-interest-bearing debt fungible to revert the effect of the current swap
+-            // anyone can remove these additional fungible tokens by exchanging them for base fungible collected
+-            if (sqrtPriceX96 <= ONE_SQRT_PRICE_X96) {
+-                // back run swap to revert the effect of the current swap, using exactOut to account for fees
+-                IPoolManager.SwapParams memory params =
+-                    IPoolManager.SwapParams(false, -balanceDelta.amount0(), MAX_SQRT_PRICE_X96 - 1);
+-                balanceDelta = poolManager.swap(poolKey, params, "");
+-
+-                // store amounts eligible for exchange
+-                uint256 baseAmount = uint128(balanceDelta.amount0());
+-                uint256 debtAmount = uint128(-balanceDelta.amount1());
+-                baseAmountAvailable += baseAmount;
+-                debtAmountOutstanding += debtAmount;
+-
+-                // reconcile balance delta with the pool manager
+-                poolManager.sync(Currency.wrap(address(this)));
+-                _mint(address(poolManager), debtAmount);
+-                poolManager.settle();
++        if (sender == address(this)) {
++            return (this.afterSwap.selector, 0);
++        }
++
++        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
++        if (sqrtPriceX96 <= ONE_SQRT_PRICE_X96) {
++            int128 swapAmount = params.zeroForOne ? balanceDelta.amount0() : balanceDelta.amount1();
++            if (swapAmount < 0) {
++                uint256 amountIn = uint256(uint128(-swapAmount));
++                BalanceDelta restoreDelta = poolManager.swap(
++                    poolKey,
++                    IPoolManager.SwapParams({
++                        zeroForOne: false,
++                        amountSpecified: -int256(amountIn),
++                        sqrtPriceLimitX96: MAX_SQRT_PRICE_X96 - 1
++                    }),
++                    ""
++                );
++
++                int128 amount0 = restoreDelta.amount0();
++                if (amount0 > 0) {
++                    uint256 baseAmount = uint256(uint128(amount0));
++                    baseAmountAvailable += baseAmount;
++                    poolManager.take(Currency.wrap(Fungible.unwrap(baseFungible)), address(this), baseAmount);
++                }
+ 
+-                // If there is not enough ETH in the Uniswap V4 Pool Manager, `poolManager.take` will revert
+-                poolManager.take(Currency.wrap(Fungible.unwrap(baseFungible)), address(this), baseAmount);
++                int128 amount1 = restoreDelta.amount1();
++                if (amount1 < 0) {
++                    uint256 debtAmount = uint256(uint128(-amount1));
++                    debtAmountOutstanding += debtAmount;
++                    poolManager.sync(Currency.wrap(address(this)));
++                    _mint(address(poolManager), debtAmount);
++                    poolManager.settle();
++                }
+             }
+-
+-            // trigger the oracle for price update
+-            oracle.update();
+         }
+ 
++        oracle.update();
+         return (this.afterSwap.selector, 0);
+     }
+ 

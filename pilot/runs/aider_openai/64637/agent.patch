@@ -1,0 +1,62 @@
+diff --git a/contracts/src/Bet.sol b/contracts/src/Bet.sol
+index 3fa576b..e43899f 100644
+--- a/contracts/src/Bet.sol
++++ b/contracts/src/Bet.sol
+@@ -163,37 +163,44 @@ contract Bet is IBet, Initializable {
+     /// @dev Anybody can cancel an expired bet and send funds back to each party. The maker can cancel a pending bet.
+     function cancel() external {
+         IBet.Bet memory b = _bet;
++        IBet.Status currentStatus = _status(b);
+ 
+-        // Can't cancel a bet that's already completed
+-        if (b.status >= IBet.Status.RESOLVED) {
++        if (
++            currentStatus == IBet.Status.RESOLVED ||
++            currentStatus == IBet.Status.CANCELLED
++        ) {
+             revert InvalidStatus();
+-        } else {
+-            // Pending or active bets at this point
+-            // The maker can cancel a pending bet, so block them from cancelling an active bet
+-            if (b.maker == msg.sender && b.status != IBet.Status.PENDING) {
+-                revert InvalidStatus();
++        }
++
++        if (currentStatus == IBet.Status.PENDING) {
++            if (msg.sender != b.maker) {
++                revert Unauthorized();
++            }
++        } else if (currentStatus == IBet.Status.ACTIVE) {
++            if (msg.sender != b.judge) {
++                revert Unauthorized();
+             }
+         }
+ 
+         uint256 makerRefund = b.makerStake;
+         uint256 takerRefund = b.takerStake;
+ 
+-        // If there is a pool, withdraw the funds from Aave first
+         if (address(_aavePool) != address(0)) {
+             uint256 aTokenBalance = IERC20(_aavePool.getReserveAToken(b.asset))
+                 .balanceOf(address(this));
++
++            uint256 totalRefund = makerRefund + takerRefund;
++            uint256 withdrawn = _min(totalRefund, aTokenBalance);
+             _aavePool.withdraw(b.asset, aTokenBalance, address(this));
+ 
+-            makerRefund = _min(makerRefund, aTokenBalance);
+-            takerRefund = _min(takerRefund, aTokenBalance - makerRefund);
++            makerRefund = _min(makerRefund, withdrawn);
++            takerRefund = _min(takerRefund, withdrawn > makerRefund ? withdrawn - makerRefund : 0);
+         }
+ 
+-        // Transfer the funds back to the maker and taker
+-        // We don't track which party has deposited, so we can try/catch both transfers starting with the maker
+         try IERC20(b.asset).transfer(b.maker, makerRefund) {} catch {}
++
+         try IERC20(b.asset).transfer(b.taker, takerRefund) {} catch {}
+ 
+-        // Update the bet struct
+         _bet.status = IBet.Status.CANCELLED;
+         emit BetCancelled();
+     }

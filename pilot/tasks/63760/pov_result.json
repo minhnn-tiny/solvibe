@@ -1,0 +1,51 @@
+{
+  "id": "63760",
+  "protocol": "Sequence",
+  "firm": "Code4rena",
+  "finding": "[H-01] Chained signature with checkpoint usage disabled can bypass all checkpointer validation (Code4rena 2025-10-sequence, F-292 / S-360)",
+  "pov_test": "test/PoV63760_Sequence.t.sol::test_PoC_checkpointer_bypass",
+  "pov_source": "data_collection/tier1_after_2025-08-31/63760.md (report PoC test_PoC_checkpointer_bypass, re-encoded without the primitives RPC server so it runs offline)",
+  "vulnerability_kind": "missing_check",
+  "vulnerability_note": "The fix ADDS protection: it clears the provided checkpointer and only reads a checkpointer address under the correct recover mode, and it reverts a chained signature nested in another chained signature (ChainedSignatureNestedInChainedSignature). The vulnerable code let a chained signature carry an inner signature that re-enabled the checkpointer bit while the checkpointer was ignored, so the checkpointer snapshot was never enforced. This is the absence of that protection, not a single bad line, so the parent of the vulnerable commit is also vulnerable. The report's recommended mitigation was likewise an added guard (revert when a chained signature has the checkpointer bit unset); the applied fix is a broader restructure of recover with the same effect.",
+  "commits": {
+    "audited_snapshot": "code-423n4/2025-10-sequence @ b0e5fb15bf6735ec9aaba02f5eca28a7882d815d (audit mirror); its BaseSig.sol blob a43340a is byte-identical to the wallet-contracts-v3 commits below",
+    "audited_commit_in_history_repo": "7f16e368f224b1eff78bc2bfb6cb09f96456b8b9 (per history.json; BaseSig.sol blob a43340a is unchanged from here through the vulnerable commit)",
+    "vulnerable_commit": "0682fe1aa4c2e89ece177577abbdac6188d66df1 (parent of the fix; BaseSig.sol blob a43340a identical to the audited snapshot; chosen so the fix is the only BaseSig.sol difference against the fix commit)",
+    "parent_of_vulnerable": "88b41d5fa4fd1d754208f6b7c600955e483de17b",
+    "fix": "fa0fae3de26e189cf4f8a554b2d72f0a35297bc0",
+    "fix_reported_as": "PR #95 'C4 S-360 Checkpointer bypass (alternative solution)', merged on main as fa0fae3"
+  },
+  "runs": [
+    {
+      "commit": "0682fe1",
+      "role": "audited vulnerable snapshot (BaseSig.sol identical to the audit mirror)",
+      "expected": "PASS",
+      "observed": "PASS",
+      "detail": "chained signature with checkpointer disabled is accepted; recovers stale config1 image hash, weight 1 >= threshold 1"
+    },
+    {
+      "commit": "88b41d5",
+      "role": "parent of vulnerable commit",
+      "expected": "PASS",
+      "observed": "PASS",
+      "detail": "BaseSig.sol identical to the vulnerable commit; bug predates the fix, confirming missing_check"
+    },
+    {
+      "commit": "fa0fae3",
+      "role": "fix (C4 S-360)",
+      "expected": "FAIL",
+      "observed": "FAIL",
+      "detail": "recovered image hash 0x1a18...cd5e != config1 0x8680...7fae; the inner signature can no longer smuggle a disabled checkpointer"
+    }
+  ],
+  "oracle_valid": true,
+  "oracle_basis": "Differential holds: PASS on the vulnerable code, FAIL on the fix. This proves the PoV detects the bug and is not trivially always-passing.",
+  "parent_check": "Parent of the vulnerable commit also PASSES (also vulnerable). Expected for a missing_check finding: the fix adds protection, so no clean parent exists.",
+  "sandbox": "Docker image solvibe-tools:1, network off (pilot/scripts/dock.sh), local code only. Build and all PoV runs offline.",
+  "build": "Foundry with git submodules under lib/ (forge-std, openzeppelin-contracts, erc2470-libs, account-abstraction), via-ir, solc 0.8.28.",
+  "deps": "Submodules fetched once (network) and vendored at pilot/repos/prepared/0xsequence__wallet-contracts-v3@0682fe1/lib; copied into throwaway clones for offline builds. Same submodule pins at the vulnerable and fix commits.",
+  "functional_cmd": "forge test --offline --match-path test/utils/LibBytes.t.sol",
+  "functional_cmd_status": "PASSES on vulnerable code (23 tests). It covers the byte-reading primitives recover is built on. The repository's direct signature tests (BaseSig.t.sol, Stage1Module.t.sol, etc.) all require the external sequence.js primitives RPC server and cannot run offline, so they are unsuitable.",
+  "solc": "0.8.28",
+  "parent_status": "has the bug (checked: attack passes on 88b41d5, the parent of the audited version; the blamed commit add57af is a refactor whose parent c9da162 already has the same checkpointer logic)"
+}

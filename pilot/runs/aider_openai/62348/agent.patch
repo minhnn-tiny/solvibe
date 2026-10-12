@@ -1,0 +1,89 @@
+diff --git a/src/types/Position.sol b/src/types/Position.sol
+index 7dad931..750641f 100644
+--- a/src/types/Position.sol
++++ b/src/types/Position.sol
+@@ -77,40 +77,58 @@ library PositionLibrary {
+         returns (bool isRemoved)
+     {
+         FungibleState state = self.fungibleStates[fungible];
+-        uint256 index = state.index();
+-        uint256 newBalance = state.balance() - amount;
+-
+-        if (index != 0) {
+-            if (newBalance != 0) {
+-                state = toFungibleState(index, newBalance);
+-            } else {
+-                state = FungibleState.wrap(0);
+-
+-                // remove a fungible from the fungibles array
+-                assembly ("memory-safe") {
+-                    let slot := add(self.slot, FUNGIBLES_OFFSET)
+-                    let len := sload(slot)
+-                    mstore(0x00, slot)
+-                    let dataSlot := keccak256(0x00, 0x20)
+-
+-                    if iszero(eq(index, len)) {
+-                        sstore(add(dataSlot, sub(index, 1)), sload(add(dataSlot, sub(len, 1))))
+-                    }
+-
+-                    sstore(add(dataSlot, sub(len, 1)), 0)
+-                    sstore(slot, sub(len, 1))
+-                }
+-            }
+ 
+-            // update fungible state
++        if (state.index() == 0) {
++            return false;
++        }
++
++        uint256 balance = state.balance();
++        require(amount <= balance, "Position: insufficient balance");
++
++        uint256 newBalance = balance - amount;
++
++        if (newBalance > 0) {
++            state = toFungibleState(state.index(), newBalance);
++
+             assembly ("memory-safe") {
+                 mstore(0x00, fungible)
+                 mstore(0x20, add(self.slot, FUNGIBLE_STATES_OFFSET))
+                 sstore(keccak256(0x00, 0x40), state)
+             }
+ 
+-            isRemoved = true;
++            return true;
+         }
++
++        assembly ("memory-safe") {
++            let fungiblesSlot := add(self.slot, FUNGIBLES_OFFSET)
++            let fungiblesLen := sload(fungiblesSlot)
++            let index := sub(state.index(), 1)
++            let lastIndex := sub(fungiblesLen, 1)
++            let fungiblesDataSlot := keccak256(0x00, 0x20)
++
++            // Remove fungible from the array by swapping with the last element if needed.
++            if iszero(eq(index, lastIndex)) {
++                let lastFungible := sload(add(fungiblesDataSlot, lastIndex))
++                sstore(add(fungiblesDataSlot, index), lastFungible)
++
++                // Update the moved fungible's cached index to match its new 1-based position.
++                mstore(0x00, lastFungible)
++                mstore(0x20, add(self.slot, FUNGIBLE_STATES_OFFSET))
++                let movedStateSlot := keccak256(0x00, 0x40)
++                let movedState := sload(movedStateSlot)
++                sstore(movedStateSlot, toFungibleState(add(index, 1), and(movedState, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffff)))
++            }
++
++            sstore(add(fungiblesDataSlot, lastIndex), 0)
++            sstore(fungiblesSlot, sub(fungiblesLen, 1))
++
++            // Clear the removed fungible's state.
++            mstore(0x00, fungible)
++            mstore(0x20, add(self.slot, FUNGIBLE_STATES_OFFSET))
++            sstore(keccak256(0x00, 0x40), 0)
++        }
++
++        return true;
+     }
+ 
+     /// @notice Adds a non-fungible to a position

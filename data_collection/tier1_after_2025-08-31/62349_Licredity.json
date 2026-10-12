@@ -1,0 +1,110 @@
+{
+  "id": "62349",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/Licredity/licredity-v1-core/blob/e8ae10a7d9f27529e39ca277bf56cef01a807817/src/Licredity.sol#L734-L753",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      734,
+      753
+    ]
+  ],
+  "filename": "62349_Licredity.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 915,
+  "vulnerability_title": "Self-triggered `Licredity::_afterSwap` back-run enables LP fee farming",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_afterSwap",
+        "start_line": 720,
+        "end_line": 760,
+        "code": "    function _afterSwap(\n        address sender,\n        PoolKey calldata,\n        IPoolManager.SwapParams calldata,\n        BalanceDelta balanceDelta,\n        bytes calldata\n    ) internal override returns (bytes4, int128) {\n        // do nothing during the back run swap\n        if (sender != address(this)) {\n            (uint256 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);\n\n            // price below 1 will result in negative interest, which is not allowed\n            // mint non-interest-bearing debt fungible to revert the effect of the current swap\n            // anyone can remove these additional fungible tokens by exchanging them for base fungible collected\n            if (sqrtPriceX96 <= ONE_SQRT_PRICE_X96) {\n                // back run swap to revert the effect of the current swap, using exactOut to account for fees\n                IPoolManager.SwapParams memory params =\n                    IPoolManager.SwapParams(false, -balanceDelta.amount0(), MAX_SQRT_PRICE_X96 - 1);\n                balanceDelta = poolManager.swap(poolKey, params, \"\");\n\n                // store amounts eligible for exchange\n                uint256 baseAmount = uint128(balanceDelta.amount0());\n                uint256 debtAmount = uint128(-balanceDelta.amount1());\n                baseAmountAvailable += baseAmount;\n                debtAmountOutstanding += debtAmount;\n\n                // reconcile balance delta with the pool manager\n                poolManager.sync(Currency.wrap(address(this)));\n                _mint(address(poolManager), debtAmount);\n                poolManager.settle();\n\n                // If there is not enough ETH in the Uniswap V4 Pool Manager, `poolManager.take` will revert\n                poolManager.take(Currency.wrap(Fungible.unwrap(baseFungible)), address(this), baseAmount);\n            }\n\n            // trigger the oracle for price update\n            oracle.update();\n        }\n\n        return (this.afterSwap.selector, 0);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            734,
+            753
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:03:07.135724",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the economic drain vulnerability due to the back-run swap mechanism, which is present in the code.",
+      "content_reasoning": "The content mentions the `Licredity::_afterSwap` function and the relevant variables and logic that allow for the exploitation described in the report.",
+      "functions_found": [
+        "_afterSwap"
+      ],
+      "variables_found": [
+        "sqrtPriceX96",
+        "balanceDelta",
+        "baseAmountAvailable",
+        "debtAmountOutstanding"
+      ],
+      "patterns_found": [
+        "back-run swap",
+        "fee mining"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 90,
+      "reasoning": "The existing tag 'None' does not reflect the economic exploit vulnerability present in the report.",
+      "suggested_tag": "Economic Exploit",
+      "alternative_tags": [
+        "Liquidity Manipulation",
+        "Fee Mining"
+      ],
+      "correction_explanation": "The vulnerability involves exploiting the liquidity provision mechanism for profit, which should be tagged appropriately."
+    },
+    "mando_classification": {
+      "primary_category": "front_running",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability involves manipulating the order of transactions to extract value, which fits the front-running category."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "C8"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is primarily related to the business logic of the contract allowing for fee extraction through back-running, and it also involves liquidity pool mechanics.",
+      "vulnerability_type": "Economic drain through liquidity manipulation"
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-04-24T18:51:50.878190",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

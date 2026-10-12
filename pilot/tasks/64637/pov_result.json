@@ -1,0 +1,40 @@
+{
+  "id": "64637",
+  "protocol": "Wannabet",
+  "firm": "Cyfrin",
+  "finding": "Active and pending bets can be cancelled by anyone (Cyfrin, Wannabet-v2)",
+  "pov_test": "test/PoV64637_Wannabet.t.sol::test_ActiveBetCanBeCancelledByAnyone",
+  "pov_source": "data_collection/tier1_after_2025-08-31/64637.md (published Cyfrin PoC, adapted to run fully offline: local mock ERC20 instead of a live Base fork, and the warp target is read from setUp instead of the renamed Bet struct field)",
+  "vulnerability_kind": "missing_code",
+  "vulnerability_note": "The fix ADDS a complete authorization check to Bet.cancel: an ACTIVE or JUDGING bet can be cancelled only by the judge; only an EXPIRED bet is cancellable by anyone. That check never existed before. The VIC (0c111c5, 'Organize contracts, add test') added only a partial guard that blocks the MAKER from cancelling an active bet, leaving the taker and everyone else able to cancel it. The pre-VIC function cancelBet() had no caller guard at all (only status < RESOLVED, plus a 'TODO: Can't cancel a bet that's not expired'), so the parent is also vulnerable. The bug is the absence of a who-can-cancel check, so it is missing-code and predates the blame-designated VIC.",
+  "commits": {
+    "vic_blame": "0c111c5db329c9a1436609ec23640d9f4761f803",
+    "pvic": "680d95df20a8dd65d1c1e790ffd2ecf401903ce9",
+    "audited_snapshot": "d7333369548874cb99e9648ea2424ac1e67cc23f",
+    "fix": "025c815145d81d1f74a97318226034ce31b658e9",
+    "fix_reported_as": "cdf3d649ab818b67e26b82eb241013adbbcdf473 (report's 'Fixed in' hash; PR#1 'Implement feedback from audit' branch head, squash-merged, not present in main history)"
+  },
+  "runs": [
+    {
+      "commit": "d733336",
+      "role": "audited vulnerable snapshot",
+      "expected": "PASS",
+      "observed": "PASS",
+      "detail": "taker cancels a non-expired ACTIVE bet; status becomes CANCELLED and both maker and taker are refunded 1000 (gas 89971)"
+    },
+    {
+      "commit": "025c815",
+      "role": "fix (audit feedback)",
+      "expected": "FAIL",
+      "observed": "FAIL",
+      "detail": "Bet.cancel reverts Unauthorized() when the taker calls it; ACTIVE/JUDGING bets are cancellable only by the judge"
+    }
+  ],
+  "parent_not_run": "PVIC 680d95d not run. The VIC (0c111c5, 'Organize contracts, add test') renamed the whole API (cancelBet->cancel, resolveBet->resolve, deposit->accept) and moved the errors into the interface, so the PoV, which calls accept() and cancel(), does not compile against the parent. The parent's cancelBet() has no check on who may cancel (only status < RESOLVED, with a literal 'TODO: Can't cancel a bet that's not expired'), so it is also vulnerable. Same missing-code kind as the finding.",
+  "oracle_valid": true,
+  "oracle_basis": "Differential holds: PASS on the vulnerable snapshot, FAIL on the fix (reverts Unauthorized()). The fix run rules out a trivially always-passing test, so the PoV is a real oracle, not a no-op.",
+  "sandbox": "Docker image solvibe-tools:1, network off (pilot/scripts/dock.sh), local code only",
+  "solc": "0.8.28",
+  "deps": "No foundry.toml upstream (project is Hardhat 3 + hardhat-toolbox-viem, node_modules). Added a minimal foundry.toml with via_ir=true to match the project's hardhat config. forge-std v1.9.4 and OpenZeppelin v5.4.0 (the project's declared versions) cloned into lib/. Aave V3 IPool, IAToken and IPoolAddressesProvider replaced by minimal local interface stubs (lib/aave-stub), since betNoPool has no Aave pool and no Aave method is ever executed; this avoids pulling the full aave-v3-origin repo for offline builds. Dependency manifest is identical across the vulnerable and fix commits, so the lib/ directory was copied between worktrees.",
+  "parent_status": "has the bug (code reading of parent 680d95d: its cancelBet has no check on who may cancel). Not run."
+}

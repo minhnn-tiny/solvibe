@@ -1,0 +1,113 @@
+{
+  "id": "65045",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-12-panoptic/blob/main/contracts/RiskEngine.sol# L962-L967",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      962,
+      967
+    ]
+  ],
+  "filename": "65045_RiskEngine.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 2403,
+  "vulnerability_title": "[M-18] Solvency tick divergence blind spot in `RiskEngine.getSolvencyTicks`",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Add an explicit pairwise check for spot-current divergence to align with `isSafeMode` logic:\n```\n\nfunction getSolvencyTicks(\n    int24 currentTick,\n    OraclePack _oraclePack\n) external view returns (int24[] memory, OraclePack) {\n    (int24 spotTick, int24 medianTick, int24 latestTick, OraclePack oraclePack) = _oraclePack\n        .getOracleTicks(currentTick, EMA_PERIODS, MAX_CLAMP_DELTA);\n\n    int24[] memory atTicks;\n\n    int256 d1 = int256(spotTick - medianTick);\n    int256 d2 = int256(latestTick - medianTick);\n    int256 d3 = int256(currentTick - medianTick);\n    int256 d4 = int256(currentTick - spotTick);  // Pairwise check\n\n    if (\n        d1 ** 2 + d2 ** 2 + d3 ** 2 > MAX_TICKS_DELTA ** 2 ||\n        Math.abs(d4) > MAX_TICKS_DELTA  // Align with isSafeMode logic\n    ) {\n        // Multi-tick check\n        atTicks = new int24[](4);\n        // ...\n    } else {\n        atTicks = new int24[](1);\n        atTicks[0] = spotTick;\n    }\n    // ...\n}\n```\n\nThis ensures that any significant divergence between spot and current tick triggers multi-tick solvency evaluation, consistent with how `isSafeMode` detects external shocks.",
+    "fix_code_blocks": [
+      "function getSolvencyTicks(\n    int24 currentTick,\n    OraclePack _oraclePack\n) external view returns (int24[] memory, OraclePack) {\n    (int24 spotTick, int24 medianTick, int24 latestTick, OraclePack oraclePack) = _oraclePack\n        .getOracleTicks(currentTick, EMA_PERIODS, MAX_CLAMP_DELTA);\n\n    int24[] memory atTicks;\n\n    int256 d1 = int256(spotTick - medianTick);\n    int256 d2 = int256(latestTick - medianTick);\n    int256 d3 = int256(currentTick - medianTick);\n    int256 d4 = int256(currentTick - spotTick);  // Pairwise check\n\n    if (\n        d1 ** 2 + d2 ** 2 + d3 ** 2 > MAX_TICKS_DELTA ** 2 ||\n        Math.abs(d4) > MAX_TICKS_DELTA  // Align with isSafeMode logic\n    ) {\n        // Multi-tick check\n        atTicks = new int24[](4);\n        // ...\n    } else {\n        atTicks = new int24[](1);\n        atTicks[0] = spotTick;\n    }\n    // ...\n}"
+    ]
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "File: `test/foundry/core/PoC_SolvencyBlindSpot.t.sol`\n\nRun with: `forge test --match-test test_poc_solvencyBlindSpot -vvv`\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-12-panoptic-next-core/submissions/S-1197)\n\n**[Panoptic mitigated](https://github.com/code-423n4/2026-02-panoptic-next-core-mitigation?tab=readme-ov-file# mitigation-of-high--medium-severity-issues):**\n\n> Check solvency at 4 ticks when `safeMode > 0`.\n\n**Status:** Mitigation confirmed. Full details in reports from [Valves](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-13), [edoscoba](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-28), and [Nyx](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-33).\n\n---",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "getSolvencyTicks",
+        "start_line": 947,
+        "end_line": 981,
+        "code": "    function getSolvencyTicks(\n        int24 currentTick,\n        OraclePack _oraclePack\n    ) external view returns (int24[] memory, OraclePack) {\n        (int24 spotTick, int24 medianTick, int24 latestTick, OraclePack oraclePack) = _oraclePack\n            .getOracleTicks(currentTick, EMA_PERIODS, MAX_CLAMP_DELTA);\n\n        int24[] memory atTicks;\n\n        // Fall back to a conservative approach if there's high deviation between internal ticks:\n        // Check solvency at the medianTick, currentTick, and latestTick instead of just the spotTick.\n        // Deviation is measured as the magnitude of a 3D vector:\n        // (spotTick - medianTick, latestTick - medianTick, currentTick - medianTick)\n        // This approach is more conservative than checking each tick difference individually,\n        // as the Euclidean norm is always greater than or equal to the maximum of the individual differences.\n        if (\n            int256(spotTick - medianTick) ** 2 +\n                int256(latestTick - medianTick) ** 2 +\n                int256(currentTick - medianTick) ** 2 >\n            MAX_TICKS_DELTA ** 2\n        ) {\n            // High deviation detected; check against all four ticks.\n            atTicks = new int24[](4);\n            atTicks[0] = spotTick;\n            atTicks[1] = medianTick;\n            atTicks[2] = latestTick;\n            atTicks[3] = currentTick;\n        } else {\n            // Normal operation; check against the spot tick = 10 mins EMA.\n            atTicks = new int24[](1);\n            atTicks[0] = spotTick;\n        }\n\n        return (atTicks, oraclePack);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            962,
+            967
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:36:02.412423",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue with the `getSolvencyTicks` function, specifically the bypass of the squared-Euclidean-norm gate due to symmetric tick configurations.",
+      "content_reasoning": "The content mentions the `getSolvencyTicks` function and the variables involved in the vulnerability, such as `spotTick`, `medianTick`, and `currentTick`. The described patterns, such as the squared norm calculation and the bypass scenario, are present in the code.",
+      "functions_found": [
+        "getSolvencyTicks"
+      ],
+      "variables_found": [
+        "spotTick",
+        "medianTick",
+        "latestTick",
+        "currentTick"
+      ],
+      "patterns_found": [
+        "squared-Euclidean-norm gate",
+        "symmetric tick configurations"
+      ],
+      "issues": [
+        "Bypass of solvency check due to symmetric tick configurations"
+      ]
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged to reflect the nature of the vulnerability.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "oracle"
+      ],
+      "correction_explanation": "The issue is primarily related to business logic, as it involves incorrect risk assessment due to the logic in solvency checks. It also involves oracle data, as the function relies on oracle ticks."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 70,
+      "mando_applicable": false,
+      "reasoning": "The MANDO categories do not sufficiently cover the specific business logic flaw related to solvency checks and tick divergence. This issue is more about business logic and risk assessment rather than the broader categories provided by MANDO."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "C3"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is a business logic flaw in the solvency check mechanism, which is better captured under SCSVS's 'Business logic' category. Additionally, it involves oracle data, which aligns with the 'Oracle' component category.",
+      "vulnerability_type": "Solvency check bypass due to flawed business logic in tick divergence handling"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-03-20T15:35:31.442637",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

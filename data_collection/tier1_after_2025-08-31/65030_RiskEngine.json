@@ -1,0 +1,180 @@
+{
+  "id": "65030",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-12-panoptic/blob/a4361d6d8dc6420c09187d80ea1a7ce851d1ca36/contracts/RiskEngine.sol# L836",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      836,
+      836
+    ],
+    [
+      209,
+      224
+    ],
+    [
+      836,
+      836
+    ],
+    [
+      209,
+      224
+    ],
+    [
+      1944,
+      1948
+    ],
+    [
+      1368,
+      1438
+    ]
+  ],
+  "filename": "65030_RiskEngine.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 2403,
+  "vulnerability_title": "[M-03] TWAP misweights EMAs in RiskEngine, anchoring liquidation price to slow EMA and letting insolvent accounts dodge liquidation",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Destructure EMAs in the correct order and keep the intended 60/30/10 fast/slow/eons weighting.\n```\n\n// contracts/RiskEngine.sol\nfunction twapEMA(OraclePack oraclePack) external pure returns (int24) {\n    ( , int256 fastEMA, int256 slowEMA, int256 eonsEMA, ) = oraclePack.getEMAs();\n    return int24((6 * fastEMA + 3 * slowEMA + eonsEMA) / 10);\n}\n```\n\nAdd a regression test ensuring `twapEMA` weights fast/slow/eons and does not depend on spot.",
+    "fix_code_blocks": [
+      "// contracts/RiskEngine.sol\nfunction twapEMA(OraclePack oraclePack) external pure returns (int24) {\n    ( , int256 fastEMA, int256 slowEMA, int256 eonsEMA, ) = oraclePack.getEMAs();\n    return int24((6 * fastEMA + 3 * slowEMA + eonsEMA) / 10);\n}"
+    ]
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "`forge test --match-path test/foundry/core/RiskEngine/RiskEngineTwapEMAPoC.t.sol --match-test twapEMA_weights_fast_slow_eons_not_spot`\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-12-panoptic-next-core/submissions/S-61)\n\n**[Panoptic mitigated](https://github.com/code-423n4/2026-02-panoptic-next-core-mitigation?tab=readme-ov-file# mitigation-of-high--medium-severity-issues):**\n\n> Use correct returned ema order in `twapEMA`.\n\n**Status:** Mitigation confirmed. Full details in reports from [Valves](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-15), [edoscoba](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-32), and [Nyx](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-45).\n\n---",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "twapEMA",
+        "start_line": 836,
+        "end_line": 840,
+        "code": "    function twapEMA(OraclePack oraclePack) external pure returns (int24) {\n        // Extract current EMAs from oraclePack\n        (int256 eonsEMA, int256 slowEMA, int256 fastEMA, , ) = oraclePack.getEMAs();\n        return int24((6 * fastEMA + 3 * slowEMA + eonsEMA) / 10);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            836,
+            836
+          ],
+          [
+            836,
+            836
+          ]
+        ]
+      },
+      {
+        "function_name": "_computeLoanOptionComposite",
+        "start_line": 1939,
+        "end_line": 1972,
+        "code": "\n    function _computeLoanOptionComposite(\n        TokenId tokenId,\n        uint128 positionSize,\n        uint256 index,\n        uint256 partnerIndex,\n        int24 atTick,\n        int16 poolUtilization\n    ) internal view returns (uint256) {\n        // compute both token requirements. Can directly compare them because they have the same tokenType\n        uint256 _required = _getRequiredCollateralSingleLegNoPartner(\n            tokenId,\n            index,\n            positionSize,\n            atTick,\n            poolUtilization\n        );\n        uint256 requiredPartner = _getRequiredCollateralSingleLegNoPartner(\n            tokenId,\n            partnerIndex,\n            positionSize,\n            atTick,\n            poolUtilization\n        );\n\n        unchecked {\n            if (tokenId.isLong(index) == 0) {\n                return _required + requiredPartner;\n            } else {\n                // return the max of the requirement between a loan and the long option position\n                return Math.max(_required, requiredPartner);\n            }\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1944,
+            1948
+          ]
+        ]
+      },
+      {
+        "function_name": "_getRequiredCollateralSingleLeg",
+        "start_line": 1354,
+        "end_line": 1377,
+        "code": "    function _getRequiredCollateralSingleLeg(\n        TokenId tokenId,\n        uint256 index,\n        uint128 positionSize,\n        int24 atTick,\n        int16 poolUtilization\n    ) internal view returns (uint256 required) {\n        return\n            tokenId.riskPartner(index) == index // does this leg have a risk partner? Affects required collateral\n                ? _getRequiredCollateralSingleLegNoPartner(\n                    tokenId,\n                    index,\n                    positionSize,\n                    atTick,\n                    poolUtilization\n                )\n                : _getRequiredCollateralSingleLegPartner(\n                    tokenId,\n                    index,\n                    positionSize,\n                    atTick,\n                    poolUtilization\n                );\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1368,
+            1438
+          ]
+        ]
+      },
+      {
+        "code": "        uint256 _crossBuffer1,\n        address _guardian,\n        address _builderFactory\n    ) {\n        CROSS_BUFFER_0 = _crossBuffer0;\n        CROSS_BUFFER_1 = _crossBuffer1;\n        GUARDIAN = _guardian;\n        BUILDER_FACTORY = _builderFactory;\n        BUILDER_INIT_CODE_HASH = keccak256(\n            abi.encodePacked(type(BuilderWallet).creationCode, abi.encode(BUILDER_FACTORY))\n        );\n    }\n\n    /*//////////////////////////////////////////////////////////////\n                                GUARDIAN\n    //////////////////////////////////////////////////////////////*/\n\n    /// @notice Address allowed to override the automatically computed safe mode.\n    /// @dev Guardian can only increase the effective safe mode, never relax it.\n    address public immutable GUARDIAN;\n\n    /// @notice Emitted when the guardian updates the enforced safe mode.\n    /// @param lockMode True when safe mode is forcibly locked, false when the lock is lifted.\n    event GuardianSafeModeUpdated(bool lockMode);\n\n    /// @notice Restricts a function to be callable only by the guardian address.\n    modifier onlyGuardian() {\n        _onlyGuardian();\n        _;\n    }\n\n    /// @dev Reverts unless the caller is the guardian.\n    function _onlyGuardian() internal view {\n        if (msg.sender != address(GUARDIAN)) revert Errors.NotGuardian();\n    }\n\n    /// @notice Forces a PanopticPool into locked safe mode.\n    /// @dev Sets the pool\u2019s internal oracle pack into permanent safe-mode override\n    ///      until explicitly unlocked by the guardian.\n    /// @param pool The PanopticPool to lock.\n    function lockPool(PanopticPool pool) external onlyGuardian {\n        emit GuardianSafeModeUpdated(true);\n        pool.lockSafeMode();\n    }\n\n    /// @notice Removes the forced safe-mode lock on a PanopticPool.",
+        "start_line": 209,
+        "end_line": 224,
+        "context_start_line": 194,
+        "context_end_line": 239,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "        uint256 _crossBuffer1,\n        address _guardian,\n        address _builderFactory\n    ) {\n        CROSS_BUFFER_0 = _crossBuffer0;\n        CROSS_BUFFER_1 = _crossBuffer1;\n        GUARDIAN = _guardian;\n        BUILDER_FACTORY = _builderFactory;\n        BUILDER_INIT_CODE_HASH = keccak256(\n            abi.encodePacked(type(BuilderWallet).creationCode, abi.encode(BUILDER_FACTORY))\n        );\n    }\n\n    /*//////////////////////////////////////////////////////////////\n                                GUARDIAN\n    //////////////////////////////////////////////////////////////*/\n\n    /// @notice Address allowed to override the automatically computed safe mode.\n    /// @dev Guardian can only increase the effective safe mode, never relax it.\n    address public immutable GUARDIAN;\n\n    /// @notice Emitted when the guardian updates the enforced safe mode.\n    /// @param lockMode True when safe mode is forcibly locked, false when the lock is lifted.\n    event GuardianSafeModeUpdated(bool lockMode);\n\n    /// @notice Restricts a function to be callable only by the guardian address.\n    modifier onlyGuardian() {\n        _onlyGuardian();\n        _;\n    }\n\n    /// @dev Reverts unless the caller is the guardian.\n    function _onlyGuardian() internal view {\n        if (msg.sender != address(GUARDIAN)) revert Errors.NotGuardian();\n    }\n\n    /// @notice Forces a PanopticPool into locked safe mode.\n    /// @dev Sets the pool\u2019s internal oracle pack into permanent safe-mode override\n    ///      until explicitly unlocked by the guardian.\n    /// @param pool The PanopticPool to lock.\n    function lockPool(PanopticPool pool) external onlyGuardian {\n        emit GuardianSafeModeUpdated(true);\n        pool.lockSafeMode();\n    }\n\n    /// @notice Removes the forced safe-mode lock on a PanopticPool.",
+        "start_line": 209,
+        "end_line": 224,
+        "context_start_line": 194,
+        "context_end_line": 239,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:45.028939",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue with the incorrect destructuring of the getEMAs() function, leading to misweighted EMAs.",
+      "content_reasoning": "The content mentions the twapEMA function and the incorrect order of EMA variables, which are present in the extracted code.",
+      "functions_found": [
+        "twapEMA"
+      ],
+      "variables_found": [
+        "eonsEMA",
+        "slowEMA",
+        "fastEMA"
+      ],
+      "patterns_found": [
+        "incorrect destructuring",
+        "misweighted EMAs"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "No existing tag is present, but a tag related to business logic or oracle issues would be appropriate.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "oracle"
+      ],
+      "correction_explanation": "The issue is primarily related to business logic errors due to incorrect EMA weighting, which affects liquidation processes."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 60,
+      "mando_applicable": false,
+      "reasoning": "The issue does not fit neatly into any of the MANDO categories, as it is primarily a business logic error related to oracle data processing."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "C3"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is a business logic error due to incorrect EMA weighting, which affects the liquidation process. It also involves oracle data processing, making it relevant to the Oracle component category.",
+      "vulnerability_type": "Incorrect EMA weighting leading to delayed liquidation"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-03-20T15:25:06.532656",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

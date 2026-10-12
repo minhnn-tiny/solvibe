@@ -1,0 +1,116 @@
+{
+  "id": "62348",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/Licredity/licredity-v1-core/blob/e8ae10a7d9f27529e39ca277bf56cef01a807817/src/types/Position.sol#L10-L16",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      10,
+      16
+    ],
+    [
+      70,
+      114
+    ]
+  ],
+  "filename": "62348_Position.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 189,
+  "vulnerability_title": "Swap-and-pop without index fix-up corrupts `Position`\u2019s fungible array",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs",
+    "snippets": [
+      {
+        "code": "// SPDX-License-Identifier: BUSL-1.1\npragma solidity =0.8.30;\n\nimport {Fungible} from \"./Fungible.sol\";\nimport {FungibleState, toFungibleState} from \"./FungibleState.sol\";\nimport {NonFungible} from \"./NonFungible.sol\";\n\n/// @title Position\n/// @notice Represents a margin position\nstruct Position {\n    address owner;\n    uint256 debtShare;\n    Fungible[] fungibles;\n    NonFungible[] nonFungibles;\n    mapping(Fungible => FungibleState) fungibleStates;\n}\n\nusing PositionLibrary for Position global;\n\n/// @title PositionLibrary\n/// @notice Library for managing positions\nlibrary PositionLibrary {\n    uint256 private constant OWNER_OFFSET = 0;\n    uint256 private constant DEBT_SHARE_OFFSET = 1;\n    uint256 private constant FUNGIBLES_OFFSET = 2;\n    uint256 private constant NON_FUNGIBLES_OFFSET = 3;\n    uint256 private constant FUNGIBLE_STATES_OFFSET = 4;\n\n    /// @notice Sets the owner of a position\n    /// @param self The position to set owner for\n    /// @param owner The new owner of the position",
+        "start_line": 10,
+        "end_line": 16,
+        "context_start_line": 1,
+        "context_end_line": 31,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "            }\n\n            state = toFungibleState(self.fungibles.length, amount);\n        } else {\n            state = toFungibleState(state.index(), state.balance() + amount);\n        }\n\n        // update fungible state\n        assembly (\"memory-safe\") {\n            mstore(0x00, fungible)\n            mstore(0x20, add(self.slot, FUNGIBLE_STATES_OFFSET))\n            sstore(keccak256(0x00, 0x40), state)\n        }\n    }\n\n    /// @notice Removes amount of fungible from a position\n    /// @param self The position to remove fungible from\n    /// @param fungible The fungible to remove\n    /// @param amount The amount of fungible to remove\n    /// @return isRemoved True if the non-fungible was removed, false otherwise\n    function removeFungible(Position storage self, Fungible fungible, uint256 amount)\n        internal\n        returns (bool isRemoved)\n    {\n        FungibleState state = self.fungibleStates[fungible];\n        uint256 index = state.index();\n        uint256 newBalance = state.balance() - amount;\n\n        if (index != 0) {\n            if (newBalance != 0) {\n                state = toFungibleState(index, newBalance);\n            } else {\n                state = FungibleState.wrap(0);\n\n                // remove a fungible from the fungibles array\n                assembly (\"memory-safe\") {\n                    let slot := add(self.slot, FUNGIBLES_OFFSET)\n                    let len := sload(slot)\n                    mstore(0x00, slot)\n                    let dataSlot := keccak256(0x00, 0x20)\n\n                    if iszero(eq(index, len)) {\n                        sstore(add(dataSlot, sub(index, 1)), sload(add(dataSlot, sub(len, 1))))\n                    }\n\n                    sstore(add(dataSlot, sub(len, 1)), 0)\n                    sstore(slot, sub(len, 1))\n                }\n            }\n\n            // update fungible state\n            assembly (\"memory-safe\") {\n                mstore(0x00, fungible)\n                mstore(0x20, add(self.slot, FUNGIBLE_STATES_OFFSET))\n                sstore(keccak256(0x00, 0x40), state)\n            }\n\n            isRemoved = true;\n        }\n    }\n\n    /// @notice Adds a non-fungible to a position\n    /// @param self The position to add non-fungible to\n    /// @param nonFungible The non-fungible to add\n    function addNonFungible(Position storage self, NonFungible nonFungible) internal {\n        // add a non-fungible to the non-fungibles array\n        assembly (\"memory-safe\") {\n            let slot := add(self.slot, NON_FUNGIBLES_OFFSET)\n            let len := sload(slot)\n\n            mstore(0x00, slot)\n            sstore(add(keccak256(0x00, 0x20), len), nonFungible)\n            sstore(slot, add(len, 1))\n        }\n    }",
+        "start_line": 70,
+        "end_line": 114,
+        "context_start_line": 55,
+        "context_end_line": 129,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:03:06.079545",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of index corruption due to the missing update after the swap-and-pop operation.",
+      "content_reasoning": "The content includes the relevant functions and variables that are directly related to the vulnerability described in the report.",
+      "functions_found": [
+        "removeFungible"
+      ],
+      "variables_found": [
+        "fungibles",
+        "fungibleStates"
+      ],
+      "patterns_found": [
+        "swap-and-pop",
+        "stale index"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 90,
+      "reasoning": "The report lacks a tag that reflects the nature of the vulnerability, which is related to state inconsistency and logic errors.",
+      "suggested_tag": "State Inconsistency",
+      "alternative_tags": [
+        "Logic Error",
+        "Array Manipulation"
+      ],
+      "correction_explanation": "A tag indicating state inconsistency or logic error would be appropriate as it directly relates to the vulnerability described."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": false,
+      "reasoning": "The MANDO categories do not adequately capture the specific nature of the vulnerability, which is more about logic errors and state management."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G11"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more granular classification that fits the nature of the vulnerability, focusing on business logic errors and code clarity.",
+      "vulnerability_type": "State inconsistency due to missing index update after array manipulation"
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-04-26T01:38:02.439295",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs"
+  }
+}

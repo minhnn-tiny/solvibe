@@ -1,0 +1,112 @@
+{
+  "id": "64692",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-11-merkl/blob/e8c1d6f5a91c1144571c3ed238358a2b032dd32e/contracts/DistributionCreator.sol# L526",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      526,
+      526
+    ]
+  ],
+  "filename": "64692_DistributionCreator.sol",
+  "reported_function": {
+    "function_name": "_createCampaign",
+    "contract_name": "DistributionCreator"
+  },
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 668,
+  "vulnerability_title": "[M-01] Minimum Reward-Per-Hour Validation Applied to Gross Instead of Net Amount",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_createCampaign",
+        "start_line": 526,
+        "end_line": 547,
+        "code": "    function _createCampaign(CampaignParameters memory newCampaign) internal returns (bytes32) {\n        uint256 rewardTokenMinAmount = rewardTokenMinAmounts[newCampaign.rewardToken];\n        // if the campaign doesn't last at least one hour\n        if (newCampaign.duration < HOUR) revert Errors.CampaignDurationBelowHour();\n        // if the reward token is not whitelisted as an incentive token\n        if (rewardTokenMinAmount == 0) revert Errors.CampaignRewardTokenNotWhitelisted();\n        // if the amount distributed is too small with respect to what is allowed\n        if ((newCampaign.amount * HOUR) / newCampaign.duration < rewardTokenMinAmount) revert Errors.CampaignRewardTooLow();\n        // Computing fees and pulling tokens\n        uint256 campaignAmountMinusFees = _computeFees(newCampaign.campaignType, newCampaign.amount);\n        if (newCampaign.creator == address(0)) newCampaign.creator = msg.sender;\n        _pullTokens(newCampaign.creator, newCampaign.rewardToken, newCampaign.amount, campaignAmountMinusFees);\n        newCampaign.amount = campaignAmountMinusFees;\n        newCampaign.campaignId = campaignId(newCampaign);\n\n        if (_campaignLookup[newCampaign.campaignId] != 0) revert Errors.CampaignAlreadyExists();\n        _campaignLookup[newCampaign.campaignId] = campaignList.length + 1;\n        campaignList.push(newCampaign);\n        emit NewCampaign(newCampaign);\n\n        return newCampaign.campaignId;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            526,
+            526
+          ]
+        ],
+        "contract_name": "DistributionCreator"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T16:58:17.681427",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of the minimum reward-per-hour validation being applied to the gross amount instead of the net amount after fees.",
+      "content_reasoning": "The content mentions the relevant function and variables, specifically the checks against `newCampaign.amount` and the computation of fees, which are present in the code.",
+      "functions_found": [
+        "_createCampaign"
+      ],
+      "variables_found": [
+        "newCampaign.amount",
+        "rewardTokenMinAmount"
+      ],
+      "patterns_found": [
+        "validation against gross amount",
+        "fee deduction"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 85,
+      "reasoning": "There is currently no tag assigned, which is incorrect as the issue is significant and should be tagged appropriately.",
+      "suggested_tag": "Business Logic Error",
+      "alternative_tags": [
+        "Reward Calculation Error"
+      ],
+      "correction_explanation": "The issue pertains to the business logic of reward calculations, which is critical for user incentives and protocol integrity."
+    },
+    "mando_classification": {
+      "primary_category": "G7",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": true,
+      "reasoning": "The issue involves a mathematical operation where the validation is incorrectly applied, leading to potential underpayment, which fits under arithmetic issues."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G7"
+      ],
+      "confidence": 85,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more detailed classification of the issue, particularly focusing on business logic errors and arithmetic issues related to reward calculations.",
+      "vulnerability_type": "Business logic flaw in reward distribution"
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-04-16T17:11:35.478653",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

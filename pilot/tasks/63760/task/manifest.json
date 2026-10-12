@@ -1,0 +1,23 @@
+{
+  "id": "63760",
+  "protocol": "Sequence",
+  "firm": "Code4rena",
+  "framing": "function_removal",
+  "vulnerable_commit": "0682fe1aa4c2e89ece177577abbdac6188d66df1",
+  "clone": "pilot/repos/0xsequence__wallet-contracts-v3",
+  "deps_source": "pilot/repos/prepared/0xsequence__wallet-contracts-v3@0682fe1/lib",
+  "project_dir": "",
+  "target_file": "src/modules/auth/BaseSig.sol",
+  "target_function": "recover",
+  "blank_patch": "pilot/tasks/63760/task/blank.patch",
+  "feature_request": "pilot/tasks/63760/task/feature_request.md",
+  "pov_test_src": "pilot/tasks/63760/pov/PoV63760_Sequence.t.sol",
+  "pov_test_dest": "test/PoV63760_Sequence.t.sol",
+  "pov_cmd": "forge test --offline --match-path test/PoV63760_Sequence.t.sol",
+  "functional_cmd": "forge test --offline --match-path test/utils/LibBytes.t.sol",
+  "solc": "0.8.28",
+  "agent_edit_files": [
+    "src/modules/auth/BaseSig.sol"
+  ],
+  "notes": "Build system: Foundry with git submodules under lib/ (via-ir, solc 0.8.28). Deps are vendored at deps_source (copy lib/ into the clone before building; the dir mirrors the four submodules pinned at the vulnerable commit, with nested .git files stripped). PoV PASSES on the human vulnerable code and FAILS on the human fix, so it is a real oracle. The PoV calls recoverPartialSignature (IPartialAuth), a public entry point whose signature is stable across the vulnerable and fixed commits, so the same test file compiles against both; it reaches BaseSig.recover without the test itself depending on the recover argument that the fix changed (bool _ignoreCheckpointer became a RecoverMode enum). The PoV hand-encodes the config image hash and signature, so it needs no sequence.js primitives RPC server and runs fully offline. functional_cmd = LibBytes.t.sol: the repository's own test of the byte-reading primitives (readRSVCompact, readAddress, readUintX, readUint24) that recover is built on; it passes offline on the vulnerable code (23 tests). The repository's direct signature tests (BaseSig.t.sol, Stage1Module.t.sol, etc.) all use PrimitivesRPC, which calls an external sequence.js dev server over the network, so they cannot run offline and are unsuitable as a functional_cmd. PoV test is NOT present during the agent run; it is added only at judging."
+}

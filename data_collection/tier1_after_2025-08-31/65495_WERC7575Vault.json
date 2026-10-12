@@ -1,0 +1,128 @@
+{
+  "id": "65495",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-11-sukukfi/blob/163216500a54627afc6abaac3bffdc3a830051fa/src/WERC7575Vault.sol# L434-L437",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      434,
+      437
+    ],
+    [
+      464,
+      467
+    ]
+  ],
+  "filename": "65495_WERC7575Vault.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 468,
+  "vulnerability_title": "[H-01] Missing Authorization Check Allows Unauthorized Fund Withdrawal",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "1. **Immediate Mitigation:** Enforce that the caller is the owner of the shares.\n\n   \n```\n\n   function withdraw(uint256 assets, address receiver, address owner) public nonReentrant whenNotPaused returns (uint256 shares) {\n       if (msg.sender != owner) revert IERC20Errors.ERC20InvalidSender(msg.sender);\n       shares = previewWithdraw(assets);\n       _withdraw(assets, shares, receiver, owner);\n   }\n   \n```\n\n   (Apply similarly to `redeem`).\n2. **Protocol Upgrade:** If the business requirement is to support third-party withdrawals (standard ERC4626 allowance functionality), the `WERC7575ShareToken` interface must be upgraded to support a secure `spendAllowance(address owner, address spender, uint256 amount)` function that allows a trusted Vault to verify and consume the allowance granted by an `owner` to a `spender` (`msg.sender`).\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-11-sukukfi/submissions/F-3)\n\n---",
+    "fix_code_blocks": [
+      "function withdraw(uint256 assets, address receiver, address owner) public nonReentrant whenNotPaused returns (uint256 shares) {\n       if (msg.sender != owner) revert IERC20Errors.ERC20InvalidSender(msg.sender);\n       shares = previewWithdraw(assets);\n       _withdraw(assets, shares, receiver, owner);\n   }"
+    ]
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "withdraw",
+        "start_line": 434,
+        "end_line": 437,
+        "code": "    function withdraw(uint256 assets, address receiver, address owner) public nonReentrant whenNotPaused returns (uint256 shares) {\n        shares = previewWithdraw(assets);\n        _withdraw(assets, shares, receiver, owner);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            434,
+            437
+          ]
+        ]
+      },
+      {
+        "function_name": "redeem",
+        "start_line": 464,
+        "end_line": 467,
+        "code": "    function redeem(uint256 shares, address receiver, address owner) public nonReentrant whenNotPaused returns (uint256 assets) {\n        assets = previewRedeem(shares);\n        _withdraw(assets, shares, receiver, owner);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            464,
+            467
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T16:58:46.029173",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the lack of authorization checks in the withdraw and redeem functions, which is confirmed by the provided code snippets.",
+      "content_reasoning": "The content mentions the specific functions (withdraw and redeem) that are present in the code, and the described vulnerabilities (missing checks for msg.sender and owner relationship) are evident in the code.",
+      "functions_found": [
+        "withdraw",
+        "redeem"
+      ],
+      "variables_found": [
+        "assets",
+        "receiver",
+        "owner"
+      ],
+      "patterns_found": [
+        "missing authorization check",
+        "allowance not verified"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "There is no existing tag, and a relevant tag is missing that reflects the critical access control vulnerability.",
+      "suggested_tag": "access_control",
+      "alternative_tags": [
+        "authorization",
+        "security"
+      ],
+      "correction_explanation": "The vulnerability is fundamentally about access control, thus a tag related to access control should be applied."
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "secondary_categories": [],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability directly relates to authorization and permissions, which fits well within the access_control category of MANDO."
+    },
+    "scsvs_classification": {
+      "primary_category": "G5",
+      "primary_category_name": "Access control",
+      "secondary_categories": [],
+      "confidence": 90,
+      "use_scsvs_instead": false,
+      "reasoning": "The SCSVS category G5 is appropriate as it specifically addresses access control issues, which is the core of the vulnerability.",
+      "vulnerability_type": "Missing authorization check allows unauthorized fund withdrawal"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-04-16T17:14:06.360340",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

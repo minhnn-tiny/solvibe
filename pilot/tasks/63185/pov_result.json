@@ -1,0 +1,47 @@
+{
+  "id": "63185",
+  "protocol": "Ammplify",
+  "firm": "Sherlock",
+  "finding": "M-6: Pending owner cannot accept ownership because of wrong transferOwnership / acceptOwnership in TimedAdminFacet (Sherlock 2025-09-ammplify-judging #183)",
+  "pov_test": "test/PoV63185_Commons.t.sol::testPendingOwnerCannotAcceptOwnership",
+  "pov_source": "data_collection/tier1_after_2025-08-31/63185.md (published Sherlock PoC). The report's PoC targets the Ammplify Admin.t.sol harness (adminFacet); the bug itself lives in the itos-finance/Commons library (src/Util/TimedAdmin.sol), so the PoC is adapted to the Commons TimedAdminFacet using the project's own harness pattern from test/TimedAdmin.t.sol.",
+  "vulnerability_kind": "added_code",
+  "vulnerability_note": "The VIC (0c4f31f8, 'Have Timed admin override Admin operations with a delay') added the whole TimedAdminFacet transferOwnership/acceptOwnership override and placed AdminLib.reassignOwner inside acceptOwnership. reassignOwner runs validateOwner(), which requires msg.sender == current owner, but acceptOwnership is called by the pending owner, so it always reverts NotOwner and ownership can never be handed over. The fix (c6cb8ee) moves reassignOwner into transferOwnership (called by the current owner) and drops it from acceptOwnership. The parent (bdd563a1) has no such override at all, so the bug did not exist before the VIC.",
+  "commits": {
+    "vic_blame": "0c4f31f866bc56b383efedde128f8914f4328202",
+    "pvic": "bdd563a17dc34e55e9fa1a24e44f9913a24c73e6",
+    "audited_snapshot": "621c2337f7acbf2a537500cddb82e3216adf5aa6",
+    "fix": "c6cb8ee31c5328731e722ef5ed853b1d46d1e4ea",
+    "fix_reported_as": "none stated in the report (the Sherlock issue has no 'Fixed in ...' line); the real merged fix 'Fix TimedAdmin's reassign owner implementation' (c6cb8ee) is present directly in main history and was confirmed by its diff on src/Util/TimedAdmin.sol."
+  },
+  "runs": [
+    {
+      "commit": "621c233",
+      "role": "audited vulnerable snapshot",
+      "expected": "PASS",
+      "observed": "PASS",
+      "detail": "acceptOwnership by the pending owner reverts AdminLib.NotOwner; vm.expectRevert(AdminLib.NotOwner.selector) matches. gas 63677."
+    },
+    {
+      "commit": "c6cb8ee",
+      "role": "fix (Commons: 'Fix TimedAdmin's reassign owner implementation')",
+      "expected": "FAIL",
+      "observed": "FAIL",
+      "detail": "acceptOwnership succeeds (reassignOwner was moved to transferOwnership), so no revert: 'next call did not revert as expected'."
+    },
+    {
+      "commit": "bdd563a",
+      "role": "parent of VIC (PVIC)",
+      "expected": "does not compile / feature absent",
+      "observed": "COMPILE FAIL",
+      "detail": "At the parent TimedAdminFacet has no transferOwnership/acceptOwnership override and getDelay has no bool parameter, so the harness fails to compile: 'Function has override specified but does not override anything' and 'Contract TestTimedFacet should be marked as abstract'. Confirms the vulnerable feature was introduced by the VIC."
+    }
+  ],
+  "oracle_valid": true,
+  "oracle_basis": "Differential holds: PASS on the audited vulnerable snapshot, FAIL on the fix. The PoV is a real oracle and not trivially always-passing. The PVIC does not compile because the entire timed ownership-transfer override (and its bug) was introduced by the VIC, which is the expected shape for an added_code bug.",
+  "parent_check": "Not the classic 'compile-but-fail-on-parent' form. The parent (PVIC) does not compile at all, because the whole transferOwnership/acceptOwnership override and the getDelay(bool) signature were added by the VIC. The parent is therefore clean of the bug (the feature is absent), which is consistent with the added_code classification.",
+  "sandbox": "Docker image solvibe-tools:1, network off (pilot/scripts/dock.sh), local itos-finance/Commons code only. Sibling *.t.sol files were deleted in the disposable worktrees to isolate the PoV (pre-existing test/math/*.t.sol do not compile at these commits due to a newer forge-std).",
+  "solc": "0.8.28 for the vulnerable snapshot and the fix (per foundry.toml). 0.8.20 for the PVIC compile check (its own pinned version); warmed once with --net, then run offline.",
+  "deps": "git submodules: forge-std 705263c, prb-test d5adc5f, openzeppelin fd81a96, v3-core d8b1c63, v3-periphery 0682387. Identical pins for the vulnerable snapshot and the fix (only src files changed between them), so lib/ was copied offline into the fix worktree. The PVIC pins older forge-std/prb-test but was only used to prove the feature is absent.",
+  "parent_status": "feature absent (checked: the attack test does not compile on the parent)"
+}

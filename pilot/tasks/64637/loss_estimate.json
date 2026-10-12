@@ -1,0 +1,30 @@
+{
+  "id": "64637",
+  "protocol": "Wannabet",
+  "what_is_at_risk": "The winnings owed to the winner of an accepted bet, which is the losing side's stake, paid in the bet's ERC20 token (USDC in the deployed product).",
+  "loss_type": "lost payout",
+  "who_loses": "The party who would have won the bet. They get only their own stake back and lose the winnings.",
+  "who_gains": "The losing party. The taker can call cancel directly; the maker cannot, but any other address the maker controls can. The losing party gets back a stake they should have forfeited.",
+  "scenario": "Maker and taker each stake 1,000 tokens of a local USDC-like mock (6 decimals), the taker accepts, and time moves to one second before the end time; the judge would rule for the maker. The losing taker calls cancel: both get 1,000 back, so the maker receives 1,000 instead of the 2,000 that resolve pays (baseline measured at 2,000).",
+  "measured": {
+    "unit": "mock USDC-like token, whole tokens (6 decimals; not real money)",
+    "user_funds_in_scenario": 2000,
+    "user_loss": 1000,
+    "attacker_gain": 1000,
+    "loss_pct_of_user_funds": 50
+  },
+  "worst_case_pct_of_user_funds": "100% of the winner's winnings on every active bet; as a share of the pot it is takerStake / (makerStake + takerStake), so it approaches 100% when the winner's own stake is small (measured 90.9% at stakes of 100 and 1,000).",
+  "worst_case_basis": "Cancel refunds each stake, so the winner always loses the whole of the other side's stake and never loses their own principal. The share of the pot lost therefore depends only on the stake ratio, and either losing side can do it on any active bet before the judge resolves.",
+  "scales_with": "The losing side's stake in each bet, and the number of active bets whose likely outcome becomes visible before the judge resolves them.",
+  "repeatable": "yes",
+  "concrete_usd": null,
+  "why_no_usd": "The test uses a local mock token in an offline deployment, and the audited code was fixed before the audit report was published. The amounts are scenario sizes in the mock token's units, not money anyone lost.",
+  "fix_check": {
+    "commit": "025c815145d81d1f74a97318226034ce31b658e9",
+    "result": "Every non-judge cancel (taker and third party) reverts with Unauthorized() (0x82b42900). The judge then resolves and the maker receives the full pot (2,000, or 1,100 in the uneven case), so the loss is 0 in all three attack cases."
+  },
+  "confidence": "measured",
+  "loss_test": "pilot/tasks/64637/loss/Loss64637_Wannabet.t.sol",
+  "command": "forge test --offline --match-path test/Loss64637_Wannabet.t.sol -vv (run from the clone's contracts/ directory)",
+  "notes": "Run offline in Docker (pilot/scripts/dock.sh, no network) in throwaway clones at d733336 (vulnerable) and 025c815 (fix), with foundry.toml and lib/ copied from pilot/repos/prepared/gskril__wannabet-v2@d733336/contracts. The live-fork test BetFactory.t.sol and the fix's remappings.txt were removed in the throwaway clones only. The bet has no Aave pool, so resolve pays the winner exactly makerStake + takerStake and the treasury gets nothing. Denominator for loss_pct_of_user_funds: the pot (both stakes). The same 1,000 loss is 50% of the winner's due payout (2,000) and 100% of the winner's winnings (1,000). Uneven case (maker 100, taker 1,000): the maker loses 1,000, which is 90.9% of the pot and of the due payout. Third-party case: a stranger's cancel gives the same balances (both refunded, maker loses 1,000 of due winnings). If a stranger cancels before anyone knows the outcome, no principal is lost and the bet is only voided. If the stranger acts for the losing side, it is the same theft of winnings as the taker case, and it also lets a losing maker back out, since only the maker's own address is blocked. The status enum values differ between commits because the fix adds JUDGING (CANCELLED is 3 at d733336; RESOLVED is 3 at 025c815)."
+}

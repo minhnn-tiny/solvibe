@@ -1,0 +1,121 @@
+Warning: Input is not a terminal (fd=0).
+────────────────────────────────────────────────────────────────────────────────
+HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Max retries exceeded with url: /BerriAI/litellm/main/model_prices_and_context_window.json (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Filtered')))
+Aider v0.86.2
+Model: anthropic/claude-sonnet-4-5-20250929 with diff edit format, infinite 
+output
+Git repo: ../.git with 99 files
+Repo-map: disabled
+Added contracts/src/Bet.sol to the chat.
+
+
+https://aider.chat/HISTORY.html#release-notes
+Note: in-chat filenames are always relative to the git working dir, not the 
+current working dir.
+Cur working dir: /work/contracts
+Git working dir: /work
+
+I'll implement the cancel function according to the requirements. The function  
+needs to:                                                                       
+
+ 1 Get the current status using _status helper                                  
+ 2 Check authorization based on status (maker for PENDING, judge for ACTIVE,    
+   anyone for EXPIRED)                                                          
+ 3 Withdraw from Aave if needed and return stakes to both parties with try/catch
+ 4 Update status to CANCELLED and emit event                                    
+
+Here's the implementation:                                                      
+
+contracts/src/Bet.sol                                                           
+
+                                                                                
+ <<<<<<< SEARCH                                                                 
+     /// @dev Anybody can cancel an expired bet and send funds back to each     
+ party. The maker can cancel a pending bet.                                     
+     function cancel() external {                                               
+         // TODO: implement this function according to task/feature_request.md  
+         revert("not implemented");                                             
+     }                                                                          
+ =======                                                                        
+     /// @dev Anybody can cancel an expired bet and send funds back to each     
+ party. The maker can cancel a pending bet.                                     
+     function cancel() external {                                               
+         IBet.Bet memory b = _bet;                                              
+         IBet.Status currentStatus = _status(b);                                
+                                                                                
+         // Check if the bet can be cancelled                                   
+         if (currentStatus == IBet.Status.RESOLVED || currentStatus ==          
+ IBet.Status.CANCELLED) {                                                       
+             revert InvalidStatus();                                            
+         }                                                                      
+                                                                                
+         // Check authorization based on status                                 
+         if (currentStatus == IBet.Status.PENDING) {                            
+             // Only maker can cancel a pending bet                             
+             if (msg.sender != b.maker) {                                       
+                 revert Unauthorized();                                         
+             }                                                                  
+         } else if (currentStatus == IBet.Status.ACTIVE) {                      
+             // Only judge can cancel an active bet                             
+             if (msg.sender != b.judge) {                                       
+                 revert Unauthorized();                                         
+             }                                                                  
+         }                                                                      
+         // For EXPIRED status, anyone can cancel (no check needed)             
+                                                                                
+         // Withdraw from Aave if pool is set                                   
+         uint256 makerRefund = b.makerStake;                                    
+         uint256 takerRefund = b.takerStake;                                    
+                                                                                
+         if (address(_aavePool) != address(0)) {                                
+             uint256 aTokenBalance =                                            
+ IERC20(_aavePool.getReserveAToken(b.asset))                                    
+                 .balanceOf(address(this));                                     
+                                                                                
+             if (aTokenBalance > 0) {                                           
+                 _aavePool.withdraw(b.asset, aTokenBalance, address(this));     
+                                                                                
+                 // Cap refunds at what was actually withdrawn                  
+                 uint256 totalStakes = b.makerStake + b.takerStake;             
+                 makerRefund = _min(makerRefund, (aTokenBalance * b.makerStake) 
+ / totalStakes);                                                                
+                 takerRefund = _min(takerRefund, (aTokenBalance * b.takerStake) 
+ / totalStakes);                                                                
+             }                                                                  
+         }                                                                      
+                                                                                
+         // Return stakes to each party with try/catch to prevent one failure   
+ from blocking the other                                                        
+         if (makerRefund > 0) {                                                 
+             try IERC20(b.asset).transfer(b.maker, makerRefund) {} catch {}     
+         }                                                                      
+                                                                                
+         if (takerRefund > 0 && currentStatus != IBet.Status.PENDING) {         
+             // Only refund taker if they actually deposited (i.e., bet was     
+ accepted)                                                                      
+             try IERC20(b.asset).transfer(b.taker, takerRefund) {} catch {}     
+         }                                                                      
+                                                                                
+         // Update status and emit event                                        
+         _bet.status = IBet.Status.CANCELLED;                                   
+         emit BetCancelled();                                                   
+     }                                                                          
+ >>>>>>> REPLACE                                                                
+                                                                                
+
+The implementation:                                                             
+
+ 1 Gets current status using the _status helper to properly handle expired bets 
+ 2 Checks authorization:                                                        
+    • PENDING: only maker can cancel                                            
+    • ACTIVE: only judge can cancel                                             
+    • EXPIRED: anyone can cancel                                                
+    • RESOLVED/CANCELLED: reverts with InvalidStatus()                          
+ 3 Withdraws from Aave if a pool is set, proportionally capping refunds based on
+   what's actually available                                                    
+ 4 Returns stakes using try/catch blocks so one failed transfer doesn't block   
+   the other. Only refunds the taker if the bet was accepted (not PENDING)      
+ 5 Updates state to CANCELLED and emits BetCancelled()                          
+
+Tokens: 5.3k sent, 1.0k received. Cost: $0.03 message, $0.03 session.
+Applied edit to contracts/src/Bet.sol

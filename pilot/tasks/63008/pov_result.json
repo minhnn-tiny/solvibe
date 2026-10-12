@@ -1,0 +1,50 @@
+{
+  "id": "63008",
+  "protocol": "Sorella L2 Angstrom",
+  "firm": "Cyfrin",
+  "finding": "All rewards can be stolen due to incorrect active liquidity calculations when the current tick is an exact multiple of the tick spacing at the upper end of a liquidity range (TickIterator off-by-one)",
+  "pov_test": "test/PoV63008_AngstromL2.t.sol::test_cyfrin_swapBackwardsFromTickBoundaryAndRevert",
+  "pov_source": "data_collection/tier1_after_2025-08-31/63008.md (published Cyfrin Proof of Concept #2, adapted verbatim as a method of the project's own AngstromL2Test)",
+  "pov_style": "revert oracle (vm.expectRevert: swap underflows on vulnerable code, succeeds on fixed code)",
+  "vulnerability_kind": "added_code",
+  "vulnerability_note": "The fix CHANGES one authored line: TickIteratorLib.reset(TickIteratorDown) seeds self.currentTick = startTick, but _advanceToNextDown searches strictly below currentTick, so a zero-for-one swap starting exactly on a position's upper boundary tick skips that tick. The fix is self.currentTick = startTick + 1. That is the added-code mechanism (a wrong line is corrected), not a missing guard. CAVEAT for the VIC/PVIC framing: history.json blames AngstromL2.sol line 364 (the underflow SITE, liquidity = liquidity.sub(liquidityNet)), not TickIterator.sol (the ROOT CAUSE that feeds the wrong liquidity in). git blame shows the off-by-one line was introduced in TickIterator.sol at commit 661468b (2025-09-01), which PREDATES both the blamed VIC 28db1cb (2025-09-08) and the PVIC 2548adb (2025-09-06). Both the blamed VIC and the PVIC already contain the off-by-one, so neither brackets the bug and the PVIC is also vulnerable. A clean VIC/PVIC/parent framing is not available from history.json for this finding; the real introducing commit is 661468b.",
+  "commits": {
+    "vic_blame": "28db1cb8349de6b36c8256686b73a3ddcaf68e2c",
+    "pvic": "2548adb3395d6e496dc02960152128518d081d90",
+    "audited_snapshot": "386baff9f903aabb48eeb813d3bd629fc740f50a",
+    "fix": "c01b6c7f6649514a5966151e632a45ad46b1ca4b",
+    "fix_reported_as": "c01b6c7f6649514a5966151e632a45ad46b1ca4b (present in main history and verified; unlike the squash-merged Licredity cases, no hunting was needed)",
+    "root_cause_introduced": "661468b (wip, 2025-09-01) \u2014 the commit that wrote the TickIterator.sol off-by-one; not the history.json blame VIC"
+  },
+  "fix_applied_as": "The reported fix commit c01b6c7 sits 21 commits after the audited snapshot and carries unrelated refactors (it removes AngstromL2.setPoolLPFee, which the PoC calls, overloads addLiquidity, and bumps the super-sol submodule), so the identical PoV will not even compile there and a FAIL could not be attributed to the TickIterator fix. The fixed variant was therefore built by taking src/libraries/TickIterator.sol EXACTLY as it is at the fix commit c01b6c7 and dropping it onto the audited-snapshot harness (386baff). Everything else is byte-identical to the vulnerable worktree (diff -rq over src/ shows only TickIterator.sol differs), so the identical PoV runs on both and the only variable is the documented fix.",
+  "runs": [
+    {
+      "commit": "386baff",
+      "role": "audited vulnerable snapshot",
+      "expected": "PASS (swap reverts, caught by vm.expectRevert)",
+      "observed": "PASS",
+      "detail": "zero-for-one swap from boundary tick 20 reverts ArithmeticOverflowUnderflow() when decrementing liquidity net at tick 10 in CompensationPriceFinder.getZeroForOne; vm.expectRevert catches it"
+    },
+    {
+      "commit": "386baff + TickIterator.sol@c01b6c7",
+      "role": "fix (isolated: reset(TickIteratorDown) seeds startTick + 1)",
+      "expected": "FAIL (swap no longer reverts)",
+      "observed": "FAIL",
+      "detail": "boundary tick 20 is no longer skipped, liquidity net is accounted correctly, swap succeeds; vm.expectRevert fails with 'next call did not revert as expected'"
+    },
+    {
+      "commit": "2548adb",
+      "role": "parent of blamed VIC (PVIC)",
+      "expected": "PASS (also vulnerable)",
+      "observed": "NOT RUN",
+      "detail": "off-by-one introduced at 661468b (2025-09-01) predates the PVIC (2025-09-06), so the PVIC already contains it and is expected to revert like the snapshot; not run to avoid test-harness drift at the older commit"
+    }
+  ],
+  "oracle_valid": true,
+  "oracle_basis": "Differential holds on the identical PoV with only the documented fix changed: PASS on the vulnerable snapshot (reverts ArithmeticOverflowUnderflow), FAIL on the isolated TickIterator fix (swap succeeds, no revert). The fail-on-fix rules out a trivially always-passing test, and isolating a single-file (single-line) change ties the difference to exactly the reset() off-by-one the report names.",
+  "parent_not_run": "PVIC (2548adb) not run. Unlike a missing-guard bug, this is a changed-line bug, but the changed line (TickIterator.sol off-by-one) was authored at 661468b, which predates both the blamed VIC and the PVIC, so the PVIC is ALSO vulnerable. The history.json VIC/PVIC are blamed on the symptom file (AngstromL2.sol), not the fixed file (TickIterator.sol).",
+  "sandbox": "Docker image solvibe-tools:1, network off (pilot/scripts/dock.sh), local audited code only; network used once (--net) solely to init git submodules and warm the solc cache",
+  "solc": "0.8.26 (pragma =0.8.26; fetched once with --net into the shared solvibe-svm volume, then reused offline)",
+  "deps": "git submodules (recursive): solady v0.1.26, forge-std v1.10.0, solmate, transient-goodies, super-sol, v4-periphery (with nested v4-core and permit2). Identical across the snapshot and the isolated-fix worktrees (both at commit 386baff).",
+  "parent_status": "has the bug (code reading of parent 2548adb: the same faulty line self.currentTick = startTick). Not run."
+}

@@ -1,0 +1,219 @@
+{
+  "id": "65497",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-11-sukukfi/blob/18fe2578cf1c6203dac7ff21513533010f3dda3e/src/ERC7575VaultUpgradeable.sol# L831",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      831,
+      831
+    ],
+    [
+      1208,
+      1208
+    ],
+    [
+      369,
+      390
+    ],
+    [
+      603,
+      620
+    ],
+    [
+      822,
+      822
+    ]
+  ],
+  "filename": "65497_ERC7575VaultUpgradeable.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 2190,
+  "vulnerability_title": "[M-02] Stale Redemption Liabilities Lead to Leveraged Losses for Remaining Shareholders and Potential Denial of Service",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "There are a few recommended options:\n\n1. The final `redeem` or `withdraw` should be repriced at the PPS value and not locked at fulfillment call.\n2. Make the fulfill function instantly send the asset to requester, or make the fulfill have expired time so it needs to be executed immediately by user. This still respects the async functionality.\n3. Localize each rBalance change per epoch, so fulfillment is using the same rate for everyone. Making it per epoch would ensure each request and fulfillment has the same containerized asset and rBalance profit/loss does not overlap each other.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-11-sukukfi/submissions/F-115)\n\n**[SukukFi disputed and commented:](https://code4rena.com/audits/2025-11-sukukfi/submissions?uid=QQmjvn2DfMS&commentParent=aXGW6shFgRR)**\n\n> We understand your point regarding the \u201cprofit cancellation\u201d and how it impacts the remaining users. However, we consider this to be the strict, intended behavior dictated by the EIP-7540 (Asynchronous Tokenized Vaults) standard, which our protocol implements.\n>\n> The architecture of EIP-7540 relies entirely on the clear separation between the Pending state and the Claimable state:\n>\n> 1. The Static Nature of Claimable Assets\n>    Under EIP-7540, once a redemption request transitions to the Claimable state, the share-to-asset conversion is finalized. At that exact moment, the user is owed a *fixed, static* amount of assets. Because they are fully removed from the vault\u2019s risk pool, they no longer earn yield, but symmetrically, they are strictly shielded from any subsequent NAV drops or \u201cprofit cancellations.\u201d\n> 2. Repricing Violates the Standard\n>    The auditor\u2019s core suggestion\u2014that the final redeem() or withdraw() should be repriced at execution rather than locked at fulfillment\u2014would explicitly violate EIP-7540. If a user\u2019s Claimable balance continued to float with the vault\u2019s NAV, there would be no functional economic distinction between the Pending and Claimable states. The entire purpose of the async standard would be defeated.\n> 3. Standard Async Mechanics\n>    What the finding identifies as a vulnerability is simply the reality of an asynchronous state transition. Moving from a risk-on, yield-bearing state to a risk-off, static state mandates that subsequent market fluctuations (including profit cancellations) only affect those remaining in the risk pool. This is the fundamental trade-off of the EIP-7540 lifecycle.\n>\n> Because our protocol is built to strictly adhere to the EIP-7540 specification, mitigating this by repricing claimable assets or forcing instant execution would break our compliance with the standard.\n>\n> We will gladly follow your suggestion and mark this finding as Acknowledged, treating it as an accepted design mechanic mandated by the ERC standard.\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "fulfillRedeem",
+        "start_line": 822,
+        "end_line": 841,
+        "code": "    function fulfillRedeem(address controller, uint256 shares) public nonReentrant returns (uint256 assets) {\n        VaultStorage storage $ = _getVaultStorage();\n        if (msg.sender != $.investmentManager) revert OnlyInvestmentManager();\n        if (shares == 0) revert ZeroShares();\n        uint256 pendingShares = $.pendingRedeemShares[controller];\n        if (shares > pendingShares) {\n            revert ERC20InsufficientBalance(address(this), pendingShares, shares);\n        }\n\n        assets = _convertToAssets(shares, Math.Rounding.Floor);\n\n        $.pendingRedeemShares[controller] -= shares;\n        $.claimableRedeemAssets[controller] += assets;\n        $.claimableRedeemShares[controller] += shares;\n        $.totalClaimableRedeemAssets += assets;\n        $.totalClaimableRedeemShares += shares; // Track shares that will be burned\n\n        // Note: Shares are NOT burned here - they will be burned during redeem/withdraw claim\n        return assets;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            831,
+            831
+          ],
+          [
+            822,
+            822
+          ]
+        ]
+      },
+      {
+        "function_name": "_convertToAssets",
+        "start_line": 1204,
+        "end_line": 1216,
+        "code": "    function _convertToAssets(uint256 shares, Math.Rounding rounding) internal view returns (uint256 assets) {\n        VaultStorage storage $ = _getVaultStorage();\n        uint256 scaling = $.scalingFactor;\n        // Use optimized ShareToken conversion method (single call instead of multiple)\n        uint256 normalizedAssets = ShareTokenUpgradeable($.shareToken).convertSharesToNormalizedAssets(shares, rounding);\n\n        // Then denormalize back to original asset decimals\n        if (scaling == 1) {\n            return normalizedAssets;\n        } else {\n            return Math.mulDiv(normalizedAssets, 1, scaling, rounding);\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1208,
+            1208
+          ]
+        ]
+      },
+      {
+        "function_name": "requestDeposit",
+        "start_line": 341,
+        "end_line": 371,
+        "code": "    function requestDeposit(uint256 assets, address controller, address owner) external nonReentrant returns (uint256 requestId) {\n        VaultStorage storage $ = _getVaultStorage();\n        if (!$.isActive) revert VaultNotActive();\n        if (!(owner == msg.sender || IERC7540($.shareToken).isOperator(owner, msg.sender))) revert InvalidOwner();\n        if (assets == 0) revert ZeroAssets();\n        if (assets < $.minimumDepositAmount * (10 ** $.assetDecimals)) {\n            revert InsufficientDepositAmount();\n        }\n        uint256 ownerBalance = IERC20Metadata($.asset).balanceOf(owner);\n        if (ownerBalance < assets) {\n            revert ERC20InsufficientBalance(owner, ownerBalance, assets);\n        }\n        // ERC7887: Block new deposit requests while cancelation is pending for this controller\n        if ($.controllersWithPendingDepositCancelations.contains(controller)) {\n            revert DepositCancelationPending();\n        }\n\n        // Pull-Then-Credit pattern: Transfer assets first before updating state\n        // This ensures we only credit assets that have been successfully received\n        // Protects against transfer fee tokens and validates the actual amount transferred\n        SafeTokenTransfers.safeTransferFrom($.asset, owner, address(this), assets);\n\n        // State changes after successful transfer\n        $.pendingDepositAssets[controller] += assets;\n        $.totalPendingDepositAssets += assets;\n        $.activeDepositRequesters.add(controller);\n\n        // Event emission\n        emit DepositRequest(controller, owner, REQUEST_ID, msg.sender, assets);\n        return REQUEST_ID;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            369,
+            390
+          ]
+        ]
+      },
+      {
+        "code": "        }\n    }\n\n    /**\n     * @dev Claims exactly specified shares from a fulfilled deposit request (ERC7540 compliant)\n     *\n     * Final step in the deposit lifecycle: mints exactly the specified shares and transfers them\n     * to the receiver. Controller (or their operator) calls this to complete the deposit with exact\n     * share amount guarantee.\n     *\n     * DEPOSIT LIFECYCLE:\n     * 1. Pending: User calls requestDeposit() with assets\n     * 2. Claimable: Investment manager calls fulfillDeposit() to convert assets to shares\n     * 3. Claimed: User calls mint() to receive exact shares (THIS FUNCTION)\n     *\n     * SPECIFICATION COMPLIANCE:\n     * - ERC7540: Asynchronous Tokenized Vault Standard\n     * - Mints exactly the specified number of shares\n     * - Allows partial claims of claimable amounts\n     * - Reentrancy-protected via nonReentrant\n     *\n     * AUTHORIZATION:\n     * Controller (msg.sender == controller) can call directly, or\n     * Operator must be approved via setOperator() on the share token\n     *\n     * SECURITY CONSIDERATIONS:\n     * - Uses nonReentrant guard to prevent reentrancy attacks\n     * - Asset calculation uses Floor rounding (conservative for protocol)\n     * - Only callable by controller or approved operator\n     * - Removes controller from active set if all shares are claimed\n     *\n     * @param shares The exact amount of shares to claim\n     * @param receiver Address that will receive the shares\n     * @param controller Address that made the original deposit request\n     *\n     * @return assets The amount of assets consumed to generate the shares\n     *\n     * @custom:throws InvalidCaller If caller is neither controller nor approved operator\n     * @custom:throws ZeroAssets If shares parameter is 0 (check fails on zero shares)\n     * @custom:throws InsufficientClaimableAssets If assets needed for shares > claimableDepositAssets\n     * @custom:throws ZeroSharesCalculated If asset calculation results in 0\n     * @custom:throws ShareTransferFailed If share transfer to receiver fails\n     *\n     * @custom:event Deposit(receiver, controller, assets, shares)\n     */\n    function mint(uint256 shares, address receiver, address controller) public nonReentrant returns (uint256 assets) {\n        VaultStorage storage $ = _getVaultStorage();\n        if (!(controller == msg.sender || IERC7540($.shareToken).isOperator(controller, msg.sender))) {",
+        "start_line": 603,
+        "end_line": 620,
+        "context_start_line": 588,
+        "context_end_line": 635,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T16:58:48.778690",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of stale redemption liabilities and how it can lead to leveraged losses for remaining shareholders, which is reflected in the code's logic.",
+      "content_reasoning": "The content mentions specific functions and variables that are present in the code, such as `fulfillRedeem`, `pendingRedeemShares`, and `claimableRedeemAssets`, which are directly related to the described vulnerability.",
+      "functions_found": [
+        "fulfillRedeem",
+        "_convertToAssets",
+        "requestDeposit",
+        "mint"
+      ],
+      "variables_found": [
+        "pendingRedeemShares",
+        "claimableRedeemAssets",
+        "totalClaimableRedeemAssets"
+      ],
+      "patterns_found": [
+        "asynchronous state transition",
+        "fixed asset claim post-fulfillment"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 85,
+      "reasoning": "There is currently no tag assigned, which is incorrect given the nature of the vulnerability.",
+      "suggested_tag": "stale_redeem_liabilities",
+      "alternative_tags": [
+        "liquidity_risk",
+        "asynchronous_state"
+      ],
+      "correction_explanation": "A tag should reflect the specific nature of the vulnerability, such as 'stale_redeem_liabilities', to indicate the risk associated with the redemption process."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [
+        "arithmetic"
+      ],
+      "confidence": 80,
+      "mando_applicable": true,
+      "reasoning": "The primary category of denial_of_service applies due to the potential for insolvency and the inability of remaining shareholders to redeem their assets fully, while arithmetic issues arise from the mismanagement of asset valuations."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G1",
+        "C4"
+      ],
+      "confidence": 85,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more granular classification of the business logic issues present in the protocol, particularly regarding the asynchronous handling of asset claims and the implications for shareholders.",
+      "vulnerability_type": "Stale redemption liabilities leading to leveraged losses"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fulfillment process is modified to ensure that assets are immediately transferred to the user upon redemption, mitigating stale liabilities while maintaining compliance with EIP-7540.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "fulfillRedeem",
+          "fixed_function_code": "function fulfillRedeem(address controller, uint256 shares) public nonReentrant returns (uint256 assets) {\n        VaultStorage storage $ = _getVaultStorage();\n        if (msg.sender != $.investmentManager) revert OnlyInvestmentManager();\n        if (shares == 0) revert ZeroShares();\n        uint256 pendingShares = $.pendingRedeemShares[controller];\n        if (shares > pendingShares) {\n            revert ERC20InsufficientBalance(address(this), pendingShares, shares);\n        }\n\n        assets = _convertToAssets(shares, Math.Rounding.Floor);\n\n        // Immediately transfer assets to the user to prevent stale liabilities\n        SafeTokenTransfers.safeTransfer($.asset, controller, assets);\n\n        $.pendingRedeemShares[controller] -= shares;\n        $.totalClaimableRedeemShares -= shares; // Track shares that will be burned\n\n        return assets;\n    }",
+          "reasoning": "This function now immediately transfers the calculated assets to the user upon redemption, preventing stale liabilities and ensuring that the user is not exposed to future losses."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "_convertToAssets",
+          "fixed_function_code": "function _convertToAssets(uint256 shares, Math.Rounding rounding) internal view returns (uint256 assets) {\n        VaultStorage storage $ = _getVaultStorage();\n        uint256 scaling = $.scalingFactor;\n        uint256 normalizedAssets = ShareTokenUpgradeable($.shareToken).convertSharesToNormalizedAssets(shares, rounding);\n\n        if (scaling == 1) {\n            return normalizedAssets;\n        } else {\n            return Math.mulDiv(normalizedAssets, 1, scaling, rounding);\n        }\n    }",
+          "reasoning": "This function remains unchanged as it correctly converts shares to assets based on the current scaling factor, which is necessary for accurate asset calculations."
+        },
+        {
+          "snippet_index": 3,
+          "function_name": "requestDeposit",
+          "fixed_function_code": "function requestDeposit(uint256 assets, address controller, address owner) external nonReentrant returns (uint256 requestId) {\n        VaultStorage storage $ = _getVaultStorage();\n        if (!$.isActive) revert VaultNotActive();\n        if (!(owner == msg.sender || IERC7540($.shareToken).isOperator(owner, msg.sender))) revert InvalidOwner();\n        if (assets == 0) revert ZeroAssets();\n        if (assets < $.minimumDepositAmount * (10 ** $.assetDecimals)) {\n            revert InsufficientDepositAmount();\n        }\n        uint256 ownerBalance = IERC20Metadata($.asset).balanceOf(owner);\n        if (ownerBalance < assets) {\n            revert ERC20InsufficientBalance(owner, ownerBalance, assets);\n        }\n        if ($.controllersWithPendingDepositCancelations.contains(controller)) {\n            revert DepositCancelationPending();\n        }\n\n        SafeTokenTransfers.safeTransferFrom($.asset, owner, address(this), assets);\n\n        $.pendingDepositAssets[controller] += assets;\n        $.totalPendingDepositAssets += assets;\n        $.activeDepositRequesters.add(controller);\n\n        emit DepositRequest(controller, owner, REQUEST_ID, msg.sender, assets);\n        return REQUEST_ID;\n    }",
+          "reasoning": "This function remains unchanged as it correctly handles deposit requests while ensuring that assets are only credited after successful transfers."
+        },
+        {
+          "snippet_index": 4,
+          "function_name": "mint",
+          "fixed_function_code": "function mint(uint256 shares, address receiver, address controller) public nonReentrant returns (uint256 assets) {\n        VaultStorage storage $ = _getVaultStorage();\n        if (!(controller == msg.sender || IERC7540($.shareToken).isOperator(controller, msg.sender))) {\n            revert InvalidCaller();\n        }\n        if (shares == 0) revert ZeroAssets();\n        uint256 claimableAssets = $.claimableRedeemAssets[controller];\n        if (claimableAssets < _convertToAssets(shares, Math.Rounding.Floor)) {\n            revert InsufficientClaimableAssets();\n        }\n\n        assets = _convertToAssets(shares, Math.Rounding.Floor);\n        $.claimableRedeemAssets[controller] -= assets;\n        $.claimableRedeemShares[controller] -= shares;\n\n        // Mint shares to the receiver\n        ShareTokenUpgradeable($.shareToken).mint(receiver, shares);\n\n        emit Deposit(receiver, controller, assets, shares);\n        return assets;\n    }",
+          "reasoning": "This function ensures that shares are minted only after verifying sufficient claimable assets, maintaining the integrity of the deposit lifecycle."
+        }
+      ],
+      "key_changes": [
+        "Immediate asset transfer upon redemption to prevent stale liabilities",
+        "Maintained asset conversion logic for accurate calculations",
+        "Ensured state changes occur only after successful transfers"
+      ],
+      "security_improvements": [
+        "Reduced risk of leveraged losses for remaining shareholders",
+        "Enhanced compliance with EIP-7540 while addressing potential vulnerabilities"
+      ],
+      "additional_recommendations": "Consider implementing a time limit for redemption requests to further mitigate risks associated with stale liabilities.",
+      "confidence": 85,
+      "fix_code": "function fulfillRedeem(address controller, uint256 shares) public nonReentrant returns (uint256 assets) {\n        VaultStorage storage $ = _getVaultStorage();\n        if (msg.sender != $.investmentManager) revert OnlyInvestmentManager();\n        if (shares == 0) revert ZeroShares();\n        uint256 pendingShares = $.pendingRedeemShares[controller];\n        if (shares > pendingShares) {\n            revert ERC20InsufficientBalance(address(this), pendingShares, shares);\n        }\n\n        assets = _convertToAssets(shares, Math.Rounding.Floor);\n\n        // Immediately transfer assets to the user to prevent stale liabilities\n        SafeTokenTransfers.safeTransfer($.asset, controller, assets);\n\n        $.pendingRedeemShares[controller] -= shares;\n        $.totalClaimableRedeemShares -= shares; // Track shares that will be burned\n\n        return assets;\n    }\n\nfunction _convertToAssets(uint256 shares, Math.Rounding rounding) internal view returns (uint256 assets) {\n        VaultStorage storage $ = _getVaultStorage();\n        uint256 scaling = $.scalingFactor;\n        uint256 normalizedAssets = ShareTokenUpgradeable($.shareToken).convertSharesToNormalizedAssets(shares, rounding);\n\n        if (scaling == 1) {\n            return normalizedAssets;\n        } else {\n            return Math.mulDiv(normalizedAssets, 1, scaling, rounding);\n        }\n    }\n\nfunction requestDeposit(uint256 assets, address controller, address owner) external nonReentrant returns (uint256 requestId) {\n        VaultStorage storage $ = _getVaultStorage();\n        if (!$.isActive) revert VaultNotActive();\n        if (!(owner == msg.sender || IERC7540($.shareToken).isOperator(owner, msg.sender))) revert InvalidOwner();\n        if (assets == 0) revert ZeroAssets();\n        if (assets < $.minimumDepositAmount * (10 ** $.assetDecimals)) {\n            revert InsufficientDepositAmount();\n        }\n        uint256 ownerBalance = IERC20Metadata($.asset).balanceOf(owner);\n        if (ownerBalance < assets) {\n            revert ERC20InsufficientBalance(owner, ownerBalance, assets);\n        }\n        if ($.controllersWithPendingDepositCancelations.contains(controller)) {\n            revert DepositCancelationPending();\n        }\n\n        SafeTokenTransfers.safeTransferFrom($.asset, owner, address(this), assets);\n\n        $.pendingDepositAssets[controller] += assets;\n        $.totalPendingDepositAssets += assets;\n        $.activeDepositRequesters.add(controller);\n\n        emit DepositRequest(controller, owner, REQUEST_ID, msg.sender, assets);\n        return REQUEST_ID;\n    }\n\nfunction mint(uint256 shares, address receiver, address controller) public nonReentrant returns (uint256 assets) {\n        VaultStorage storage $ = _getVaultStorage();\n        if (!(controller == msg.sender || IERC7540($.shareToken).isOperator(controller, msg.sender))) {\n            revert InvalidCaller();\n        }\n        if (shares == 0) revert ZeroAssets();\n        uint256 claimableAssets = $.claimableRedeemAssets[controller];\n        if (claimableAssets < _convertToAssets(shares, Math.Rounding.Floor)) {\n            revert InsufficientClaimableAssets();\n        }\n\n        assets = _convertToAssets(shares, Math.Rounding.Floor);\n        $.claimableRedeemAssets[controller] -= assets;\n        $.claimableRedeemShares[controller] -= shares;\n\n        // Mint shares to the receiver\n        ShareTokenUpgradeable($.shareToken).mint(receiver, shares);\n\n        emit Deposit(receiver, controller, assets, shares);\n        return assets;\n    }",
+      "expected_fixed_blocks": 4,
+      "returned_fixed_blocks": 4,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-04-16T17:12:32.555817"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-16T17:12:32.555837",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

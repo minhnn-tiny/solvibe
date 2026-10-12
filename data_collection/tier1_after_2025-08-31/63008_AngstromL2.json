@@ -1,0 +1,123 @@
+{
+  "id": "63008",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/sorellaLabs/l2-angstrom/blob/386baff9f903aabb48eeb813d3bd629fc740f50a/src/AngstromL2.sol#L364",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      364,
+      364
+    ],
+    [
+      67,
+      67
+    ]
+  ],
+  "filename": "63008_AngstromL2.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 461,
+  "vulnerability_title": "All rewards can be stolen due to incorrect active liquidity calculations when the current tick is an exact multiple of the tick spacing at the upper end of a liquidity range",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_zeroForOneCreditRewards",
+        "start_line": 325,
+        "end_line": 374,
+        "code": "\n    function _zeroForOneCreditRewards(\n        TickIteratorDown memory ticks,\n        uint128 liquidity,\n        uint256 taxInEther,\n        uint160 priceUpperSqrtX96,\n        int24 lastTick,\n        uint160 pstarSqrtX96\n    ) internal {\n        uint256 pstarX96 = uint256(pstarSqrtX96).mulX96(pstarSqrtX96);\n        uint256 cumulativeGrowthX128 = 0;\n        uint160 priceLowerSqrtX96;\n\n        while (ticks.hasNext()) {\n            int24 tickNext = ticks.getNext();\n\n            priceLowerSqrtX96 = max(TickMath.getSqrtPriceAtTick(tickNext), pstarSqrtX96);\n\n            uint256 rangeReward = 0;\n            if (tickNext >= lastTick && liquidity != 0) {\n                uint256 delta0 = SqrtPriceMath.getAmount0Delta(\n                    priceLowerSqrtX96, priceUpperSqrtX96, liquidity, false\n                );\n                uint256 delta1 = SqrtPriceMath.getAmount1Delta(\n                    priceLowerSqrtX96, priceUpperSqrtX96, liquidity, false\n                );\n                rangeReward = (delta1.divX96(pstarX96) - delta0).min(taxInEther);\n\n                unchecked {\n                    taxInEther -= rangeReward;\n                    cumulativeGrowthX128 += PoolRewardsLib.getGrowthDelta(rangeReward, liquidity);\n                }\n            }\n\n            unchecked {\n                rewards[ticks.poolId].rewardGrowthOutsideX128[tickNext] += cumulativeGrowthX128;\n            }\n\n            (, int128 liquidityNet) = ticks.manager.getTickLiquidity(ticks.poolId, tickNext);\n            liquidity = liquidity.sub(liquidityNet);\n\n            priceUpperSqrtX96 = priceLowerSqrtX96;\n        }\n\n        // Distribute remainder to last range and update global accumulator.\n        unchecked {\n            cumulativeGrowthX128 += PoolRewardsLib.getGrowthDelta(taxInEther, liquidity);\n            rewards[ticks.poolId].globalGrowthX128 += cumulativeGrowthX128;\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            364,
+            364
+          ]
+        ]
+      },
+      {
+        "code": "    error NegationOverflow();\n    error ProtocolFeeExceedsMaximum();\n    error AttemptingToWithdrawLPRewards();\n    error IncompatiblePoolConfiguration();\n\n    event PoolLPFeeUpdated(PoolKey key, uint24 newFee);\n    event PoolHookSwapFeeUpdated(PoolKey key, uint256 newFeeE6);\n\n    /// @dev The `SWAP_TAXED_GAS` is the abstract estimated gas cost for a swap. We want it to be\n    /// a constant so that competing searchers have a bid cost independent of how much gas swap\n    /// actually uses, the overall tax just needs to scale proportional to `priority_fee * swap_fixed_cost`.\n    uint256 internal constant SWAP_TAXED_GAS = 100_000;\n    /// @dev MEV tax charged is `priority_fee * SWAP_MEV_TAX_FACTOR` meaning the tax rate is\n    /// `SWAP_MEV_TAX_FACTOR / (SWAP_MEV_TAX_FACTOR + 1)`\n    uint256 constant SWAP_MEV_TAX_FACTOR = 49;\n    /// @dev Parameters for taxing just-in-time (JIT) liquidity\n    uint256 internal constant JIT_TAXED_GAS = 100_000;\n    uint256 internal constant JIT_MEV_TAX_FACTOR = SWAP_MEV_TAX_FACTOR * 4;\n\n    uint256 internal constant NATIVE_CURRENCY_ID = 0;\n    uint256 internal constant FACTOR_E6 = 1e6;\n    uint256 internal constant MAX_PROTOCOL_FEE_E6 = 0.1e6;\n\n    IFlashBlockNumber public immutable FLASH_BLOCK_NUMBER_PROVIDER;\n\n    /// @dev Tracks how much of the ether held by the contract is unclaimed revenue vs. unclaimed\n    /// LP rewards.\n    uint128 public unclaimedProtocolRevenueInEther;\n    uint128 internal _blockOfLastTopOfBlock;\n    mapping(PoolId id => PoolRewards) internal rewards;\n    mapping(PoolId id => uint256) internal _hookSwapFeeE6;",
+        "start_line": 67,
+        "end_line": 67,
+        "context_start_line": 52,
+        "context_end_line": 82,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:05:27.585884",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability related to incorrect liquidity calculations and the potential for reward theft.",
+      "content_reasoning": "The content mentions specific functions and variables that are present in the extracted code, and the described patterns of arithmetic underflow and incorrect reward distribution are evident.",
+      "functions_found": [
+        "_zeroForOneCreditRewards",
+        "_advanceToNextDown"
+      ],
+      "variables_found": [
+        "liquidity",
+        "taxInEther",
+        "cumulativeGrowthX128"
+      ],
+      "patterns_found": [
+        "arithmetic underflow",
+        "incorrect reward distribution"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 85,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to reflect the vulnerability.",
+      "suggested_tag": "Liquidity Calculation Vulnerability",
+      "alternative_tags": [
+        "Reward Theft",
+        "Arithmetic Underflow"
+      ],
+      "correction_explanation": "A tag is necessary to categorize the vulnerability for better tracking and remediation."
+    },
+    "mando_classification": {
+      "primary_category": "arithmetic",
+      "secondary_categories": [],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability involves arithmetic operations leading to underflow, which fits well within the arithmetic category."
+    },
+    "scsvs_classification": {
+      "primary_category": "G7",
+      "primary_category_name": "Arithmetic",
+      "secondary_categories": [
+        "C8"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more granular classification, particularly highlighting the arithmetic issues and their impact on liquidity pools.",
+      "vulnerability_type": "Arithmetic underflow leading to reward theft"
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-04-25T11:58:52.822041",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

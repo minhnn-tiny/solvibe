@@ -1,0 +1,51 @@
+diff --git a/src/Licredity.sol b/src/Licredity.sol
+index e4ce7c0..a1d8f65 100644
+--- a/src/Licredity.sol
++++ b/src/Licredity.sol
+@@ -473,12 +473,8 @@ contract Licredity is ILicredity, IERC721TokenReceiver, BaseERC20, BaseHooks, Ex
+     function decreaseDebtShare(uint256 positionId, uint256 delta, bool useBalance) external returns (uint256 amount) {
+         Position storage position = positions[positionId];
+ 
+-        uint256 _totalDebtShare = totalDebtShare; // gas saving
+-        uint256 _totalDebtBalance = totalDebtBalance; // gas saving
+-        // amount of debt fungible to be burned
+-        amount = delta.fullMulDivUp(_totalDebtBalance, _totalDebtShare);
++        amount = delta.fullMulDivUp(totalDebtBalance, totalDebtShare);
+ 
+-        // if the debt fungible is meant to be withdrawn from the position
+         if (useBalance) {
+             // require(position.owner == msg.sender, NotPositionOwner());
+             if (position.owner != msg.sender) {
+@@ -488,7 +484,14 @@ contract Licredity is ILicredity, IERC721TokenReceiver, BaseERC20, BaseHooks, Ex
+                 }
+             }
+ 
+-            position.removeFungible(Fungible.wrap(address(this)), amount);
++            // require(position.removeFungible(Fungible.wrap(address(this)), amount), FungibleNotInPosition());
++            if (!position.removeFungible(Fungible.wrap(address(this)), amount)) {
++                assembly ("memory-safe") {
++                    mstore(0x00, 0xf546a276) // 'FungibleNotInPosition()'
++                    revert(0x1c, 0x04)
++                }
++            }
++
+             _burn(address(this), amount);
+ 
+             // emit WithdrawFungible(positionId, address(0), Fungible.wrap(address(this)), amount);
+@@ -517,14 +520,13 @@ contract Licredity is ILicredity, IERC721TokenReceiver, BaseERC20, BaseHooks, Ex
+ 
+         position.decreaseDebtShare(delta);
+ 
+-        totalDebtShare = _totalDebtShare - delta;
+-        totalDebtBalance = _totalDebtBalance - amount;
++        totalDebtShare -= delta;
++        totalDebtBalance -= amount;
+ 
+         // emit DecreaseDebtShare(positionId, useBalance, delta, amount);
+         assembly ("memory-safe") {
+             mstore(0x00, delta)
+             mstore(0x20, amount)
+-
+             log3(
+                 0x00,
+                 0x40,

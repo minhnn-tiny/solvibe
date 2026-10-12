@@ -1,0 +1,65 @@
+diff --git a/src/Licredity.sol b/src/Licredity.sol
+index e4ce7c0..3e19697 100644
+--- a/src/Licredity.sol
++++ b/src/Licredity.sol
+@@ -472,13 +472,11 @@ contract Licredity is ILicredity, IERC721TokenReceiver, BaseERC20, BaseHooks, Ex
+     /// @inheritdoc ILicredity
+     function decreaseDebtShare(uint256 positionId, uint256 delta, bool useBalance) external returns (uint256 amount) {
+         Position storage position = positions[positionId];
++        uint256 _totalDebtShare = totalDebtShare;
++        uint256 _totalDebtBalance = totalDebtBalance;
+ 
+-        uint256 _totalDebtShare = totalDebtShare; // gas saving
+-        uint256 _totalDebtBalance = totalDebtBalance; // gas saving
+-        // amount of debt fungible to be burned
+         amount = delta.fullMulDivUp(_totalDebtBalance, _totalDebtShare);
+ 
+-        // if the debt fungible is meant to be withdrawn from the position
+         if (useBalance) {
+             // require(position.owner == msg.sender, NotPositionOwner());
+             if (position.owner != msg.sender) {
+@@ -488,20 +486,19 @@ contract Licredity is ILicredity, IERC721TokenReceiver, BaseERC20, BaseHooks, Ex
+                 }
+             }
+ 
+-            position.removeFungible(Fungible.wrap(address(this)), amount);
++            // require(position.removeFungible(Fungible.wrap(address(this)), amount), FungibleNotInPosition());
++            if (!position.removeFungible(Fungible.wrap(address(this)), amount)) {
++                assembly ("memory-safe") {
++                    mstore(0x00, 0xf546a276) // 'FungibleNotInPosition()'
++                    revert(0x1c, 0x04)
++                }
++            }
+             _burn(address(this), amount);
+ 
+             // emit WithdrawFungible(positionId, address(0), Fungible.wrap(address(this)), amount);
+             assembly ("memory-safe") {
+                 mstore(0x00, amount)
+-                log4(
+-                    0x00,
+-                    0x20,
+-                    0xfb3042bebfd7f55f21e673d861ca2919c54d953e3ac3e23576141079b10797d0,
+-                    positionId,
+-                    0,
+-                    address()
+-                )
++                log4(0x00, 0x20, 0xfb3042bebfd7f55f21e673d861ca2919c54d953e3ac3e23576141079b10797d0, positionId, 0, address())
+             }
+         } else {
+             // require(position.owner != address(0), PositionDoesNotExist());
+@@ -516,7 +513,6 @@ contract Licredity is ILicredity, IERC721TokenReceiver, BaseERC20, BaseHooks, Ex
+         }
+ 
+         position.decreaseDebtShare(delta);
+-
+         totalDebtShare = _totalDebtShare - delta;
+         totalDebtBalance = _totalDebtBalance - amount;
+ 
+@@ -524,7 +520,6 @@ contract Licredity is ILicredity, IERC721TokenReceiver, BaseERC20, BaseHooks, Ex
+         assembly ("memory-safe") {
+             mstore(0x00, delta)
+             mstore(0x20, amount)
+-
+             log3(
+                 0x00,
+                 0x40,

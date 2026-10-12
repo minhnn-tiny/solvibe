@@ -1,0 +1,30 @@
+{
+  "id": "62347",
+  "protocol": "Licredity",
+  "what_is_at_risk": "The equity of every other borrower (holder of debt shares), because the top-up minted at seize raises the total debt balance and so raises every other position's debt in the debt token (DETH).",
+  "loss_type": "bad debt",
+  "who_loses": "Other borrowers with open debt. Their debt grows by their share of the top-up. If their position goes underwater, the excess becomes new bad debt, which in the end dilutes holders of the debt token (DETH) such as liquidity providers.",
+  "who_gains": "The attacker who owns the position and seizes it through a helper contract.",
+  "scenario": "A victim borrower holds 10 TOKEN as collateral and owes 9 DETH. The attacker deposits 0.5 TOKEN, borrows 1 DETH, seizes its own position through a helper inside the same unlock, takes the 1 DETH top-up, repays all its debt and withdraws its 0.5 TOKEN, all in one transaction.",
+  "measured": {
+    "unit": "DETH (debt token, 1 DETH = 1e18 wei). TOKEN and DETH are both priced at 1 by the oracle mock.",
+    "user_funds_in_scenario": 10,
+    "user_loss": 0.9,
+    "attacker_gain": 0.9,
+    "loss_pct_of_user_funds": 9.0
+  },
+  "worst_case_pct_of_user_funds": "100% of other borrowers' equity. In one transaction their debt can grow by up to about 200% (measured 199.8%).",
+  "worst_case_basis": "The attacker repays inside the same unlock, so its position never needs to be healthy after the seize. Its profit is the top-up (twice the deficit) times the other borrowers' share of total debt, and this tends to twice their debt as the borrow grows. The sweep measured 17.98 DETH profit (victim debt 9 -> 26.98 DETH against 10 TOKEN collateral) with 0.5 TOKEN collateral and a 9,000 DETH borrow, which is under the test's 10,000 DETH debt limit.",
+  "scales_with": "Total debt of the other borrowers (the profit tends to twice that) and the size of the attacker's borrow. The global debt limit caps the borrow. The attacker only needs a tiny amount of collateral, no flash loan and no price move.",
+  "repeatable": "yes",
+  "concrete_usd": null,
+  "why_no_usd": "The test uses a mock collateral token and mock oracle prices, so there is no real asset or price. The audited code was fixed (commit 0e0d513) before deployment, so there is no live TVL that this bug touched.",
+  "fix_check": {
+    "commit": "0e0d513",
+    "result": "The attack reverts with CannotSeizeRegisteredPosition() (selector 0x4c2e8700) at every borrow size. Attacker profit is 0 and victim loss is 0."
+  },
+  "confidence": "measured",
+  "loss_test": "pilot/tasks/62347/loss/Loss62347_Licredity.t.sol",
+  "command": "forge test --match-path test/Loss62347_Licredity.t.sol -vv (copy the file into test/ of a clone at e8ae10a with the prepared dependencies; at 0e0d513 delete the other *.t.sol files first because LicreditySeize.t.sol does not compile there)",
+  "notes": "Denominator = the victim's deposited collateral (10 TOKEN = 10 DETH). The same 0.9 DETH loss is 10% of the victim's debt and 90% of the victim's equity (1 DETH -> 0.1 DETH), and it leaves the victim's position unhealthy, so a liquidator can now seize it. Attacker profit equals victim debt increase to within 1 wei. Sweep results with 0.5 TOKEN collateral (borrow -> profit, in DETH): 1 -> 0.90, 2 -> 2.45, 9 -> 8.50, 20 -> 12.10, 100 -> 16.43, 1000 -> 17.83, 9000 -> 17.98. In Licredity the seize top-up is socialized over all debt shares, so the cost lands first on other borrowers rather than directly on liquidity providers, as the report's word 'lenders' suggests. Each repeat raises other borrowers' debt again. Logs: pilot/tasks/62347/loss/run_e8ae10a_vulnerable.log and run_0e0d513_fix.log."
+}

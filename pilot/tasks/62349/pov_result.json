@@ -1,0 +1,40 @@
+{
+  "id": "62349",
+  "protocol": "Licredity",
+  "firm": "Cyfrin",
+  "finding": "Self-triggered _afterSwap back-run enables LP fee farming (Cyfrin H-1 / 7.2.1)",
+  "pov_test": "test/PoV62349_Licredity.t.sol::test_abuse_backswap_fees",
+  "pov_source": "data_collection/tier1_after_2025-08-31/62349.md (published Cyfrin PoC, adapted; the report's payable(router).transfer(...) top-ups were replaced with vm.deal because the project's V4MiniRouter has no receive() and funds native settlements from its own balance, matching how the project's own hook tests fund the router)",
+  "vulnerability_kind": "added_code",
+  "vulnerability_note": "The vulnerable code contains an automatic back-run: when a user swap pushes the price to or below parity, _afterSwap runs a second swap of its own to restore the price, and that back-run pays swap fees to liquidity providers. The fix REMOVES the back-run and instead reverts any swap that would end below parity. Because the harm is in code that was added (the back-run) and then removed, the parent of the commit that introduced it is clean. The back-run was introduced in f45abd7; it is present at the audited snapshot e8ae10a and removed by the fix 30fc63c.",
+  "commits": {
+    "vic_blame": "f45abd742e6f01b5958ef34cd54a272daad8c530",
+    "pvic": "2a3047305f9e8ef7d68650da41ca68802d027a18",
+    "audited_snapshot": "e8ae10a7d9f27529e39ca277bf56cef01a807817",
+    "fix": "30fc63c8609caa289b098def639fd09526be05bb",
+    "fix_reported_as": "PR#61 and PR#78 (commits ddee552, f10c969, d8522f8, 039eb4a, f818f33, 0baca20 per the report); none of those hashes are present in main history. The commit on main that actually removes the back-run from _afterSwap is 30fc63c (Cyfrin H-1 / 7.2.1)."
+  },
+  "runs": [
+    {
+      "commit": "e8ae10a",
+      "role": "audited vulnerable snapshot",
+      "expected": "PASS",
+      "observed": "PASS",
+      "detail": "attack is profitable; logged profit ~3.0 debt+base notional (3000000145111267347)"
+    },
+    {
+      "commit": "30fc63c",
+      "role": "fix (Cyfrin H-1 / 7.2.1)",
+      "expected": "FAIL",
+      "observed": "FAIL",
+      "detail": "push swap reverts: afterSwap hook reverts with PriceTooLow (selector 0xdbbbe822), so the attack cannot run"
+    }
+  ],
+  "oracle_valid": true,
+  "oracle_basis": "Differential holds: PASS on vulnerable code, FAIL on the fix. This proves the PoV detects the bug and is not trivially always-passing.",
+  "parent_check": "Not run. This is an added_code finding; the parent of the vulnerability-introducing commit (f45abd7^ = 2a30473) predates the back-run and is clean by construction. Running it is not needed to establish the oracle and would require the PoV to compile against a much older tree.",
+  "sandbox": "Docker image solvibe-tools:1, network off (pilot/scripts/dock.sh), local audited code only. Validation done in a throwaway git clone --local of the clone with the offline dependencies copied in; the shared clone and prepared snapshot were not mutated.",
+  "solc": "0.8.30",
+  "deps": "soldeer: forge-std 1.9.7, uniswap-v4-core 4 (identical foundry.toml/remappings/soldeer.lock across e8ae10a and 30fc63c; copied offline)",
+  "parent_status": "has the bug (code reading of parent 2a30473: its _afterSwap already does the back-run swap). Not run."
+}

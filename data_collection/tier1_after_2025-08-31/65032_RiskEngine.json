@@ -1,0 +1,183 @@
+{
+  "id": "65032",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-12-panoptic/blob/fe557748210a529ae414d7c487b6514be0d9e220/contracts/RiskEngine.sol# L1508",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      1508,
+      1508
+    ],
+    [
+      1541,
+      1541
+    ],
+    [
+      1360,
+      1360
+    ],
+    [
+      1392,
+      1392
+    ]
+  ],
+  "filename": "65032_RiskEngine.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 2403,
+  "vulnerability_title": "[M-05] Division-by-zero in long-leg collateral requirement can block solvency checks and `dispatchFrom` (liquidation/force-exercise) for `tickSpacing==1 pools`",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Add a `distanceFromStrike == 0` guard in the long-leg branch (e.g., clamp to 1), and/or disallow `width==1` longs for `tickSpacing==1 pools` if that\u2019s an acceptable constraint.\n\n**[Panoptic mitigated](https://github.com/code-423n4/2026-02-panoptic-next-core-mitigation?tab=readme-ov-file# mitigation-of-high--medium-severity-issues):**\n\n> No more division-by-zero in long-leg collateral requirement.\n\n**Status:** Mitigation confirmed. Full details in reports from [Valves](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-11), [edoscoba](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-26), and [Nyx](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-37).\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "This PoC uses the existing V3 harness and demonstrates liquidation reverting with a division-by-zero error.\n\nPut this function inside `PanopticPoolTest` in: `test/foundry/coreV3/PanopticPool.t.sol`\n\nRun:\n```\n\nFOUNDRY_PROFILE=ci_test FOUNDRY_ETH_RPC_URL=https://ethereum.publicnode.com \\\n  forge test \\\n  --match-path test/foundry/coreV3/PanopticPool.t.sol \\\n  --match-test test_poc_WidthOneLongAtStrike_DivisionByZero_BlocksLiquidation\n```\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-12-panoptic-next-core/submissions/S-382)\n\n* When `tickSpacing == 1` and `width == 1`, the code path sets `positionWidth = tickUpper - tickLower = 1`.\n* In the long-leg branch, `distanceFromStrike = max(positionWidth / 2, abs(atTick - strike))` becomes `max(0, 0) = 0` when `atTick == strike`.\n* The subsequent computation divides by `(distanceFromStrike * expValue)`, which becomes a division-by-zero revert. The PoC triggers this exact state and asserts `stdError.divisionError` during liquidation.",
+    "poc_code_blocks": [
+      "FOUNDRY_PROFILE=ci_test FOUNDRY_ETH_RPC_URL=https://ethereum.publicnode.com \\\n  forge test \\\n  --match-path test/foundry/coreV3/PanopticPool.t.sol \\\n  --match-test test_poc_WidthOneLongAtStrike_DivisionByZero_BlocksLiquidation"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_getRequiredCollateralSingleLegNoPartner",
+        "start_line": 1386,
+        "end_line": 1548,
+        "code": "    function _getRequiredCollateralSingleLegNoPartner(\n        TokenId tokenId,\n        uint256 index,\n        uint128 positionSize,\n        int24 atTick,\n        int16 poolUtilization\n    ) internal view returns (uint256 required) {\n        // extract the tokenType (token0 or token1)\n        uint256 tokenType = tokenId.tokenType(index);\n\n        // compute the total amount of funds moved for that position\n        // Since this is a collateral check, we want the amounts moved upon closure, not upon opening\n        LeftRightUnsigned amountsMoved = PanopticMath.getAmountsMoved(\n            tokenId,\n            positionSize,\n            index,\n            false\n        );\n\n        // amount moved is right slot if tokenType=0, left slot otherwise\n        uint128 amountMoved = tokenType == 0 ? amountsMoved.rightSlot() : amountsMoved.leftSlot();\n\n        uint256 isLong = tokenId.isLong(index);\n        unchecked {\n            // if the width is 0, then this is a loan/credit\n            if (tokenId.width(index) == 0) {\n                if (isLong == 0) {\n                    // buying power requirement for a Loan position is 100% + MAINT_MARGIN_RATE\n                    required = Math.mulDivRoundingUp(\n                        amountMoved,\n                        MAINT_MARGIN_RATE + DECIMALS,\n                        DECIMALS\n                    );\n                } else {\n                    // buying power requirement for a Credit position is 0\n                    // this is not netted against other legs unless it has a partner\n                    required = 0;\n                }\n            } else {\n                // required collateral is at least 1\n                required = 1;\n\n                uint256 baseCollateralRatio;\n                {\n                    uint256 baseRequired;\n                    // start with base requirement, which is based on isLong value\n                    (baseRequired, baseCollateralRatio) = _getRequiredCollateralAtUtilization(\n                        amountMoved,\n                        isLong,\n                        poolUtilization\n                    );\n                    required += baseRequired;\n                }\n                (int24 tickLower, int24 tickUpper) = tokenId.asTicks(index);\n                int24 strike = tokenId.strike(index);\n\n                if (isLong == 0) {\n                    // if position is short, check whether the position is out-the-money\n\n                    // if position is ITM or ATM, then the collateral requirement depends on price:\n\n                    // We must first get the ratio of strike to price for calls (or price to strike for puts).\n                    // Both of these ratios decrease as the position becomes deeper ITM.\n                    // We must clamp the difference between atTick and strike to the min & max Uniswap ticks,\n                    // to conform with what getSqrtRatioAtTick can support.\n                    // This is acceptable because a higher ratio will result in an increased slope for the collateral requirement.\n                    // (- and * 2 in tick space are / and ^ 2 in price space so sqrtRatioAtTick(2 *(a - b)) = a/b (*2^96)\n                    uint160 ratio = tokenType == 1 // tokenType\n                        ? Math.getSqrtRatioAtTick(\n                            int24(\n                                Math.bound(\n                                    2 * (atTick - strike),\n                                    Constants.MIN_POOL_TICK,\n                                    Constants.MAX_POOL_TICK\n                                )\n                            )\n                        ) // puts ->  price/strike\n                        : Math.getSqrtRatioAtTick(\n                            int24(\n                                Math.bound(\n                                    2 * (strike - atTick),\n                                    Constants.MIN_POOL_TICK,\n                                    Constants.MAX_POOL_TICK\n                                )\n                            )\n                        ); // calls -> strike/price\n\n                    // Following Reg-T guidelines, the collateral requirement is the max of:\n                    //    - 10% of the notional value at the strike price (r0)\n                    //    - 20% of the underlying price MINUS the out-the-money amount (r1)\n                    // Note that we over-estimate the capital composition between the LP position's range.\n\n                    uint256 r0 = required / 2;\n\n                    uint256 r1;\n                    {\n                        uint256 p0 = amountMoved + Math.mulDiv96RoundingUp(required, ratio);\n                        uint256 p1 = Math.mulDiv96RoundingUp(amountMoved, ratio);\n\n                        r1 = p0 > p1 ? p0 - p1 : 0;\n                    }\n                    uint256 r2;\n\n                    if ((atTick < tickUpper) && (atTick >= tickLower)) {\n                        // position is in-range (ie. current tick is between upper+lower tick): we draw a line between the\n                        // collateral requirement at the lowerTick and the one at the upperTick. We use that interpolation as\n                        // the collateral requirement when in-range, which always over-estimates the amount of token required\n                        // Specifically:\n\n                        uint160 scaleFactor = Math.getSqrtRatioAtTick((tickUpper - tickLower));\n                        r2 =\n                            Math.mulDivRoundingUp(\n                                amountMoved * (DECIMALS - baseCollateralRatio),\n                                (scaleFactor - ratio),\n                                DECIMALS * (scaleFactor + Constants.FP96)\n                            ) +\n                            r0;\n                    }\n                    required = Math.max(Math.max(r2, r1), r0);\n                } else {\n                    uint256 positionWidth = uint256(uint24(tickUpper - tickLower));\n\n                    uint256 distanceFromStrike = Math.max(\n                        positionWidth / 2,\n                        atTick > strike\n                            ? uint256(uint24(atTick - strike))\n                            : uint256(uint24(strike - atTick))\n                    );\n\n                    // Calculate the exponent: distance / width\n\n                    uint256 expValue;\n                    {\n                        uint256 scaledRatio = (distanceFromStrike * DECIMALS) / (positionWidth);\n                        // Divide by ln(2) to get the number of doublings\n                        // LN2_SCALED = ln(2) * DECIMALS\n                        uint256 shifts = scaledRatio / LN2_SCALED;\n                        uint256 remainder = scaledRatio % LN2_SCALED;\n\n                        // Calculate e^(remainder/DECIMALS) - now always less than e^(ln(2)) = 2\n                        // This means Taylor expansion is very accurate\n                        uint256 expFractional = Math.sTaylorCompounded(remainder, DECIMALS);\n                        // Combine: e^x = 2^shifts * e^remainder\n                        // We divide by DECIMALS at the end to maintain precision\n                        if (shifts < 128) {\n                            // Prevent overflow\n                            expValue = (expFractional << shifts);\n                        } else {\n                            expValue = type(uint128).max; // Cap at uint128 max value\n                        }\n                    }\n                    // Apply the exponential decay to required collateral\n                    uint256 _required = required;\n                    required = Math.min(\n                        required,\n                        (DECIMALS * _required * positionWidth) /\n                            (distanceFromStrike * expValue) +\n                            TEN_BPS\n                    );\n                }\n            }\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1508,
+            1508
+          ],
+          [
+            1541,
+            1541
+          ],
+          [
+            1392,
+            1392
+          ]
+        ]
+      },
+      {
+        "function_name": "_getRequiredCollateralSingleLeg",
+        "start_line": 1354,
+        "end_line": 1377,
+        "code": "    function _getRequiredCollateralSingleLeg(\n        TokenId tokenId,\n        uint256 index,\n        uint128 positionSize,\n        int24 atTick,\n        int16 poolUtilization\n    ) internal view returns (uint256 required) {\n        return\n            tokenId.riskPartner(index) == index // does this leg have a risk partner? Affects required collateral\n                ? _getRequiredCollateralSingleLegNoPartner(\n                    tokenId,\n                    index,\n                    positionSize,\n                    atTick,\n                    poolUtilization\n                )\n                : _getRequiredCollateralSingleLegPartner(\n                    tokenId,\n                    index,\n                    positionSize,\n                    atTick,\n                    poolUtilization\n                );\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1360,
+            1360
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:47.368354",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the division-by-zero issue in the margin computation for tickSpacing == 1 pools.",
+      "content_reasoning": "The extracted code contains logic that can lead to a division-by-zero error when evaluating margin requirements, as described in the report.",
+      "functions_found": [
+        "_getRequiredCollateralSingleLegNoPartner",
+        "_getRequiredCollateralSingleLeg"
+      ],
+      "variables_found": [
+        "positionWidth",
+        "distanceFromStrike",
+        "expValue"
+      ],
+      "patterns_found": [
+        "division-by-zero",
+        "margin computation"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": null,
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged to reflect the division-by-zero vulnerability.",
+      "suggested_tag": "arithmetic",
+      "alternative_tags": [
+        "denial_of_service"
+      ],
+      "correction_explanation": "The issue is primarily an arithmetic error leading to a potential denial of service."
+    },
+    "mando_classification": {
+      "primary_category": "arithmetic",
+      "secondary_categories": [
+        "denial_of_service"
+      ],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability is a division-by-zero error, which falls under arithmetic issues. It can also lead to denial of service by blocking actions."
+    },
+    "scsvs_classification": {
+      "primary_category": "G7",
+      "primary_category_name": "Arithmetic",
+      "secondary_categories": [
+        "G8"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue is a mathematical operation error (division-by-zero) that can cause denial of service, fitting well into G7 and G8 categories.",
+      "vulnerability_type": "Division-by-zero leading to potential denial of service"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Add a guard to prevent division-by-zero by ensuring distanceFromStrike is never zero.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "_getRequiredCollateralSingleLegNoPartner",
+          "fixed_function_code": "function _getRequiredCollateralSingleLegNoPartner(\n        TokenId tokenId,\n        uint256 index,\n        uint128 positionSize,\n        int24 atTick,\n        int16 poolUtilization\n    ) internal view returns (uint256 required) {\n        // extract the tokenType (token0 or token1)\n        uint256 tokenType = tokenId.tokenType(index);\n\n        // compute the total amount of funds moved for that position\n        // Since this is a collateral check, we want the amounts moved upon closure, not upon opening\n        LeftRightUnsigned amountsMoved = PanopticMath.getAmountsMoved(\n            tokenId,\n            positionSize,\n            index,\n            false\n        );\n\n        // amount moved is right slot if tokenType=0, left slot otherwise\n        uint128 amountMoved = tokenType == 0 ? amountsMoved.rightSlot() : amountsMoved.leftSlot();\n\n        uint256 isLong = tokenId.isLong(index);\n        unchecked {\n            // if the width is 0, then this is a loan/credit\n            if (tokenId.width(index) == 0) {\n                if (isLong == 0) {\n                    // buying power requirement for a Loan position is 100% + MAINT_MARGIN_RATE\n                    required = Math.mulDivRoundingUp(\n                        amountMoved,\n                        MAINT_MARGIN_RATE + DECIMALS,\n                        DECIMALS\n                    );\n                } else {\n                    // buying power requirement for a Credit position is 0\n                    // this is not netted against other legs unless it has a partner\n                    required = 0;\n                }\n            } else {\n                // required collateral is at least 1\n                required = 1;\n\n                uint256 baseCollateralRatio;\n                {\n                    uint256 baseRequired;\n                    // start with base requirement, which is based on isLong value\n                    (baseRequired, baseCollateralRatio) = _getRequiredCollateralAtUtilization(\n                        amountMoved,\n                        isLong,\n                        poolUtilization\n                    );\n                    required += baseRequired;\n                }\n                (int24 tickLower, int24 tickUpper) = tokenId.asTicks(index);\n                int24 strike = tokenId.strike(index);\n\n                if (isLong == 0) {\n                    // if position is short, check whether the position is out-the-money\n\n                    // if position is ITM or ATM, then the collateral requirement depends on price:\n\n                    // We must first get the ratio of strike to price for calls (or price to strike for puts).\n                    // Both of these ratios decrease as the position becomes deeper ITM.\n                    // We must clamp the difference between atTick and strike to the min & max Uniswap ticks,\n                    // to conform with what getSqrtRatioAtTick can support.\n                    // This is acceptable because a higher ratio will result in an increased slope for the collateral requirement.\n                    // (- and * 2 in tick space are / and ^ 2 in price space so sqrtRatioAtTick(2 *(a - b)) = a/b (*2^96)\n                    uint160 ratio = tokenType == 1 // tokenType\n                        ? Math.getSqrtRatioAtTick(\n                            int24(\n                                Math.bound(\n                                    2 * (atTick - strike),\n                                    Constants.MIN_POOL_TICK,\n                                    Constants.MAX_POOL_TICK\n                                )\n                            )\n                        ) // puts ->  price/strike\n                        : Math.getSqrtRatioAtTick(\n                            int24(\n                                Math.bound(\n                                    2 * (strike - atTick),\n                                    Constants.MIN_POOL_TICK,\n                                    Constants.MAX_POOL_TICK\n                                )\n                            )\n                        ); // calls -> strike/price\n\n                    // Following Reg-T guidelines, the collateral requirement is the max of:\n                    //    - 10% of the notional value at the strike price (r0)\n                    //    - 20% of the underlying price MINUS the out-the-money amount (r1)\n                    // Note that we over-estimate the capital composition between the LP position's range.\n\n                    uint256 r0 = required / 2;\n\n                    uint256 r1;\n                    {\n                        uint256 p0 = amountMoved + Math.mulDiv96RoundingUp(required, ratio);\n                        uint256 p1 = Math.mulDiv96RoundingUp(amountMoved, ratio);\n\n                        r1 = p0 > p1 ? p0 - p1 : 0;\n                    }\n                    uint256 r2;\n\n                    if ((atTick < tickUpper) && (atTick >= tickLower)) {\n                        // position is in-range (ie. current tick is between upper+lower tick): we draw a line between the\n                        // collateral requirement at the lowerTick and the one at the upperTick. We use that interpolation as\n                        // the collateral requirement when in-range, which always over-estimates the amount of token required\n                        // Specifically:\n\n                        uint160 scaleFactor = Math.getSqrtRatioAtTick((tickUpper - tickLower));\n                        r2 =\n                            Math.mulDivRoundingUp(\n                                amountMoved * (DECIMALS - baseCollateralRatio),\n                                (scaleFactor - ratio),\n                                DECIMALS * (scaleFactor + Constants.FP96)\n                            ) +\n                            r0;\n                    }\n                    required = Math.max(Math.max(r2, r1), r0);\n                } else {\n                    uint256 positionWidth = uint256(uint24(tickUpper - tickLower));\n\n                    uint256 distanceFromStrike = Math.max(\n                        positionWidth / 2,\n                        atTick > strike\n                            ? uint256(uint24(atTick - strike))\n                            : uint256(uint24(strike - atTick))\n                    );\n\n                    // Ensure distanceFromStrike is not zero to prevent division-by-zero\n                    if (distanceFromStrike == 0) {\n                        distanceFromStrike = 1;\n                    }\n\n                    // Calculate the exponent: distance / width\n\n                    uint256 expValue;\n                    {\n                        uint256 scaledRatio = (distanceFromStrike * DECIMALS) / (positionWidth);\n                        // Divide by ln(2) to get the number of doublings\n                        // LN2_SCALED = ln(2) * DECIMALS\n                        uint256 shifts = scaledRatio / LN2_SCALED;\n                        uint256 remainder = scaledRatio % LN2_SCALED;\n\n                        // Calculate e^(remainder/DECIMALS) - now always less than e^(ln(2)) = 2\n                        // This means Taylor expansion is very accurate\n                        uint256 expFractional = Math.sTaylorCompounded(remainder, DECIMALS);\n                        // Combine: e^x = 2^shifts * e^remainder\n                        // We divide by DECIMALS at the end to maintain precision\n                        if (shifts < 128) {\n                            // Prevent overflow\n                            expValue = (expFractional << shifts);\n                        } else {\n                            expValue = type(uint128).max; // Cap at uint128 max value\n                        }\n                    }\n                    // Apply the exponential decay to required collateral\n                    uint256 _required = required;\n                    required = Math.min(\n                        required,\n                        (DECIMALS * _required * positionWidth) /\n                            (distanceFromStrike * expValue) +\n                            TEN_BPS\n                    );\n                }\n            }\n        }\n    }",
+          "reasoning": "The fix ensures that distanceFromStrike is never zero by clamping it to 1 if it is zero. This prevents division-by-zero errors in the calculation of required collateral for long positions."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "_getRequiredCollateralSingleLeg",
+          "fixed_function_code": "function _getRequiredCollateralSingleLeg(\n        TokenId tokenId,\n        uint256 index,\n        uint128 positionSize,\n        int24 atTick,\n        int16 poolUtilization\n    ) internal view returns (uint256 required) {\n        return\n            tokenId.riskPartner(index) == index // does this leg have a risk partner? Affects required collateral\n                ? _getRequiredCollateralSingleLegNoPartner(\n                    tokenId,\n                    index,\n                    positionSize,\n                    atTick,\n                    poolUtilization\n                )\n                : _getRequiredCollateralSingleLegPartner(\n                    tokenId,\n                    index,\n                    positionSize,\n                    atTick,\n                    poolUtilization\n                );\n    }",
+          "reasoning": "This function delegates to the fixed _getRequiredCollateralSingleLegNoPartner function, which now includes the necessary guard against division-by-zero."
+        }
+      ],
+      "key_changes": [
+        "Added a guard to ensure distanceFromStrike is never zero.",
+        "Preserved function signatures for compatibility.",
+        "Ensured calculations are safe from division-by-zero errors."
+      ],
+      "security_improvements": [
+        "Prevents potential denial of service due to division-by-zero.",
+        "Ensures robust collateral requirement calculations.",
+        "Maintains system stability even with edge case inputs."
+      ],
+      "additional_recommendations": "Regularly review and test edge cases to ensure no new vulnerabilities are introduced.",
+      "confidence": 95,
+      "fix_code": "function _getRequiredCollateralSingleLegNoPartner(\n        TokenId tokenId,\n        uint256 index,\n        uint128 positionSize,\n        int24 atTick,\n        int16 poolUtilization\n    ) internal view returns (uint256 required) {\n        // extract the tokenType (token0 or token1)\n        uint256 tokenType = tokenId.tokenType(index);\n\n        // compute the total amount of funds moved for that position\n        // Since this is a collateral check, we want the amounts moved upon closure, not upon opening\n        LeftRightUnsigned amountsMoved = PanopticMath.getAmountsMoved(\n            tokenId,\n            positionSize,\n            index,\n            false\n        );\n\n        // amount moved is right slot if tokenType=0, left slot otherwise\n        uint128 amountMoved = tokenType == 0 ? amountsMoved.rightSlot() : amountsMoved.leftSlot();\n\n        uint256 isLong = tokenId.isLong(index);\n        unchecked {\n            // if the width is 0, then this is a loan/credit\n            if (tokenId.width(index) == 0) {\n                if (isLong == 0) {\n                    // buying power requirement for a Loan position is 100% + MAINT_MARGIN_RATE\n                    required = Math.mulDivRoundingUp(\n                        amountMoved,\n                        MAINT_MARGIN_RATE + DECIMALS,\n                        DECIMALS\n                    );\n                } else {\n                    // buying power requirement for a Credit position is 0\n                    // this is not netted against other legs unless it has a partner\n                    required = 0;\n                }\n            } else {\n                // required collateral is at least 1\n                required = 1;\n\n                uint256 baseCollateralRatio;\n                {\n                    uint256 baseRequired;\n                    // start with base requirement, which is based on isLong value\n                    (baseRequired, baseCollateralRatio) = _getRequiredCollateralAtUtilization(\n                        amountMoved,\n                        isLong,\n                        poolUtilization\n                    );\n                    required += baseRequired;\n                }\n                (int24 tickLower, int24 tickUpper) = tokenId.asTicks(index);\n                int24 strike = tokenId.strike(index);\n\n                if (isLong == 0) {\n                    // if position is short, check whether the position is out-the-money\n\n                    // if position is ITM or ATM, then the collateral requirement depends on price:\n\n                    // We must first get the ratio of strike to price for calls (or price to strike for puts).\n                    // Both of these ratios decrease as the position becomes deeper ITM.\n                    // We must clamp the difference between atTick and strike to the min & max Uniswap ticks,\n                    // to conform with what getSqrtRatioAtTick can support.\n                    // This is acceptable because a higher ratio will result in an increased slope for the collateral requirement.\n                    // (- and * 2 in tick space are / and ^ 2 in price space so sqrtRatioAtTick(2 *(a - b)) = a/b (*2^96)\n                    uint160 ratio = tokenType == 1 // tokenType\n                        ? Math.getSqrtRatioAtTick(\n                            int24(\n                                Math.bound(\n                                    2 * (atTick - strike),\n                                    Constants.MIN_POOL_TICK,\n                                    Constants.MAX_POOL_TICK\n                                )\n                            )\n                        ) // puts ->  price/strike\n                        : Math.getSqrtRatioAtTick(\n                            int24(\n                                Math.bound(\n                                    2 * (strike - atTick),\n                                    Constants.MIN_POOL_TICK,\n                                    Constants.MAX_POOL_TICK\n                                )\n                            )\n                        ); // calls -> strike/price\n\n                    // Following Reg-T guidelines, the collateral requirement is the max of:\n                    //    - 10% of the notional value at the strike price (r0)\n                    //    - 20% of the underlying price MINUS the out-the-money amount (r1)\n                    // Note that we over-estimate the capital composition between the LP position's range.\n\n                    uint256 r0 = required / 2;\n\n                    uint256 r1;\n                    {\n                        uint256 p0 = amountMoved + Math.mulDiv96RoundingUp(required, ratio);\n                        uint256 p1 = Math.mulDiv96RoundingUp(amountMoved, ratio);\n\n                        r1 = p0 > p1 ? p0 - p1 : 0;\n                    }\n                    uint256 r2;\n\n                    if ((atTick < tickUpper) && (atTick >= tickLower)) {\n                        // position is in-range (ie. current tick is between upper+lower tick): we draw a line between the\n                        // collateral requirement at the lowerTick and the one at the upperTick. We use that interpolation as\n                        // the collateral requirement when in-range, which always over-estimates the amount of token required\n                        // Specifically:\n\n                        uint160 scaleFactor = Math.getSqrtRatioAtTick((tickUpper - tickLower));\n                        r2 =\n                            Math.mulDivRoundingUp(\n                                amountMoved * (DECIMALS - baseCollateralRatio),\n                                (scaleFactor - ratio),\n                                DECIMALS * (scaleFactor + Constants.FP96)\n                            ) +\n                            r0;\n                    }\n                    required = Math.max(Math.max(r2, r1), r0);\n                } else {\n                    uint256 positionWidth = uint256(uint24(tickUpper - tickLower));\n\n                    uint256 distanceFromStrike = Math.max(\n                        positionWidth / 2,\n                        atTick > strike\n                            ? uint256(uint24(atTick - strike))\n                            : uint256(uint24(strike - atTick))\n                    );\n\n                    // Ensure distanceFromStrike is not zero to prevent division-by-zero\n                    if (distanceFromStrike == 0) {\n                        distanceFromStrike = 1;\n                    }\n\n                    // Calculate the exponent: distance / width\n\n                    uint256 expValue;\n                    {\n                        uint256 scaledRatio = (distanceFromStrike * DECIMALS) / (positionWidth);\n                        // Divide by ln(2) to get the number of doublings\n                        // LN2_SCALED = ln(2) * DECIMALS\n                        uint256 shifts = scaledRatio / LN2_SCALED;\n                        uint256 remainder = scaledRatio % LN2_SCALED;\n\n                        // Calculate e^(remainder/DECIMALS) - now always less than e^(ln(2)) = 2\n                        // This means Taylor expansion is very accurate\n                        uint256 expFractional = Math.sTaylorCompounded(remainder, DECIMALS);\n                        // Combine: e^x = 2^shifts * e^remainder\n                        // We divide by DECIMALS at the end to maintain precision\n                        if (shifts < 128) {\n                            // Prevent overflow\n                            expValue = (expFractional << shifts);\n                        } else {\n                            expValue = type(uint128).max; // Cap at uint128 max value\n                        }\n                    }\n                    // Apply the exponential decay to required collateral\n                    uint256 _required = required;\n                    required = Math.min(\n                        required,\n                        (DECIMALS * _required * positionWidth) /\n                            (distanceFromStrike * expValue) +\n                            TEN_BPS\n                    );\n                }\n            }\n        }\n    }\n\nfunction _getRequiredCollateralSingleLeg(\n        TokenId tokenId,\n        uint256 index,\n        uint128 positionSize,\n        int24 atTick,\n        int16 poolUtilization\n    ) internal view returns (uint256 required) {\n        return\n            tokenId.riskPartner(index) == index // does this leg have a risk partner? Affects required collateral\n                ? _getRequiredCollateralSingleLegNoPartner(\n                    tokenId,\n                    index,\n                    positionSize,\n                    atTick,\n                    poolUtilization\n                )\n                : _getRequiredCollateralSingleLegPartner(\n                    tokenId,\n                    index,\n                    positionSize,\n                    atTick,\n                    poolUtilization\n                );\n    }",
+      "expected_fixed_blocks": 2,
+      "returned_fixed_blocks": 2,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:24:59.445627"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:24:59.445650",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

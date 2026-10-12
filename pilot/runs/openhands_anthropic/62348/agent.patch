@@ -1,0 +1,91 @@
+diff --git a/src/types/Position.sol b/src/types/Position.sol
+index 7dad931..f09cc58 100644
+--- a/src/types/Position.sol
++++ b/src/types/Position.sol
+@@ -77,39 +77,60 @@ library PositionLibrary {
+         returns (bool isRemoved)
+     {
+         FungibleState state = self.fungibleStates[fungible];
+-        uint256 index = state.index();
+-        uint256 newBalance = state.balance() - amount;
+-
+-        if (index != 0) {
+-            if (newBalance != 0) {
+-                state = toFungibleState(index, newBalance);
+-            } else {
+-                state = FungibleState.wrap(0);
+-
+-                // remove a fungible from the fungibles array
+-                assembly ("memory-safe") {
+-                    let slot := add(self.slot, FUNGIBLES_OFFSET)
+-                    let len := sload(slot)
+-                    mstore(0x00, slot)
+-                    let dataSlot := keccak256(0x00, 0x20)
+-
+-                    if iszero(eq(index, len)) {
+-                        sstore(add(dataSlot, sub(index, 1)), sload(add(dataSlot, sub(len, 1))))
+-                    }
+-
+-                    sstore(add(dataSlot, sub(len, 1)), 0)
+-                    sstore(slot, sub(len, 1))
+-                }
+-            }
++        uint256 currentIndex = state.index();
++
++        if (currentIndex == 0) {
++            return false;
++        }
++
++        uint256 currentBalance = state.balance();
++        uint256 newBalance = currentBalance - amount;
++
++        if (newBalance > 0) {
++            state = toFungibleState(currentIndex, newBalance);
+ 
+-            // update fungible state
+             assembly ("memory-safe") {
+                 mstore(0x00, fungible)
+                 mstore(0x20, add(self.slot, FUNGIBLE_STATES_OFFSET))
+                 sstore(keccak256(0x00, 0x40), state)
+             }
+ 
+-            isRemoved = true;
++            return true;
++        } else {
++            assembly ("memory-safe") {
++                mstore(0x00, fungible)
++                mstore(0x20, add(self.slot, FUNGIBLE_STATES_OFFSET))
++                sstore(keccak256(0x00, 0x40), 0)
++            }
++
++            assembly ("memory-safe") {
++                let slot := add(self.slot, FUNGIBLES_OFFSET)
++                let len := sload(slot)
++                mstore(0x00, slot)
++                let dataSlot := keccak256(0x00, 0x20)
++
++                let elementSlot := add(dataSlot, sub(currentIndex, 1))
++                let lastElementSlot := add(dataSlot, sub(len, 1))
++
++                if iszero(eq(elementSlot, lastElementSlot)) {
++                    let lastFungible := sload(lastElementSlot)
++                    sstore(elementSlot, lastFungible)
++
++                    mstore(0x00, lastFungible)
++                    mstore(0x20, add(self.slot, FUNGIBLE_STATES_OFFSET))
++                    let stateSlot := keccak256(0x00, 0x40)
++                    let movedState := sload(stateSlot)
++
++                    let movedBalance := and(movedState, 0xffffffffffffffffffffffffffffffff)
++                    let newMovedState := or(shl(192, currentIndex), movedBalance)
++                    sstore(stateSlot, newMovedState)
++                }
++
++                sstore(lastElementSlot, 0)
++                sstore(slot, sub(len, 1))
++            }
++
++            return true;
+         }
+     }
+ 

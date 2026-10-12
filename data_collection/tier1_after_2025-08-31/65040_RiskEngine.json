@@ -1,0 +1,216 @@
+{
+  "id": "65040",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-12-panoptic/blob/main/contracts/RiskEngine.sol# L2203",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      2203,
+      2203
+    ],
+    [
+      2218,
+      2221
+    ],
+    [
+      1047,
+      1054
+    ],
+    [
+      970,
+      976
+    ],
+    [
+      1052,
+      1052
+    ],
+    [
+      970,
+      975
+    ],
+    [
+      1007,
+      1007
+    ],
+    [
+      2187,
+      2255
+    ]
+  ],
+  "filename": "65040_RiskEngine.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 2403,
+  "vulnerability_title": "[M-13] Intra-epoch `rateAtTarget` updates in `CollateralTracker._updateInterestRate()` allow compounding interest rate errors",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Update `rateAtTarget` only if there is actual time passed. If the rate has already been updated within the current epoch, the update should be skipped.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "**Setup:**\n\n* Put the snippet below into the protocol test suite: `test/foundry/core/CollateralTracker.t.sol:CollateralTrackerTest`\n* Run test:\n\n  + `forge test --mt test_audit_accrueInterest_manipulateRateAtTarget_stateProof -vvv`\n  + `forge test --mt test_audit_accrueInterest_manipulateRateAtTarget_combineAttack -vvv`\n* Note: The helper functions need to be added for the PoC to run (attached in the `The full coded PoC` section)\n\n**Results of running the PoC:**\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-12-panoptic-next-core/submissions/S-1221)\n\n**[Panoptic mitigated](https://github.com/code-423n4/2026-02-panoptic-next-core-mitigation?tab=readme-ov-file# mitigation-of-high--medium-severity-issues):**\n\n> Compute elapsed-time for IRM from epoch delta.\n\n**Status:** Mitigation confirmed. Full details in reports from [Valves](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-5), [edoscoba](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-20), and [Nyx](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-36).\n\n---",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_borrowRate",
+        "start_line": 2187,
+        "end_line": 2255,
+        "code": "    function _borrowRate(\n        uint256 utilization,\n        MarketState interestRateAccumulator\n    ) internal view returns (uint256, int256) {\n        unchecked {\n            // Safe \"unchecked\" cast because the utilization is smaller than 1 (scaled by WAD).\n            int256 _utilization = int256(utilization);\n            int256 errNormFactor = int256(_utilization) > TARGET_UTILIZATION\n                ? WAD - TARGET_UTILIZATION\n                : TARGET_UTILIZATION;\n            int256 err = Math.wDivToZero(_utilization - TARGET_UTILIZATION, errNormFactor);\n\n            // 38-bit rateAtTarget, 32-bit epoch<<2 in accumulator\n            int256 startRateAtTarget = int256(uint256(interestRateAccumulator.rateAtTarget()));\n\n            // convert from epoch to time. Used to avoid Y2K38\n            uint256 previousTime = interestRateAccumulator.marketEpoch() << 2;\n\n            int256 avgRateAtTarget;\n            int256 endRateAtTarget;\n\n            if (startRateAtTarget == 0) {\n                // First interaction.\n                avgRateAtTarget = INITIAL_RATE_AT_TARGET;\n                endRateAtTarget = INITIAL_RATE_AT_TARGET;\n            } else {\n                // The speed is assumed constant between two updates, but it is in fact not constant because of interest.\n                // So the rate is always underestimated.\n                int256 speed = Math.wMulToZero(ADJUSTMENT_SPEED, err);\n                // Safe \"unchecked\" cast because block.timestamp - market.lastUpdate <= block.timestamp <= type(int256).max.\n                // Cap the elapsed time to prevent IRM drift\n                int256 elapsed = Math.min(\n                    int256(block.timestamp) - int256(previousTime),\n                    IRM_MAX_ELAPSED_TIME\n                );\n                int256 linearAdaptation = speed * elapsed;\n\n                if (linearAdaptation == 0) {\n                    // If linearAdaptation == 0, avgRateAtTarget = endRateAtTarget = startRateAtTarget;\n                    avgRateAtTarget = startRateAtTarget;\n                    endRateAtTarget = startRateAtTarget;\n                } else {\n                    // Formula of the average rate that should be returned to Morpho Blue:\n                    // avg = 1/T * \u222b_0^T curve(startRateAtTarget*exp(speed*x), err) dx\n                    // The integral is approximated with the trapezoidal rule:\n                    // avg ~= 1/T * \u03a3_i=1^N [curve(f((i-1) * T/N), err) + curve(f(i * T/N), err)] / 2 * T/N\n                    // Where f(x) = startRateAtTarget*exp(speed*x)\n                    // avg ~= \u03a3_i=1^N [curve(f((i-1) * T/N), err) + curve(f(i * T/N), err)] / (2 * N)\n                    // As curve is linear in its first argument:\n                    // avg ~= curve([\u03a3_i=1^N [f((i-1) * T/N) + f(i * T/N)] / (2 * N), err)\n                    // avg ~= curve([(f(0) + f(T))/2 + \u03a3_i=1^(N-1) f(i * T/N)] / N, err)\n                    // avg ~= curve([(startRateAtTarget + endRateAtTarget)/2 + \u03a3_i=1^(N-1) f(i * T/N)] / N, err)\n                    // With N = 2:\n                    // avg ~= curve([(startRateAtTarget + endRateAtTarget)/2 + startRateAtTarget*exp(speed*T/2)] / 2, err)\n                    // avg ~= curve([startRateAtTarget + endRateAtTarget + 2*startRateAtTarget*exp(speed*T/2)] / 4, err)\n                    endRateAtTarget = _newRateAtTarget(startRateAtTarget, linearAdaptation);\n                    int256 midRateAtTarget = _newRateAtTarget(\n                        startRateAtTarget,\n                        linearAdaptation / 2\n                    );\n                    avgRateAtTarget =\n                        (startRateAtTarget + endRateAtTarget + 2 * midRateAtTarget) /\n                        4;\n                }\n            }\n            // Safe \"unchecked\" cast because avgRateAtTarget >= 0.\n            return (uint256(_curve(avgRateAtTarget, err)), endRateAtTarget);\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            2203,
+            2203
+          ],
+          [
+            2218,
+            2221
+          ],
+          [
+            2187,
+            2255
+          ]
+        ]
+      },
+      {
+        "function_name": "isAccountSolvent",
+        "start_line": 996,
+        "end_line": 1053,
+        "code": "    function isAccountSolvent(\n        PositionBalance[] calldata positionBalanceArray,\n        TokenId[] calldata positionIdList,\n        int24 atTick,\n        address user,\n        LeftRightUnsigned shortPremia,\n        LeftRightUnsigned longPremia,\n        CollateralTracker ct0,\n        CollateralTracker ct1,\n        uint256 buffer\n    ) external view returns (bool) {\n        (\n            LeftRightUnsigned tokenData0,\n            LeftRightUnsigned tokenData1,\n            PositionBalance globalUtilizations\n        ) = _getMargin(\n                positionBalanceArray,\n                positionIdList,\n                atTick,\n                user,\n                shortPremia,\n                longPremia,\n                ct0,\n                ct1\n            );\n        uint160 sqrtPriceX96 = Math.getSqrtRatioAtTick(atTick);\n\n        uint256 maintReq0 = Math.mulDivRoundingUp(tokenData0.leftSlot(), buffer, DECIMALS);\n        uint256 maintReq1 = Math.mulDivRoundingUp(tokenData1.leftSlot(), buffer, DECIMALS);\n\n        uint256 bal0 = tokenData0.rightSlot();\n        uint256 bal1 = tokenData1.rightSlot();\n\n        uint256 scaledSurplusToken0 = Math.mulDiv(\n            bal0 > maintReq0 ? bal0 - maintReq0 : 0,\n            _crossBufferRatio(globalUtilizations.utilization0(), CROSS_BUFFER_0),\n            DECIMALS\n        );\n        uint256 scaledSurplusToken1 = Math.mulDiv(\n            bal1 > maintReq1 ? bal1 - maintReq1 : 0,\n            _crossBufferRatio(globalUtilizations.utilization1(), CROSS_BUFFER_1),\n            DECIMALS\n        );\n\n        if (sqrtPriceX96 < Constants.FP96) {\n            bool isSolvent0 = bal0 + PanopticMath.convert1to0(scaledSurplusToken1, sqrtPriceX96) >=\n                maintReq0;\n            bool isSolvent1 = PanopticMath.convert1to0(bal1, sqrtPriceX96) + scaledSurplusToken0 >=\n                PanopticMath.convert1to0RoundingUp(maintReq1, sqrtPriceX96);\n            return isSolvent0 && isSolvent1;\n        } else {\n            bool isSolvent0 = PanopticMath.convert0to1(bal0, sqrtPriceX96) + scaledSurplusToken1 >=\n                PanopticMath.convert0to1RoundingUp(maintReq0, sqrtPriceX96);\n            bool isSolvent1 = bal1 + PanopticMath.convert0to1(scaledSurplusToken0, sqrtPriceX96) >=\n                maintReq1;\n            return isSolvent0 && isSolvent1;\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1047,
+            1054
+          ],
+          [
+            1052,
+            1052
+          ],
+          [
+            1007,
+            1007
+          ]
+        ]
+      },
+      {
+        "function_name": "getSolvencyTicks",
+        "start_line": 947,
+        "end_line": 981,
+        "code": "    function getSolvencyTicks(\n        int24 currentTick,\n        OraclePack _oraclePack\n    ) external view returns (int24[] memory, OraclePack) {\n        (int24 spotTick, int24 medianTick, int24 latestTick, OraclePack oraclePack) = _oraclePack\n            .getOracleTicks(currentTick, EMA_PERIODS, MAX_CLAMP_DELTA);\n\n        int24[] memory atTicks;\n\n        // Fall back to a conservative approach if there's high deviation between internal ticks:\n        // Check solvency at the medianTick, currentTick, and latestTick instead of just the spotTick.\n        // Deviation is measured as the magnitude of a 3D vector:\n        // (spotTick - medianTick, latestTick - medianTick, currentTick - medianTick)\n        // This approach is more conservative than checking each tick difference individually,\n        // as the Euclidean norm is always greater than or equal to the maximum of the individual differences.\n        if (\n            int256(spotTick - medianTick) ** 2 +\n                int256(latestTick - medianTick) ** 2 +\n                int256(currentTick - medianTick) ** 2 >\n            MAX_TICKS_DELTA ** 2\n        ) {\n            // High deviation detected; check against all four ticks.\n            atTicks = new int24[](4);\n            atTicks[0] = spotTick;\n            atTicks[1] = medianTick;\n            atTicks[2] = latestTick;\n            atTicks[3] = currentTick;\n        } else {\n            // Normal operation; check against the spot tick = 10 mins EMA.\n            atTicks = new int24[](1);\n            atTicks[0] = spotTick;\n        }\n\n        return (atTicks, oraclePack);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            970,
+            976
+          ],
+          [
+            970,
+            975
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:57.124020",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of incorrect updates to `rateAtTarget` leading to compounding errors in interest rate calculations.",
+      "content_reasoning": "The content mentions functions and variables such as `CollateralTracker._accrueInterest()`, `s_marketState.rateAtTarget()`, and `marketEpoch` which are present in the code. The described pattern of updating `rateAtTarget` within the same epoch is evident.",
+      "functions_found": [
+        "_borrowRate",
+        "isAccountSolvent",
+        "getSolvencyTicks"
+      ],
+      "variables_found": [
+        "s_marketState",
+        "rateAtTarget",
+        "marketEpoch"
+      ],
+      "patterns_found": [
+        "incorrect update of rateAtTarget",
+        "compounding interest rate errors"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 80,
+      "reasoning": "No existing tag was provided. The issue relates to business logic errors in interest rate calculations.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "arithmetic"
+      ],
+      "correction_explanation": "The issue is primarily a business logic error due to incorrect handling of interest rate updates within the same epoch."
+    },
+    "mando_classification": {
+      "primary_category": "arithmetic",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The issue involves compounding errors in interest rate calculations, which falls under arithmetic issues related to precision and calculation errors."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G7"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is a business logic error in the interest rate calculation mechanism, which is more accurately captured under SCSVS's 'Business logic' category. It also involves arithmetic precision issues.",
+      "vulnerability_type": "Compounding interest rate calculation errors due to incorrect intra-epoch updates."
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves ensuring that the interest rate is only updated when actual time has passed since the last update, preventing intra-epoch updates that cause compounding errors.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "_borrowRate",
+          "fixed_function_code": "function _borrowRate(\n        uint256 utilization,\n        MarketState interestRateAccumulator\n    ) internal view returns (uint256, int256) {\n        unchecked {\n            int256 _utilization = int256(utilization);\n            int256 errNormFactor = int256(_utilization) > TARGET_UTILIZATION\n                ? WAD - TARGET_UTILIZATION\n                : TARGET_UTILIZATION;\n            int256 err = Math.wDivToZero(_utilization - TARGET_UTILIZATION, errNormFactor);\n\n            int256 startRateAtTarget = int256(uint256(interestRateAccumulator.rateAtTarget()));\n            uint256 previousTime = interestRateAccumulator.marketEpoch() << 2;\n\n            int256 avgRateAtTarget;\n            int256 endRateAtTarget;\n\n            if (startRateAtTarget == 0) {\n                avgRateAtTarget = INITIAL_RATE_AT_TARGET;\n                endRateAtTarget = INITIAL_RATE_AT_TARGET;\n            } else {\n                int256 speed = Math.wMulToZero(ADJUSTMENT_SPEED, err);\n                int256 elapsed = Math.min(\n                    int256(block.timestamp) - int256(previousTime),\n                    IRM_MAX_ELAPSED_TIME\n                );\n\n                if (elapsed > 0) { // Only update if actual time has passed\n                    int256 linearAdaptation = speed * elapsed;\n\n                    if (linearAdaptation == 0) {\n                        avgRateAtTarget = startRateAtTarget;\n                        endRateAtTarget = startRateAtTarget;\n                    } else {\n                        endRateAtTarget = _newRateAtTarget(startRateAtTarget, linearAdaptation);\n                        int256 midRateAtTarget = _newRateAtTarget(\n                            startRateAtTarget,\n                            linearAdaptation / 2\n                        );\n                        avgRateAtTarget =\n                            (startRateAtTarget + endRateAtTarget + 2 * midRateAtTarget) /\n                            4;\n                    }\n                } else {\n                    avgRateAtTarget = startRateAtTarget;\n                    endRateAtTarget = startRateAtTarget;\n                }\n            }\n            return (uint256(_curve(avgRateAtTarget, err)), endRateAtTarget);\n        }\n    }",
+          "reasoning": "This fix ensures that the interest rate is only updated when there is a non-zero elapsed time since the last update, preventing unnecessary intra-epoch updates that lead to compounding errors."
+        }
+      ],
+      "key_changes": [
+        "Added a condition to check if elapsed time is greater than zero before updating the rate.",
+        "Preserved the original logic for calculating the average and end rate at target.",
+        "Ensured that the function only updates when necessary, reducing unnecessary computations."
+      ],
+      "security_improvements": [
+        "Prevents compounding errors by avoiding unnecessary updates within the same epoch.",
+        "Reduces the risk of incorrect debt calculations due to frequent updates.",
+        "Improves the accuracy of interest rate calculations over time."
+      ],
+      "additional_recommendations": "Regularly audit the contract for similar time-based logic errors and ensure that all time-dependent calculations are appropriately bounded.",
+      "confidence": 95,
+      "fix_code": "function _borrowRate(\n        uint256 utilization,\n        MarketState interestRateAccumulator\n    ) internal view returns (uint256, int256) {\n        unchecked {\n            int256 _utilization = int256(utilization);\n            int256 errNormFactor = int256(_utilization) > TARGET_UTILIZATION\n                ? WAD - TARGET_UTILIZATION\n                : TARGET_UTILIZATION;\n            int256 err = Math.wDivToZero(_utilization - TARGET_UTILIZATION, errNormFactor);\n\n            int256 startRateAtTarget = int256(uint256(interestRateAccumulator.rateAtTarget()));\n            uint256 previousTime = interestRateAccumulator.marketEpoch() << 2;\n\n            int256 avgRateAtTarget;\n            int256 endRateAtTarget;\n\n            if (startRateAtTarget == 0) {\n                avgRateAtTarget = INITIAL_RATE_AT_TARGET;\n                endRateAtTarget = INITIAL_RATE_AT_TARGET;\n            } else {\n                int256 speed = Math.wMulToZero(ADJUSTMENT_SPEED, err);\n                int256 elapsed = Math.min(\n                    int256(block.timestamp) - int256(previousTime),\n                    IRM_MAX_ELAPSED_TIME\n                );\n\n                if (elapsed > 0) { // Only update if actual time has passed\n                    int256 linearAdaptation = speed * elapsed;\n\n                    if (linearAdaptation == 0) {\n                        avgRateAtTarget = startRateAtTarget;\n                        endRateAtTarget = startRateAtTarget;\n                    } else {\n                        endRateAtTarget = _newRateAtTarget(startRateAtTarget, linearAdaptation);\n                        int256 midRateAtTarget = _newRateAtTarget(\n                            startRateAtTarget,\n                            linearAdaptation / 2\n                        );\n                        avgRateAtTarget =\n                            (startRateAtTarget + endRateAtTarget + 2 * midRateAtTarget) /\n                            4;\n                    }\n                } else {\n                    avgRateAtTarget = startRateAtTarget;\n                    endRateAtTarget = startRateAtTarget;\n                }\n            }\n            return (uint256(_curve(avgRateAtTarget, err)), endRateAtTarget);\n        }\n    }",
+      "expected_fixed_blocks": 3,
+      "returned_fixed_blocks": 1,
+      "block_count_match": false,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:38:04.533720"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:38:04.533743",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

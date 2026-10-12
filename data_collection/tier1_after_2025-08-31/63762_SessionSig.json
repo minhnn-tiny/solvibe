@@ -1,0 +1,187 @@
+{
+  "id": "63762",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-10-sequence/blob/main/src/extensions/sessions/SessionSig.sol# L406-L421",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      406,
+      421
+    ],
+    [
+      31,
+      131
+    ],
+    [
+      103,
+      117
+    ],
+    [
+      29,
+      45
+    ]
+  ],
+  "filename": "63762_SessionSig.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 421,
+  "vulnerability_title": "[M-01] Session signatures replay across wallets due to missing wallet binding",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Bind the signature preimage to the executing wallet. The simplest fix is to include `address(this)` (or another wallet-unique value) in `SessionSig.hashCallWithReplayProtection`. Update the SDK/tooling so session signers hash `(wallet, chainId, space, nonce, callIdx, call details)`. Ensure test suites cover cross-wallet replay attempts after the change.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "* Code: `test/extensions/sessions/SessionReplay.t.sol`\n* Command:\n  `forge test --match-test test_crossWalletSessionReplayDrainsSiblingWallet -vv`\n* Logs show an attacker replaying the same signature to drain two wallets:\n\n  \n```\n\n  Attacker balance before: 0.000000000000000000\n  WalletA balance before: 1.000000000000000000\n  WalletB balance before: 1.000000000000000000\n  Attacker balance after: 2.000000000000000000\n  WalletA balance after: 0.000000000000000000\n  WalletB balance after: 0.000000000000000000\n  \n```",
+    "poc_code_blocks": [
+      "Attacker balance before: 0.000000000000000000\n  WalletA balance before: 1.000000000000000000\n  WalletB balance before: 1.000000000000000000\n  Attacker balance after: 2.000000000000000000\n  WalletA balance after: 0.000000000000000000\n  WalletB balance after: 0.000000000000000000"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "hashCallWithReplayProtection",
+        "start_line": 406,
+        "end_line": 419,
+        "code": "  function hashCallWithReplayProtection(\n    Payload.Decoded calldata payload,\n    uint256 callIdx\n  ) public view returns (bytes32 callHash) {\n    return keccak256(\n      abi.encodePacked(\n        payload.noChainId ? 0 : block.chainid,\n        payload.space,\n        payload.nonce,\n        callIdx,\n        Payload.hashCall(payload.calls[callIdx])\n      )\n    );\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            406,
+            421
+          ]
+        ]
+      },
+      {
+        "function_name": "recoverSignature",
+        "start_line": 73,
+        "end_line": 181,
+        "code": "  function recoverSignature(\n    Payload.Decoded calldata payload,\n    bytes calldata encodedSignature\n  ) internal view returns (DecodedSignature memory sig) {\n    uint256 pointer = 0;\n    bool hasBlacklistInConfig;\n\n    // ----- Session Configuration -----\n    {\n      // First read the length of the session configuration bytes (uint24)\n      uint256 dataSize;\n      (dataSize, pointer) = encodedSignature.readUint24(pointer);\n\n      // Recover the session configuration\n      (sig, hasBlacklistInConfig) = recoverConfiguration(encodedSignature[pointer:pointer + dataSize]);\n      pointer += dataSize;\n\n      // Identity signer must be set\n      if (sig.identitySigner == address(0)) {\n        revert SessionErrors.InvalidIdentitySigner();\n      }\n    }\n\n    // ----- Attestations for implicit calls -----\n    Attestation[] memory attestationList;\n    {\n      uint8 attestationCount;\n      (attestationCount, pointer) = encodedSignature.readUint8(pointer);\n      attestationList = new Attestation[](attestationCount);\n      // Parse each attestation and its identity signature, store in memory\n      for (uint256 i = 0; i < attestationCount; i++) {\n        Attestation memory att;\n        (att, pointer) = LibAttestation.fromPacked(encodedSignature, pointer);\n\n        // Read the identity signature that approves this attestation\n        {\n          bytes32 r;\n          bytes32 s;\n          uint8 v;\n          (r, s, v, pointer) = encodedSignature.readRSVCompact(pointer);\n\n          // Recover the identity signer from the attestation identity signature\n          bytes32 attestationHash = att.toHash();\n          address recoveredIdentitySigner = ecrecover(attestationHash, v, r, s);\n          if (recoveredIdentitySigner != sig.identitySigner) {\n            revert SessionErrors.InvalidIdentitySigner();\n          }\n        }\n\n        attestationList[i] = att;\n      }\n\n      // If we have any implicit calls, we must have a blacklist in the configuration\n      if (attestationCount > 0 && !hasBlacklistInConfig) {\n        revert SessionErrors.InvalidBlacklist();\n      }\n    }\n\n    // ----- Call Signatures -----\n    {\n      uint256 callsCount = payload.calls.length;\n      sig.callSignatures = new CallSignature[](callsCount);\n\n      for (uint256 i = 0; i < callsCount; i++) {\n        CallSignature memory callSignature;\n\n        // Determine signature type\n        {\n          uint8 flag;\n          (flag, pointer) = encodedSignature.readUint8(pointer);\n          callSignature.isImplicit = (flag & 0x80) != 0;\n\n          if (callSignature.isImplicit) {\n            // Read attestation index from the call_flags\n            uint8 attestationIndex = uint8(flag & 0x7f);\n\n            // Check if the attestation index is out of range\n            if (attestationIndex >= attestationList.length) {\n              revert SessionErrors.InvalidAttestation();\n            }\n\n            // Set the attestation\n            callSignature.attestation = attestationList[attestationIndex];\n          } else {\n            // Session permission index is the entire byte, top bit is 0 => no conflict\n            callSignature.sessionPermission = flag;\n          }\n        }\n\n        // Read session signature and recover the signer\n        {\n          bytes32 r;\n          bytes32 s;\n          uint8 v;\n          (r, s, v, pointer) = encodedSignature.readRSVCompact(pointer);\n\n          bytes32 callHash = hashCallWithReplayProtection(payload, i);\n          callSignature.sessionSigner = ecrecover(callHash, v, r, s);\n          if (callSignature.sessionSigner == address(0)) {\n            revert SessionErrors.InvalidSessionSigner(address(0));\n          }\n        }\n\n        sig.callSignatures[i] = callSignature;\n      }\n    }\n\n    return sig;\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            103,
+            117
+          ]
+        ]
+      },
+      {
+        "code": "/// @author Michael Standen, Agustin Aguilar\n/// @notice Library for session signatures\nlibrary SessionSig {\n\n  uint256 internal constant FLAG_PERMISSIONS = 0;\n  uint256 internal constant FLAG_NODE = 1;\n  uint256 internal constant FLAG_BRANCH = 2;\n  uint256 internal constant FLAG_BLACKLIST = 3;\n  uint256 internal constant FLAG_IDENTITY_SIGNER = 4;\n\n  uint256 internal constant MIN_ENCODED_PERMISSION_SIZE = 94;\n\n  /// @notice Call signature for a specific session\n  /// @param isImplicit If the call is implicit\n  /// @param sessionSigner Address of the session signer\n  /// @param sessionPermission Session permission for explicit calls\n  /// @param attestation Attestation for implicit calls\n  struct CallSignature {\n    bool isImplicit;\n    address sessionSigner;\n    uint8 sessionPermission;\n    Attestation attestation;\n  }\n\n  /// @notice Decoded signature for a specific session\n  /// @param imageHash Derived configuration image hash\n  /// @param identitySigner Identity signer address\n  /// @param implicitBlacklist Implicit blacklist addresses\n  /// @param sessionPermissions Session permissions for each explicit signer\n  /// @param callSignatures Call signatures for each call in the payload\n  struct DecodedSignature {\n    bytes32 imageHash;\n    address identitySigner;\n    address[] implicitBlacklist;\n    SessionPermissions[] sessionPermissions;\n    CallSignature[] callSignatures;\n  }\n\n  /// @notice Recovers the decoded signature from the encodedSignature bytes.\n  /// @dev The encoded layout is conceptually separated into three parts:\n  ///  1) Session Configuration\n  ///  2) A reusable list of Attestations + their identity signatures (if any implicit calls exist)\n  ///  3) Call Signatures (one per call in the payload)\n  ///\n  /// High-level layout:\n  ///  - session_configuration: [uint24 size, <Session Configuration encoded>]\n  ///  - attestation_list: [uint8 attestationCount, (Attestation + identitySig) * attestationCount]\n  ///    (new section to allow reusing the same Attestation across multiple calls)\n  ///  - call_signatures: [<CallSignature encoded>] - Size is payload.calls.length\n  ///    - call_signature: [uint8 call_flags, <session_signature>]\n  ///      - call_flags: [bool is_implicit (MSB), 7 bits encoded]\n  ///      - if call_flags.is_implicit.MSB == 1:\n  ///         - attestation_index: [uint8 index into the attestation list (7 bits of the call_flags)]\n  ///         - session_signature: [r, s, v (compact)]\n  ///      - if call_flags.is_implicit.MSB == 0:\n  ///         - session_permission: [uint8 (7 bits of the call_flags)]\n  ///         - session_signature: [r, s, v (compact)]\n  function recoverSignature(\n    Payload.Decoded calldata payload,\n    bytes calldata encodedSignature\n  ) internal view returns (DecodedSignature memory sig) {\n    uint256 pointer = 0;\n    bool hasBlacklistInConfig;\n\n    // ----- Session Configuration -----\n    {\n      // First read the length of the session configuration bytes (uint24)\n      uint256 dataSize;\n      (dataSize, pointer) = encodedSignature.readUint24(pointer);\n\n      // Recover the session configuration\n      (sig, hasBlacklistInConfig) = recoverConfiguration(encodedSignature[pointer:pointer + dataSize]);\n      pointer += dataSize;\n\n      // Identity signer must be set\n      if (sig.identitySigner == address(0)) {\n        revert SessionErrors.InvalidIdentitySigner();\n      }\n    }\n\n    // ----- Attestations for implicit calls -----\n    Attestation[] memory attestationList;\n    {\n      uint8 attestationCount;\n      (attestationCount, pointer) = encodedSignature.readUint8(pointer);\n      attestationList = new Attestation[](attestationCount);\n      // Parse each attestation and its identity signature, store in memory\n      for (uint256 i = 0; i < attestationCount; i++) {\n        Attestation memory att;\n        (att, pointer) = LibAttestation.fromPacked(encodedSignature, pointer);\n\n        // Read the identity signature that approves this attestation\n        {\n          bytes32 r;\n          bytes32 s;\n          uint8 v;\n          (r, s, v, pointer) = encodedSignature.readRSVCompact(pointer);\n\n          // Recover the identity signer from the attestation identity signature\n          bytes32 attestationHash = att.toHash();\n          address recoveredIdentitySigner = ecrecover(attestationHash, v, r, s);\n          if (recoveredIdentitySigner != sig.identitySigner) {\n            revert SessionErrors.InvalidIdentitySigner();\n          }\n        }\n\n        attestationList[i] = att;\n      }\n\n      // If we have any implicit calls, we must have a blacklist in the configuration\n      if (attestationCount > 0 && !hasBlacklistInConfig) {\n        revert SessionErrors.InvalidBlacklist();\n      }\n    }\n\n    // ----- Call Signatures -----\n    {\n      uint256 callsCount = payload.calls.length;\n      sig.callSignatures = new CallSignature[](callsCount);\n\n      for (uint256 i = 0; i < callsCount; i++) {\n        CallSignature memory callSignature;\n\n        // Determine signature type\n        {\n          uint8 flag;\n          (flag, pointer) = encodedSignature.readUint8(pointer);\n          callSignature.isImplicit = (flag & 0x80) != 0;\n\n          if (callSignature.isImplicit) {\n            // Read attestation index from the call_flags",
+        "start_line": 31,
+        "end_line": 131,
+        "context_start_line": 16,
+        "context_end_line": 146,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "\n/// @title SessionSig\n/// @author Michael Standen, Agustin Aguilar\n/// @notice Library for session signatures\nlibrary SessionSig {\n\n  uint256 internal constant FLAG_PERMISSIONS = 0;\n  uint256 internal constant FLAG_NODE = 1;\n  uint256 internal constant FLAG_BRANCH = 2;\n  uint256 internal constant FLAG_BLACKLIST = 3;\n  uint256 internal constant FLAG_IDENTITY_SIGNER = 4;\n\n  uint256 internal constant MIN_ENCODED_PERMISSION_SIZE = 94;\n\n  /// @notice Call signature for a specific session\n  /// @param isImplicit If the call is implicit\n  /// @param sessionSigner Address of the session signer\n  /// @param sessionPermission Session permission for explicit calls\n  /// @param attestation Attestation for implicit calls\n  struct CallSignature {\n    bool isImplicit;\n    address sessionSigner;\n    uint8 sessionPermission;\n    Attestation attestation;\n  }\n\n  /// @notice Decoded signature for a specific session\n  /// @param imageHash Derived configuration image hash\n  /// @param identitySigner Identity signer address\n  /// @param implicitBlacklist Implicit blacklist addresses\n  /// @param sessionPermissions Session permissions for each explicit signer\n  /// @param callSignatures Call signatures for each call in the payload\n  struct DecodedSignature {\n    bytes32 imageHash;\n    address identitySigner;\n    address[] implicitBlacklist;\n    SessionPermissions[] sessionPermissions;\n    CallSignature[] callSignatures;\n  }\n\n  /// @notice Recovers the decoded signature from the encodedSignature bytes.\n  /// @dev The encoded layout is conceptually separated into three parts:\n  ///  1) Session Configuration\n  ///  2) A reusable list of Attestations + their identity signatures (if any implicit calls exist)\n  ///  3) Call Signatures (one per call in the payload)\n  ///\n  /// High-level layout:",
+        "start_line": 29,
+        "end_line": 45,
+        "context_start_line": 14,
+        "context_end_line": 60,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:08:03.331015",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability of session signatures being reused across wallets due to the lack of wallet binding in the signature preimage.",
+      "content_reasoning": "The content mentions specific functions and variables that are indeed present in the extracted code, such as `hashCallWithReplayProtection` and `recoverSapientSignature`, which are directly related to the vulnerability described.",
+      "functions_found": [
+        "hashCallWithReplayProtection",
+        "recoverSignature",
+        "recoverSapientSignature"
+      ],
+      "variables_found": [],
+      "patterns_found": [
+        "signature replay attack",
+        "lack of wallet binding"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 85,
+      "reasoning": "There is currently no tag assigned to this report, which is incorrect as it clearly describes a vulnerability related to session signature replay attacks.",
+      "suggested_tag": "Replay Attack",
+      "alternative_tags": [
+        "Signature Vulnerability",
+        "Authorization Issue"
+      ],
+      "correction_explanation": "A tag should be assigned to reflect the nature of the vulnerability, specifically focusing on replay attacks and authorization issues."
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability primarily involves issues with authorization and permissions, as it allows unauthorized actions across wallets due to the replay of signatures."
+    },
+    "scsvs_classification": {
+      "primary_category": "G5",
+      "primary_category_name": "Access control",
+      "secondary_categories": [
+        "G4"
+      ],
+      "confidence": 85,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more granular classification, with G5 specifically addressing access control issues, which is central to the vulnerability described.",
+      "vulnerability_type": "Replay attack due to lack of wallet binding in session signatures"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Bind the signature preimage to the executing wallet by including the wallet address in the hash function.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "hashCallWithReplayProtection",
+          "fixed_function_code": "function hashCallWithReplayProtection(\n    Payload.Decoded calldata payload,\n    uint256 callIdx\n  ) public view returns (bytes32 callHash) {\n    return keccak256(\n      abi.encodePacked(\n        address(this), // Include the executing wallet address\n        payload.noChainId ? 0 : block.chainid,\n        payload.space,\n        payload.nonce,\n        callIdx,\n        Payload.hashCall(payload.calls[callIdx])\n      )\n    );\n  }",
+          "reasoning": "This function now includes the executing wallet's address in the hash, preventing replay attacks across different wallets."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "recoverSignature",
+          "fixed_function_code": "function recoverSignature(\n    Payload.Decoded calldata payload,\n    bytes calldata encodedSignature\n  ) internal view returns (DecodedSignature memory sig) {\n    uint256 pointer = 0;\n    bool hasBlacklistInConfig;\n\n    // ----- Session Configuration -----\n    {\n      uint256 dataSize;\n      (dataSize, pointer) = encodedSignature.readUint24(pointer);\n      (sig, hasBlacklistInConfig) = recoverConfiguration(encodedSignature[pointer:pointer + dataSize]);\n      pointer += dataSize;\n\n      if (sig.identitySigner == address(0)) {\n        revert SessionErrors.InvalidIdentitySigner();\n      }\n    }\n\n    // ----- Attestations for implicit calls -----\n    Attestation[] memory attestationList;\n    {\n      uint8 attestationCount;\n      (attestationCount, pointer) = encodedSignature.readUint8(pointer);\n      attestationList = new Attestation[](attestationCount);\n      for (uint256 i = 0; i < attestationCount; i++) {\n        Attestation memory att;\n        (att, pointer) = LibAttestation.fromPacked(encodedSignature, pointer);\n\n        bytes32 r;\n        bytes32 s;\n        uint8 v;\n        (r, s, v, pointer) = encodedSignature.readRSVCompact(pointer);\n\n        bytes32 attestationHash = att.toHash();\n        address recoveredIdentitySigner = ecrecover(attestationHash, v, r, s);\n        if (recoveredIdentitySigner != sig.identitySigner) {\n          revert SessionErrors.InvalidIdentitySigner();\n        }\n\n        attestationList[i] = att;\n      }\n\n      if (attestationCount > 0 && !hasBlacklistInConfig) {\n        revert SessionErrors.InvalidBlacklist();\n      }\n    }\n\n    // ----- Call Signatures -----\n    {\n      uint256 callsCount = payload.calls.length;\n      sig.callSignatures = new CallSignature[](callsCount);\n\n      for (uint256 i = 0; i < callsCount; i++) {\n        CallSignature memory callSignature;\n\n        uint8 flag;\n        (flag, pointer) = encodedSignature.readUint8(pointer);\n        callSignature.isImplicit = (flag & 0x80) != 0;\n\n        if (callSignature.isImplicit) {\n          uint8 attestationIndex = uint8(flag & 0x7f);\n          if (attestationIndex >= attestationList.length) {\n            revert SessionErrors.InvalidAttestation();\n          }\n          callSignature.attestation = attestationList[attestationIndex];\n        } else {\n          callSignature.sessionPermission = flag;\n        }\n\n        bytes32 r;\n        bytes32 s;\n        uint8 v;\n        (r, s, v, pointer) = encodedSignature.readRSVCompact(pointer);\n\n        bytes32 callHash = hashCallWithReplayProtection(payload, i);\n        callSignature.sessionSigner = ecrecover(callHash, v, r, s);\n        if (callSignature.sessionSigner == address(0)) {\n          revert SessionErrors.InvalidSessionSigner(address(0));\n        }\n\n        sig.callSignatures[i] = callSignature;\n      }\n    }\n\n    return sig;\n  }",
+          "reasoning": "This function remains largely unchanged but now relies on the updated hash function to ensure that signatures are bound to the executing wallet."
+        }
+      ],
+      "key_changes": [
+        "Included the executing wallet address in the hash function to bind signatures to the wallet.",
+        "Ensured that the signature recovery process uses the updated hash function."
+      ],
+      "security_improvements": [
+        "Mitigated replay attacks across different wallets by binding signatures to the wallet address.",
+        "Enhanced overall signature validation process to ensure integrity."
+      ],
+      "additional_recommendations": "Update the SDK/tooling to reflect these changes and ensure comprehensive testing against replay attacks across wallets.",
+      "confidence": 95,
+      "fix_code": "function hashCallWithReplayProtection(\n    Payload.Decoded calldata payload,\n    uint256 callIdx\n  ) public view returns (bytes32 callHash) {\n    return keccak256(\n      abi.encodePacked(\n        address(this), // Include the executing wallet address\n        payload.noChainId ? 0 : block.chainid,\n        payload.space,\n        payload.nonce,\n        callIdx,\n        Payload.hashCall(payload.calls[callIdx])\n      )\n    );\n  }\n\nfunction recoverSignature(\n    Payload.Decoded calldata payload,\n    bytes calldata encodedSignature\n  ) internal view returns (DecodedSignature memory sig) {\n    uint256 pointer = 0;\n    bool hasBlacklistInConfig;\n\n    // ----- Session Configuration -----\n    {\n      uint256 dataSize;\n      (dataSize, pointer) = encodedSignature.readUint24(pointer);\n      (sig, hasBlacklistInConfig) = recoverConfiguration(encodedSignature[pointer:pointer + dataSize]);\n      pointer += dataSize;\n\n      if (sig.identitySigner == address(0)) {\n        revert SessionErrors.InvalidIdentitySigner();\n      }\n    }\n\n    // ----- Attestations for implicit calls -----\n    Attestation[] memory attestationList;\n    {\n      uint8 attestationCount;\n      (attestationCount, pointer) = encodedSignature.readUint8(pointer);\n      attestationList = new Attestation[](attestationCount);\n      for (uint256 i = 0; i < attestationCount; i++) {\n        Attestation memory att;\n        (att, pointer) = LibAttestation.fromPacked(encodedSignature, pointer);\n\n        bytes32 r;\n        bytes32 s;\n        uint8 v;\n        (r, s, v, pointer) = encodedSignature.readRSVCompact(pointer);\n\n        bytes32 attestationHash = att.toHash();\n        address recoveredIdentitySigner = ecrecover(attestationHash, v, r, s);\n        if (recoveredIdentitySigner != sig.identitySigner) {\n          revert SessionErrors.InvalidIdentitySigner();\n        }\n\n        attestationList[i] = att;\n      }\n\n      if (attestationCount > 0 && !hasBlacklistInConfig) {\n        revert SessionErrors.InvalidBlacklist();\n      }\n    }\n\n    // ----- Call Signatures -----\n    {\n      uint256 callsCount = payload.calls.length;\n      sig.callSignatures = new CallSignature[](callsCount);\n\n      for (uint256 i = 0; i < callsCount; i++) {\n        CallSignature memory callSignature;\n\n        uint8 flag;\n        (flag, pointer) = encodedSignature.readUint8(pointer);\n        callSignature.isImplicit = (flag & 0x80) != 0;\n\n        if (callSignature.isImplicit) {\n          uint8 attestationIndex = uint8(flag & 0x7f);\n          if (attestationIndex >= attestationList.length) {\n            revert SessionErrors.InvalidAttestation();\n          }\n          callSignature.attestation = attestationList[attestationIndex];\n        } else {\n          callSignature.sessionPermission = flag;\n        }\n\n        bytes32 r;\n        bytes32 s;\n        uint8 v;\n        (r, s, v, pointer) = encodedSignature.readRSVCompact(pointer);\n\n        bytes32 callHash = hashCallWithReplayProtection(payload, i);\n        callSignature.sessionSigner = ecrecover(callHash, v, r, s);\n        if (callSignature.sessionSigner == address(0)) {\n          revert SessionErrors.InvalidSessionSigner(address(0));\n        }\n\n        sig.callSignatures[i] = callSignature;\n      }\n    }\n\n    return sig;\n  }",
+      "expected_fixed_blocks": 4,
+      "returned_fixed_blocks": 2,
+      "block_count_match": false,
+      "generated_by": "openai",
+      "generation_date": "2026-04-25T07:20:07.540335"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-25T07:20:07.540358",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}
