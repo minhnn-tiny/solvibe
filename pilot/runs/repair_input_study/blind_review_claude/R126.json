@@ -1,0 +1,21 @@
+{
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "counterexample": {
+    "tick_spacing": 10,
+    "initialized_ticks": "-110 (liquidityNet +L) and 100 (liquidityNet -L), from one position over [-110, 100)",
+    "start_tick": -105,
+    "end_tick": -150,
+    "walk_returns": [-120],
+    "should_return": [-110],
+    "note": "compress(-105) is -11. Because the start is negative and not aligned, the patch steps one more bit down and sets currentTick to -120 without checking the bitmap. The walk returns -120, which is not initialized, and never returns -110. Active liquidity is L at -105 and 0 at -150, but the walk ends at L."
+  },
+  "new_flaw": {
+    "severity": "High",
+    "description": "For a negative start tick that is not a multiple of the spacing, the patch skips the initialized tick just below the start, which the audited code returned correctly. It also sets currentTick to a floor tick without checking the bitmap, so ticks that are not initialized are returned.",
+    "scenario": "Tick spacing 10, pool at tick -105, one position over [-110, 100) with liquidity L, so tick -110 has liquidityNet +L. A taxed zero-for-one swap moves the tick to -150. The iterator returns -120 and never -110, so CompensationPriceFinder and _zeroForOneCreditRewards keep using liquidity L below -110, where the true value is 0, and rewardGrowthOutsideX128[-110] never gets the growth earned above it. Rewards are computed with the wrong liquidity and shift between LPs, the same accounting error as the original finding. It only needs the taxed swap to start at a negative tick that is not a multiple of the spacing."
+  },
+  "invalid_attacks": {},
+  "judge_reports": null,
+  "summary": "Sets currentTick straight to the start's floor tick without searching the bitmap, and for negative unaligned starts steps one more spacing down. The walk returns uninitialized ticks and, for negative unaligned starts, skips the initialized tick just below the start."
+}

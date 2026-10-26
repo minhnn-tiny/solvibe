@@ -1,0 +1,46 @@
+diff --git a/src/libraries/TickIterator.sol b/src/libraries/TickIterator.sol
+index a4d6577..2904ebf 100644
+--- a/src/libraries/TickIterator.sol
++++ b/src/libraries/TickIterator.sol
+@@ -135,14 +135,37 @@ library TickIteratorLib {
+ 
+     function reset(TickIteratorDown memory self, int24 startTick) internal view {
+         if (!(self.endTick <= startTick)) revert InvalidRange();
+-        self.currentTick = startTick;
++        if (startTick == self.endTick) {
++            self.currentTick = self.endTick;
++            return;
++        }
+ 
+-        if (startTick == self.endTick) return;
++        int24 startCompressed = TickLib.compress(startTick, self.tickSpacing);
++        int24 endCompressed = TickLib.compress(self.endTick, self.tickSpacing);
++        (int16 wordPos, uint8 bitPos) = TickLib.position(startCompressed);
++        (int16 endWordPos,) = TickLib.position(endCompressed);
+ 
+-        (int16 wordPos,) = TickLib.position(startTick.compress(self.tickSpacing));
+         self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);
+ 
+-        _advanceToNextDown(self);
++        while (true) {
++            bool initialized;
++            (initialized, bitPos) = self.currentWord.nextBitPosLte(bitPos);
++            if (initialized) {
++                self.currentTick = TickLib.toTick(wordPos, bitPos, self.tickSpacing);
++                if (self.currentTick > self.endTick) return;
++                break;
++            }
++
++            if (wordPos == endWordPos) break;
++
++            unchecked {
++                wordPos--;
++            }
++            self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);
++            bitPos = type(uint8).max;
++        }
++
++        self.currentTick = self.endTick;
+     }
+ 
+     /// @notice Check if the iterator has more ticks

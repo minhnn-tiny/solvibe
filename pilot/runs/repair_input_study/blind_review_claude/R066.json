@@ -1,0 +1,22 @@
+{
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "counterexample": {
+    "tick_spacing": 10,
+    "positions": "one position [100, 200) with liquidity L",
+    "initialized_ticks": [100, 200],
+    "start_tick": 50,
+    "end_tick": 0,
+    "walk_returns": "nothing: reset reverts. It scans every word below word 0 and panics with an arithmetic underflow when the int16 word index is decremented past -32768, or runs out of gas first.",
+    "should_return": [],
+    "explanation": "Active liquidity is 0 at both ticks, so the walk should be empty. The repair's loop has no end-tick check and no lower bound, so it only stops when it finds an initialized tick. The functional suite shows this panic in its minTick and noInitializedTicks tests."
+  },
+  "new_flaw": {
+    "severity": "Medium",
+    "description": "reset now reverts whenever no initialized tick lies at or below the start tick. When one does exist, gas grows with its distance below the start rather than with the swap range.",
+    "scenario": "Tick spacing 10, only position [100, 200), pool tick 50. A taxed zero-for-one swap from tick 50 to 40 makes reset scan about 32,800 empty words and then panic, so the swap reverts. With tick spacing 1 and only a full-range position, every taxed zero-for-one swap near tick 0 makes each reset load about 3,500 words."
+  },
+  "invalid_attacks": {},
+  "judge_reports": null,
+  "summary": "The repair finds the highest initialized tick at or below compress(startTick) with its own loop, so an initialized start tick is included and unaligned, negative and word-edge starts are handled. The loop never checks the end tick and decrements an int16 word index with checked arithmetic, so reset reverts when no initialized tick exists at or below the start."
+}

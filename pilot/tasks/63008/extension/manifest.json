@@ -1,0 +1,95 @@
+{
+  "id": "63008-V1",
+  "study": "repair input study (IDEA.md, section 'Extension: how the input given to a repair agent changes the repair')",
+  "protocol": "Sorella L2 Angstrom",
+  "finding": "63008",
+  "vulnerable_commit": "386baff9f903aabb48eeb813d3bd629fc740f50a",
+  "clone": "pilot/repos/sorellaLabs__l2-angstrom",
+  "deps_source": "pilot/repos/prepared/l2-angstrom@386baff/lib",
+  "solc": "0.8.26",
+  "target_file": "src/libraries/TickIterator.sol",
+  "target_function": "reset(TickIteratorDown)",
+  "agent_edit_files": [
+    "src/libraries/TickIterator.sol"
+  ],
+  "feature_request": "pilot/tasks/63008/feature_tasks/V1/feature_request.md",
+  "report": "pilot/tasks/63008/extension/report.md",
+  "prompt": "pilot/prompts/repair_input_study.md",
+  "shown_test": {
+    "src": "pilot/tasks/63008/pov/P2_feedback_test.t.sol",
+    "dest": "test/SwapFromTickBoundary.t.sol",
+    "contract": "SwapFromTickBoundaryTest",
+    "test": "test_swapDownFromTickBoundary()",
+    "cmd": "forge test --match-path test/SwapFromTickBoundary.t.sol --match-test test_swapDownFromTickBoundary -vvv"
+  },
+  "functional": {
+    "files": {
+      "test/libraries/TickIterator.t.sol": "pilot/tasks/63008/extension/functional/TickIterator.t.sol",
+      "test/libraries/TickIteratorDown.t.sol": "pilot/tasks/63008/extension/functional/TickIteratorDown.t.sol"
+    },
+    "cmd": "forge test --no-match-contract '^PoV' --fuzz-seed 1",
+    "tests": 61
+  },
+  "povs": [
+    {
+      "name": "P1",
+      "src": "pilot/tasks/63008/pov/PoV63008_BoundaryAddLiquidity.t.sol",
+      "dest": "test/PoV63008_BoundaryAddLiquidity.t.sol",
+      "contract": "PoV63008_BoundaryAddLiquidity",
+      "test": "test_cyfrin_swapToBoundaryAddLiqudityAndSwapBackForRevert()",
+      "blocked_reason": "next call did not revert as expected",
+      "shown_in": []
+    },
+    {
+      "name": "P2",
+      "src": "pilot/tasks/63008/pov/PoV63008_AngstromL2.t.sol",
+      "dest": "test/PoV63008_AngstromL2.t.sol",
+      "contract": "PoV63008_AngstromL2",
+      "test": "test_cyfrin_swapBackwardsFromTickBoundaryAndRevert()",
+      "blocked_reason": "next call did not revert as expected",
+      "shown_in": [
+        "P",
+        "RP"
+      ]
+    },
+    {
+      "name": "P3",
+      "src": "pilot/tasks/63008/pov/PoV63008_StealRewards.t.sol",
+      "dest": "test/PoV63008_StealRewards.t.sol",
+      "contract": "PoV63008_StealRewards",
+      "test": "test_cyfrin_stealAllRewards()",
+      "blocked_reason": "attack is not profitable: -?[0-9]+ <= 0",
+      "profit_log": "Profit (ETH):",
+      "shown_in": []
+    },
+    {
+      "name": "P4",
+      "src": "pilot/tasks/63008/extension/pov/PoV63008_SameWordAlignedEnd.t.sol",
+      "dest": "test/PoV63008_SameWordAlignedEnd.t.sol",
+      "contract": "PoV63008_SameWordAlignedEnd",
+      "test": "test_variant_swapDownFromBoundarySameWord()",
+      "blocked_reason": "next call did not revert as expected",
+      "shown_in": []
+    },
+    {
+      "name": "P5",
+      "src": "pilot/tasks/63008/extension/pov/PoV63008_WordBoundaryStart.t.sol",
+      "dest": "test/PoV63008_WordBoundaryStart.t.sol",
+      "contract": "PoV63008_WordBoundaryStart",
+      "test": "test_variant_swapDownFromWordBoundary()",
+      "blocked_reason": "next call did not revert as expected",
+      "shown_in": []
+    }
+  ],
+  "notes": "Every agent starts from the audited code (no blank patch) with the git history hidden. blocked_reason is the failure each attack shows on the human fix (c01b6c7's TickIterator.sol on the audited code), checked on 2026-10-20; an attack counts as blocked only when its test fails with exactly this reason (a full match). The functional suite is the audited test folder with TickIterator.t.sol cut to its upward tests, plus TickIteratorDown.t.sol, the fix commit's downward tests adapted to V1 requirement 6 (README in this folder). P2 here is the evaluation version, which expects the revert; the shown test is the version without vm.expectRevert, recorded only as shown_test_passes.",
+  "bug_encoding_tests": {
+    "path": "test/libraries/TickIterator.t.sol",
+    "tests": [
+      "test_iterateDown_simple()",
+      "test_iterateDown_exclusiveBoundaries()",
+      "test_iterateDown_singleTick()",
+      "test_iterateDown_boundaryExclusion()"
+    ],
+    "notes": "Process record, not an outcome. Four downward tests of the audited test file that assert the start tick is skipped. They pass on the audited code and fail on the human fix and on the reference repair. The judge runs them on the original audited test file, before the functional files replace it, and records how many pass."
+  }
+}

@@ -1,0 +1,1 @@
+I’m checking the remaining comparison studies and publication details. I’m distinguishing controlled human baselines from historical reference implementations: both are relevant, but only the former directly supports a general claim that AI code is more or less secure than human code.

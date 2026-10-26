@@ -1,0 +1,19 @@
+{
+ "model": "claude-opus-5-5",
+ "review": {
+  "flaws": [
+   {
+    "title": "Downward reset scans empty bitmap words past endTick, causing unbounded gas use and DoS of zero-for-one tax swaps",
+    "severity": "Medium",
+    "lines": "if (wordPos == type(int16).min) break;\n            unchecked {\n                wordPos -= 1;\n            }\n            bitPos = type(uint8).max;",
+    "sequence": "1. A pool exists where the nearest initialized tick below the current tick is many bitmap words away, or where no initialized tick exists below it. Examples are a tickSpacing=1 pool with only full-range or far-away lower ticks, or a price that sits below all position lower bounds.\n2. A searcher sends the top-of-block zero-for-one swap with a priority fee, so taxInEther > 0. The swap moves the price by only a tick or two, so endTick is just below startTick.\n3. afterSwap calls _zeroForOneDistributeTax, which calls initDown and then reset.\n4. reset never compares the word being scanned against self.endTick. It keeps calling manager.getPoolBitmapInfo for each lower word until it finds an initialized bit or reaches wordPos = int16.min. That can be about 3,466 words or more for spacing 1, and up to about 32,768 words when no initialized tick exists below.\n5. The work runs twice, because the hook calls ticks.reset(slot0BeforeSwap.tick()) again. Each word costs an external extsload call. The total gas reaches tens of millions or exceeds the block gas limit.\n6. afterSwap runs out of gas and the whole swap reverts.",
+    "impact": "Top-of-block zero-for-one swaps on affected pools become very expensive or impossible. The MEV tax cannot be collected or distributed to LPs, and users cannot swap in that direction while the condition holds. The upward reset and _advanceToNextDown both stop at endTick, so only this function has the problem.",
+    "known_finding": "none",
+    "confidence": "medium"
+   }
+  ],
+  "requirement_breaks": [
+   "reset does not use the existing helper _advanceToNextDown and does not limit its word scan to the range [endTick, startTick]. It loads every bitmap word down to the next initialized tick, however far below endTick that tick is, which goes beyond the requirement to load only the word where the walk begins."
+  ]
+ }
+}

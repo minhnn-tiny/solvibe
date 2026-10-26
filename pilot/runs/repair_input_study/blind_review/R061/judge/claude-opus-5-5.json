@@ -1,0 +1,19 @@
+{
+ "model": "claude-opus-5-5",
+ "review": {
+  "flaws": [
+   {
+    "title": "Downward reset scans empty bitmap words without stopping at endTick, so taxed zero-for-one swaps can run out of gas",
+    "severity": "Medium",
+    "lines": "if (wordPos == type(int16).min) break;\n            unchecked {\n                wordPos--;\n            }\n            self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);\n            bitPos = type(uint8).max;",
+    "sequence": "1. A pool is in a state where no initialized tick exists at or below the current tick. For example, every LP position sits above the current price, or the nearest lower initialized tick is many words away, such as a lone full-range position with tickSpacing 1.\n2. A searcher sends the top-of-block zero-for-one swap with a non-zero priority fee, so taxInEther > 0.\n3. afterSwap calls _zeroForOneDistributeTax. That calls initDown, and then reset is called again.\n4. In reset, nextBitPosLte finds nothing in the start word. The loop then decrements wordPos and calls getPoolBitmapInfo for every lower word. It never checks whether the word already lies entirely below self.endTick. It stops only when it finds some initialized bit, however far below endTick, or when wordPos reaches int16 min. That can mean about 32k external extsload calls.\n5. This happens twice per swap. Gas use goes past the block or transaction limit, or becomes extremely costly, and the swap reverts.",
+    "impact": "Taxed top-of-block zero-for-one swaps revert, or pay gas that grows with the distance to the next lower initialized tick rather than with the swap range. The pool cannot be used for these swaps in that state, and the MEV tax mechanism is blocked. Searchers can still swap at zero priority fee, so the damage is limited.",
+    "known_finding": "none",
+    "confidence": "medium"
+   }
+  ],
+  "requirement_breaks": [
+   "The walk is not bounded by self.endTick when the start word and the following words are empty. Bitmap words far below the range, down to int16 min, are loaded even though no tick in them can ever be returned."
+  ]
+ }
+}

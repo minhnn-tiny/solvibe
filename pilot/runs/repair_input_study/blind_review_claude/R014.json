@@ -1,0 +1,22 @@
+{
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "counterexample": {
+    "tick_spacing": 10,
+    "positions": "any",
+    "initialized_ticks": "any",
+    "start_tick": 100,
+    "end_tick": 100,
+    "walk_returns": [101],
+    "should_return": [],
+    "note": "currentTick is set to startTick + 1 before the empty-range return, so hasNext is true for an empty range (requirement 6 fails) and getNext returns 101."
+  },
+  "new_flaw": {
+    "severity": "High",
+    "description": "For an empty range the walk returns startTick + 1, a tick above the start that the price never crossed. In the hook both walks then process that tick: they subtract its net liquidity from the active liquidity and add reward growth to rewardGrowthOutsideX128 for it.",
+    "scenario": "Tick spacing 1, pool tick 100. An attacker adds an out-of-range position [101, 102). Each small zero-for-one swap that is the first taxed swap in a block and leaves the tick at 100 makes the hook credit reward growth to tick 101, so the attacker's position earns part of the tax without being in range. The rest of the tax is divided by the active liquidity minus the attacker's liquidity, so in-range positions are paid more than the tax collected. If the attacker's liquidity is larger than the active liquidity, the subtraction underflows and the swap reverts."
+  },
+  "invalid_attacks": {},
+  "judge_reports": null,
+  "summary": "Sets currentTick to startTick + 1 at the top of reset, so the first search includes the start tick. Because this happens before the empty-range return, an empty range now has hasNext true and yields startTick + 1."
+}

@@ -1,0 +1,53 @@
+diff --git a/src/libraries/TickIterator.sol b/src/libraries/TickIterator.sol
+index a4d6577..eea7941 100644
+--- a/src/libraries/TickIterator.sol
++++ b/src/libraries/TickIterator.sol
+@@ -134,15 +134,43 @@ library TickIteratorLib {
+     }
+ 
+     function reset(TickIteratorDown memory self, int24 startTick) internal view {
+-        if (!(self.endTick <= startTick)) revert InvalidRange();
+-        self.currentTick = startTick;
++        if (self.endTick > startTick) revert InvalidRange();
+ 
+-        if (startTick == self.endTick) return;
++        if (startTick == self.endTick) {
++            self.currentTick = startTick;
++            self.currentWord = 0;
++            return;
++        }
+ 
+-        (int16 wordPos,) = TickLib.position(startTick.compress(self.tickSpacing));
++        (int16 wordPos, uint8 bitPos) = TickLib.position(TickLib.compress(startTick, self.tickSpacing));
+         self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);
+ 
+-        _advanceToNextDown(self);
++        bool initialized;
++        (initialized, bitPos) = self.currentWord.nextBitPosLte(bitPos);
++        self.currentTick = TickLib.toTick(wordPos, bitPos, self.tickSpacing);
++
++        if (!initialized) {
++            do {
++                if (wordPos == type(int16).min) break;
++                wordPos--;
++                self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);
++                (initialized, bitPos) = self.currentWord.nextBitPosLte(type(uint8).max);
++                self.currentTick = TickLib.toTick(wordPos, bitPos, self.tickSpacing);
++            } while (!initialized && self.currentTick > self.endTick);
++        }
++
++        while (!initialized && self.currentTick > self.endTick) {
++            (wordPos, bitPos) = TickLib.position(TickLib.compress(self.currentTick - 1, self.tickSpacing));
++            if (bitPos == type(uint8).max) {
++                self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);
++            }
++            (initialized, bitPos) = self.currentWord.nextBitPosLte(bitPos);
++            self.currentTick = TickLib.toTick(wordPos, bitPos, self.tickSpacing);
++        }
++
++        if (!initialized || self.currentTick < self.endTick) {
++            self.currentTick = self.endTick;
++        }
+     }
+ 
+     /// @notice Check if the iterator has more ticks

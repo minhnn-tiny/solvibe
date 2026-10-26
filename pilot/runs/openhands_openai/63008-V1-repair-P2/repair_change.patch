@@ -1,0 +1,25 @@
+diff --git a/src/libraries/TickIterator.sol b/src/libraries/TickIterator.sol
+index ea3da72..2592795 100644
+--- a/src/libraries/TickIterator.sol
++++ b/src/libraries/TickIterator.sol
+@@ -139,8 +139,18 @@ library TickIteratorLib {
+ 
+         if (startTick == self.endTick) return;
+ 
+-        (int16 wordPos,) = TickLib.position(TickLib.compress(startTick - 1, self.tickSpacing));
+-        self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);
++        (int16 startWordPos, uint8 bitPos) = TickLib.position(TickLib.compress(startTick, self.tickSpacing));
++        (int16 endWordPos,) = TickLib.position(TickLib.compress(self.endTick, self.tickSpacing));
++        self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, startWordPos);
++
++        (, int128 liquidityNet) = self.manager.getTickLiquidity(self.poolId, startTick);
++        bool endIsAligned = TickLib.compress(self.endTick, self.tickSpacing) * self.tickSpacing == self.endTick;
++        if (startWordPos != endWordPos) {
++            if (self.currentWord.isInitialized(bitPos) && liquidityNet != 0 && !endIsAligned) return;
++        } else {
++            (int16 wordPos,) = TickLib.position(TickLib.compress(startTick - 1, self.tickSpacing));
++            self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);
++        }
+ 
+         _advanceToNextDown(self);
+     }

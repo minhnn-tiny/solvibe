@@ -1,0 +1,1 @@
+I’ll check the new population comparison, simulations and rediscovery evidence against the committee’s requirements, then audit the rebuttal. I’ll keep item 10 pending from the student and exclude it from the vote.

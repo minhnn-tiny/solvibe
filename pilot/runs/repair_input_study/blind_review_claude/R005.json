@@ -1,0 +1,22 @@
+{
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "counterexample": {
+    "tick_spacing": 10,
+    "positions": "one position [-50, 50) with liquidity 1000",
+    "initialized_ticks": [-50, 50],
+    "start_tick": -100,
+    "end_tick": -100,
+    "walk_returns": [0, -50],
+    "should_return": [],
+    "note": "With start equal to end, reset returns before it sets currentTick. On the new iterator built by initDown, currentTick is 0, so hasNext is true (requirement 6 fails) and the walk returns tick 0 and tick -50. Separately, an unaligned start such as 105 with tick 100 initialized returns [105, 100] instead of [100], because tick 105 is not initialized."
+  },
+  "new_flaw": {
+    "severity": "High",
+    "description": "When startTick equals endTick, reset returns without setting currentTick. On the new iterator from initDown, currentTick is 0, so for any negative pool tick hasNext is true and the walk returns tick 0 and every initialized tick between the pool tick and 0. The hook's second reset also leaves currentTick unchanged, so the reward loop resumes wherever the price search stopped.",
+    "scenario": "Tick spacing 10, pool tick -100, and a position with lower tick -50 above the price. A small zero-for-one swap that is the first taxed swap in a block leaves the tick at -100. The hook walks ticks 0 and -50, which the price never crossed, and subtracts the net liquidity of tick -50 from the active liquidity. The swap reverts when that position holds more liquidity than the active liquidity. When the price search stops early, the reward loop continues over the remaining ticks and divides the tax by a wrong liquidity, so in-range positions are paid more or less than the tax."
+  },
+  "invalid_attacks": {},
+  "judge_reports": null,
+  "summary": "Returns the start tick when the bitmap bit at its compressed position is set, and otherwise searches from startTick + 1. It no longer sets currentTick before the empty-range return, and for an unaligned start it returns the start tick itself, which is not initialized."
+}

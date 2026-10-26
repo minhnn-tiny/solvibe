@@ -1,0 +1,1 @@
+I’ll read task.md and review the named function using only the permitted files.

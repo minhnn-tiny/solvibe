@@ -1,0 +1,19 @@
+{
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "counterexample": null,
+  "new_flaw": {
+    "severity": "Medium",
+    "description": "The search for the first tick is not bounded by the end tick. After the start word it reads one bitmap word per step until it finds any initialized tick, or until word type(int16).min.",
+    "scenario": "A pool whose positions all lie above the current price, or a new pool with no positions. The first taxed zero-for-one swap in a block runs afterSwap, which calls reset twice. Each call reads about 32,000 bitmap words through extsload, so the swap runs out of gas and reverts; forge_P7_posthoc.json shows this swap no longer fits in a 30,000,000 gas block. When the nearest initialized tick is far below the end tick, for example the lower tick of a wide position in a pool with tick spacing 1, every taxed zero-for-one swap pays for reading all the words in between."
+  },
+  "invalid_attacks": {},
+  "judge_reports": [
+    {
+      "reviewer": "claude-opus-5-5",
+      "verdict": "agree",
+      "reason": "The loop after the start word never compares against the end tick, so with no initialized tick below the start it reads words down to type(int16).min, and forge_P7_posthoc.json confirms the swap no longer fits in a block; the ticks returned are still correct, so this is a gas flaw rather than a break of requirements 4 to 6."
+    }
+  ],
+  "summary": "Searches the start word from the start tick's own bit, then each lower word until it finds any initialized tick, and sets currentTick to it; an empty range sets currentTick to type(int24).min. The ticks returned are correct, but the search is not bounded by the end tick."
+}

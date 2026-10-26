@@ -1,0 +1,12 @@
+{
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "counterexample": "Tick spacing 10. One position [100, 200), so ticks 100 and 200 are initialized. Start 105, end 50. The compressed start is bit 10, so the search begins at bit 9 and skips tick 100. The walk returns nothing; it should return [100], which the audited code did return. An aligned start of 100 is skipped the same way.",
+  "new_flaw": {
+    "severity": "High",
+    "description": "For every start whose compressed position is not bit 0 of a word, the rounded-down tick is now skipped even when the start is not a multiple of the spacing. The audited code only skipped exactly aligned starts, so the wrong liquidity walk now hits most taxed zero-for-one swaps that start inside a spacing interval whose lower tick is initialized, and attacks P1 to P4 still work. When the compressed start is bit 0, reset returns the rounded-down tick without checking the bitmap, so the walk can also yield an uninitialized tick."
+  },
+  "invalid_attacks": {},
+  "judge_reports": null,
+  "summary": "Treats bit 0 of a bitmap word as if it meant the start was on a tick boundary: at bit 0 it returns the start's rounded-down tick without checking the bitmap, and otherwise it searches strictly below the start's bit. The start tick is included only at bit 0, and unaligned starts lose the tick the audited code returned."
+}

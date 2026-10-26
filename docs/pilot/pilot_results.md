@@ -12,7 +12,7 @@ Date: 2026-10-08. Scope: 8 tasks built from the 77 filtered audit findings, 4 ag
    - In the 4 tasks whose request states the fixed behaviour, 12 of 15 runs that compiled are free of it.
 
    So this pilot mostly measured whether agents follow the request, not whether they notice a security problem. The requests must be rewritten before the next stage (section 8).
-5. **No agent reasoned about security.** In all 32 logs, no agent asked whether the code could be abused.
+5. **No agent's visible output raised security.** In all 32 logs, no agent asked whether the code could be abused. The logs hold only what the models showed. For OpenHands with Sonnet 4.5, that includes Anthropic's summary of the model's thinking. The other 24 runs logged no reasoning text, because OpenAI returns its reasoning encrypted and Aider ran without thinking turned on (section 5.5). So this result says nothing about reasoning the models did not show. The run scripts now capture more of it for the next stage (section 8).
 6. **The agent mattered more than the model.**
    - Switching the agent changed the outcome on 4 of 8 tasks for each model. Switching the model changed it on 1 or 2.
    - Much of that difference comes from Aider. It cannot run the compiler, and all 4 compile failures are Aider runs.
@@ -231,9 +231,22 @@ The 3 bug-containing runs among the "fixed behaviour" tasks are coding mistakes,
 
 The conclusion for the study: as built, this benchmark mostly measures whether an agent follows the request. A request derived from the vulnerable code passes the human's design on to the agent. A request derived from the fix or the documentation passes the fix on. IDEA.md says requests should come from the parent commit and the pull-request description, written without seeing either version of the function. The pilot did not do that, and section 8 says how to change it.
 
-### 5.5 Did the agents reason about security?
+### 5.5 Did the agents' visible output mention security?
 
-No. We searched all 32 logs for "security", "attack", "vulnerab", "exploit" and "reentr".
+**What the logs can show.** Each log (`pilot/runs/<configuration>/<id>/agent_log.txt`) is the agent's console output. It holds the model's reasoning only when the API returned it and the agent printed it.
+
+| Configuration | Reasoning settings in the pilot | Reasoning text in the log |
+| --- | --- | --- |
+| Aider + GPT-5.4-mini | The model reasons on OpenAI's side. Aider uses OpenAI's chat API, which returns no reasoning text. | None |
+| Aider + Sonnet 4.5 | Extended thinking was off. Aider turns it on only when given a thinking budget, and the pilot gave none. | None |
+| OpenHands + GPT-5.4-mini | The SDK asked for high reasoning effort but no reasoning summary. OpenAI returned the reasoning encrypted, with an empty summary. | None. The `Thought:` lines are the model's visible message text. |
+| OpenHands + Sonnet 4.5 | The SDK turned extended thinking on, with a budget up to the model's output limit. | `Reasoning:` blocks. For Claude 4 models, Anthropic's API returns a summary of the thinking, not the full text. |
+
+OpenHands also keeps an event store with the same reasoning in structured form. It sat inside the workspace, and the workspace was deleted after each run.
+
+So the evidence below covers the visible output of all 32 runs and the thinking summaries of the 8 OpenHands + Sonnet 4.5 runs. It does not cover the hidden reasoning of the other 24 runs.
+
+**What the visible output shows.** No agent raised security. We searched all 32 logs for "security", "attack", "vulnerab", "exploit" and "reentr".
 - In the OpenHands logs, every hit comes from the system prompt, a tool's `security_risk` field, code comments, or lint output.
 - The Aider logs have no hits, apart from the re-entry guard that the 62349 request names.
 
@@ -461,6 +474,7 @@ There are 43 findings with history today, so the treatment side alone is enough 
   - One attack test checks only that the stored state changed (62348).
   - Three tasks have no project test, and one project test does not call the function (63760).
 - **The code review was done by an AI and checked by the author.** It is not a blind human-expert review.
+- **Most of the models' reasoning was not logged.** Only the 8 OpenHands + Sonnet 4.5 runs logged any reasoning, and that is a summary. What the agents considered is judged from their visible output (section 5.5).
 - **Data contamination.** The findings were published in September to December 2025. This report does not check whether either model saw these audit reports or fixes in training. That should be checked against each model's published training cutoff.
 - **What the agent can read.** OpenHands can read the whole repository, including tests and comments that describe the bug (63008). The git history was also open during the pilot, but only one run used it, and that run was repeated.
 - **Cost figures are incomplete.** Aider's OpenAI calls are not priced.
@@ -478,10 +492,18 @@ There are 43 findings with history today, so the treatment side alone is enough 
    - Add a project test for every task. For 63760 the test must call `recover`.
 3. **Keep the git history hidden.** This is done in `run_task.py` and checked by `pilot/scripts/test_workspace_isolation.py`.
 4. **Report compile failures separately.** Consider a fifth configuration in which Aider sees `forge build` errors. Aider can run a test command after each edit, so its result would no longer depend on whether it can compile.
-5. **Run each cell at least three times** so the study can report rates.
-6. **Take tasks from more protocols and firms.**
-7. **Build the control group** and the masked-PoV repair loop (research questions 2 and 3).
-8. **Give a blind sample of outcomes to human experts** (research question 4), and compare their view with the automatic judge and with this code review.
+5. **Capture the models' reasoning.** This is done in the run scripts (process log, step 16).
+   - OpenHands with GPT-5.4-mini now asks OpenAI for a detailed reasoning summary. This needs a verified OpenAI organization. Without one, set `REASONING_SUMMARY=none` before the run.
+   - Aider with Sonnet 4.5 now runs with extended thinking on, with a budget of 32,768 tokens, and prints the thinking to its log.
+   - Each OpenHands run now keeps its event store as `oh_events.tar.gz` next to the log.
+   - Aider with GPT-5.4-mini still logs no reasoning, because OpenAI's chat API does not return it.
+   - Both providers return a summary of the reasoning, never the full text.
+   - Turning thinking on changes the Aider + Sonnet 4.5 configuration, so its next-stage results are not directly comparable with the pilot's.
+   - The agents also differ in reasoning effort, in the pilot and now. OpenHands asks GPT-5.4-mini for high effort. Aider sends no effort setting, so the model's default applies.
+6. **Run each cell at least three times** so the study can report rates.
+7. **Take tasks from more protocols and firms.**
+8. **Build the control group** and the masked-PoV repair loop (research questions 2 and 3).
+9. **Give a blind sample of outcomes to human experts** (research question 4), and compare their view with the automatic judge and with this code review.
 
 ## 9. Files and how to reproduce
 

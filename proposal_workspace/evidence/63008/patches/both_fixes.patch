@@ -1,0 +1,72 @@
+--- a/src/libraries/TickIterator.sol	2026-10-21 23:55:14
++++ b/src/libraries/TickIterator.sol	2026-10-22 00:02:46
+@@ -135,7 +135,7 @@
+ 
+     function reset(TickIteratorDown memory self, int24 startTick) internal view {
+         if (!(self.endTick <= startTick)) revert InvalidRange();
+-        self.currentTick = startTick;
++        self.currentTick = startTick + 1;
+ 
+         if (startTick == self.endTick) return;
+ 
+--- a/src/types/PoolRewards.sol	2026-10-21 23:55:14
++++ b/src/types/PoolRewards.sol	2026-10-22 00:01:59
+@@ -35,44 +35,12 @@
+         PoolRewards storage self,
+         IPoolManager pm,
+         PoolId id,
+-        int24 tickSpacing,
+         address sender,
+         ModifyLiquidityParams calldata params
+     ) internal {
+-        uint256 growthInside;
+-        {
+-            int24 currentTick = pm.getSlot0(id).tick();
+-            uint256 lowerGrowthX128 = self.rewardGrowthOutsideX128[params.tickLower];
+-            uint256 upperGrowthX128 = self.rewardGrowthOutsideX128[params.tickUpper];
+-
+-            if (currentTick < params.tickLower) {
+-                unchecked {
+-                    growthInside = lowerGrowthX128 - upperGrowthX128;
+-                }
+-            } else if (params.tickUpper <= currentTick) {
+-                // Following Uniswap's convention, if tick is below and uninitialized initialize growth
+-                // outside to global accumulator.
+-                if (!pm.isInitialized(id, params.tickLower, tickSpacing)) {
+-                    self.rewardGrowthOutsideX128[params.tickLower] =
+-                        lowerGrowthX128 = self.globalGrowthX128;
+-                }
+-                if (!pm.isInitialized(id, params.tickUpper, tickSpacing)) {
+-                    self.rewardGrowthOutsideX128[params.tickUpper] =
+-                        upperGrowthX128 = self.globalGrowthX128;
+-                }
+-                unchecked {
+-                    growthInside = upperGrowthX128 - lowerGrowthX128;
+-                }
+-            } else {
+-                if (!pm.isInitialized(id, params.tickLower, tickSpacing)) {
+-                    self.rewardGrowthOutsideX128[params.tickLower] =
+-                        lowerGrowthX128 = self.globalGrowthX128;
+-                }
+-                unchecked {
+-                    growthInside = self.globalGrowthX128 - lowerGrowthX128 - upperGrowthX128;
+-                }
+-            }
+-        }
++        int24 currentTick = pm.getSlot0(id).tick();
++        uint256 growthInside =
++            self.getGrowthInsideX128(currentTick, params.tickLower, params.tickUpper);
+ 
+         (Position storage position, bytes32 positionKey) =
+             self.getPosition(sender, params.tickLower, params.tickUpper, params.salt);
+--- a/src/AngstromL2.sol	2026-10-21 23:55:14
++++ b/src/AngstromL2.sol	2026-10-22 00:02:07
+@@ -153,7 +153,7 @@
+         _onlyUniV4();
+ 
+         PoolId id = key.calldataToId();
+-        rewards[id].updateAfterLiquidityAdd(UNI_V4, id, key.tickSpacing, sender, params);
++        rewards[id].updateAfterLiquidityAdd(UNI_V4, id, sender, params);
+         uint256 taxAmountInEther = _getJitTaxAmount();
+         if (taxAmountInEther > 0) {
+             UNI_V4.mint(address(this), NATIVE_CURRENCY_ID, taxAmountInEther);

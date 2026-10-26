@@ -1,0 +1,22 @@
+{
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "counterexample": {
+    "tick_spacing": 10,
+    "positions": "[100, 110) with liquidity 1000 and [110, 200) with liquidity 400",
+    "initialized_ticks": [100, 110, 200],
+    "start_tick": 105,
+    "end_tick": 0,
+    "walk_returns": [110, 100],
+    "should_return": [100],
+    "note": "For the unaligned start 105 the repair searches from tick 110, which lies above the start. Active liquidity is 1000 at tick 105 and 0 at tick 0, but the walk gives 1000 - (-600) - 1000 = 600. Separately, an aligned initialized start tick at bit 255 of its word, such as 2550 with tick spacing 10, is still skipped."
+  },
+  "new_flaw": {
+    "severity": "High",
+    "description": "For an unaligned start tick the repair searches from the next multiple of the tick spacing above the start. If that tick is initialized, the walk returns it although the price never crossed it, and the hook subtracts its net liquidity and adds reward growth to it.",
+    "scenario": "Tick spacing 10, pool tick 105, and a position [110, 120) above the price. On the first taxed zero-for-one swap in a block, the hook subtracts the net liquidity of tick 110 from the active liquidity. If that position holds more liquidity than the active liquidity, the subtraction underflows and the swap reverts. With a smaller position, the hook adds reward growth to tick 110, so the out-of-range position earns part of the tax and the rest is divided by a wrong liquidity."
+  },
+  "invalid_attacks": {},
+  "judge_reports": null,
+  "summary": "For an unaligned start tick, reset moves the search up to the next multiple of the tick spacing and searches at or below it, falling back to _advanceToNextDown from the start tick when that position is bit 255. This can return an initialized tick above the start, and an aligned initialized start tick at bit 255 is still skipped."
+}

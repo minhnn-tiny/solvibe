@@ -1,0 +1,19 @@
+{
+ "model": "claude-opus-5-5",
+ "review": {
+  "flaws": [
+   {
+    "title": "reset returns early without setting currentTick when startTick == endTick, so hasNext stays true and spurious ticks are walked",
+    "severity": "High",
+    "lines": "if (startTick == self.endTick) return;",
+    "sequence": "1. A pool has a negative current tick, e.g. -1000, with tickSpacing 10. It has initialized ticks in (-1000, 0], for example the upper bounds of positions that straddle the current tick.\n2. A searcher sends the top-of-block zero-for-one swap with a non-zero priority fee. The swap is small enough that slot0.tick stays at -1000.\n3. afterSwap calls _zeroForOneDistributeTax, which calls initDown(start=-1000, end=-1000). reset returns early, so currentTick keeps its memory default of 0.\n4. hasNext() checks 0 > -1000 and returns true. getNext() returns tick 0, which is uninitialized. _advanceToNextDown then walks down and returns every initialized tick in (-1000, 0).\n5. CompensationPriceFinder.getZeroForOne subtracts liquidityNet for each of these ticks. The ticks lie above the current price and should not be touched. The running total becomes wrong, roughly 2*L(cur) - L(0), or `liquidity.sub` underflows and reverts.\n6. ticks.reset(-1000) returns early again and leaves the iterator in whatever state the first pass ended in. If getZeroForOne returned early, the second pass in _zeroForOneCreditRewards continues walking spurious ticks.\n7. For each spurious tick it computes range rewards from the wrong liquidity and runs `rewardGrowthOutsideX128[tickNext] += cumulativeGrowthX128`. Ticks visited later get larger cumulative values. This raises outside[lower] by more than outside[upper] for positions above the price, so their computed growthInside goes up.",
+    "impact": "In the cases where liquidity.sub underflows, the top-of-block swap reverts whenever the tick does not move and the tick is negative, which blocks tax collection and swapping for that block. Otherwise rewardGrowthOutsideX128 is corrupted for ticks that were never crossed and the swap tax is split using wrong liquidity. Positions above the current price can claim rewards they are not owed, and these are taken from other LPs. A searcher can trigger this on purpose with a tiny same-tick swap.",
+    "known_finding": "none",
+    "confidence": "medium"
+   }
+  ],
+  "requirement_breaks": [
+   "When startTick equals endTick, hasNext does not reliably return false straight away. currentTick is left at its default or previous value instead of being set to a value <= endTick (for example type(int24).min), which breaks requirement 6 and, through it, requirement 4."
+  ]
+ }
+}

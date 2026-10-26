@@ -1,0 +1,24 @@
+diff --git a/src/libraries/TickIterator.sol b/src/libraries/TickIterator.sol
+index a4d6577..1b9ba12 100644
+--- a/src/libraries/TickIterator.sol
++++ b/src/libraries/TickIterator.sol
+@@ -137,12 +137,15 @@ library TickIteratorLib {
+         if (!(self.endTick <= startTick)) revert InvalidRange();
+         self.currentTick = startTick;
+ 
+-        if (startTick == self.endTick) return;
+-
+-        (int16 wordPos,) = TickLib.position(startTick.compress(self.tickSpacing));
++        (int16 wordPos, uint8 bitPos) = TickLib.position(startTick.compress(self.tickSpacing));
+         self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);
+ 
+-        _advanceToNextDown(self);
++        if (startTick == self.endTick) return;
++
++        int24 boundaryTick = TickLib.toTick(wordPos, bitPos, self.tickSpacing);
++        if (startTick != boundaryTick || !self.currentWord.isInitialized(bitPos)) {
++            _advanceToNextDown(self);
++        }
+     }
+ 
+     /// @notice Check if the iterator has more ticks

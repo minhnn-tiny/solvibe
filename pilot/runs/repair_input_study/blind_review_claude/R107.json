@@ -1,0 +1,12 @@
+{
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "counterexample": "Tick spacing 10. One position [100, 110) with liquidity L, so ticks 100 (net +L) and 110 (net -L) are initialized. Start 100, end 50. The first search adds one to the start's bit, so it begins at tick 110. The walk returns [110, 100], which leaves L - (-L) - L = L instead of the active liquidity 0 at tick 50. It should return [100].",
+  "new_flaw": {
+    "severity": "High",
+    "description": "Unless the compressed start is bit 255 of its word, the first search includes the tick one spacing above the start, which the swap never crossed. The hook subtracts that tick's net liquidity and adds reward growth to it. In the functional suite test_zeroForOneSwapEndingOnInitializedTick credits about 7.0e15 in rewards against 9.8e15 of tax. If the tick above is the lower tick of a position with more liquidity than the active liquidity, the subtraction underflows and the taxed swap reverts with ArithmeticOverflowUnderflow."
+  },
+  "invalid_attacks": {},
+  "judge_reports": null,
+  "summary": "Replaces the call to _advanceToNextDown in reset with its own search, which adds one to the start's bit before searching (except at bit 255) and then walks lower words. The start tick is included, but so is the initialized tick one spacing above it."
+}

@@ -679,7 +679,7 @@ h = new_slide(CREAM, "PILOT · WHAT WE LEARNED", "Four lessons from the pilot", 
 hd, fx = groups["human's vulnerable design"], groups["fixed behaviour"]
 lcards = [("The request decided the outcome",
            f"When the request described the human's design, {hd[0]} of {hd[1]} compiled runs had the bug; when it "
-           f"stated the fixed rule, {fx[0]} of {fx[1]}. No agent reasoned about security. Requests must be rewritten."),
+           f"stated the fixed rule, {fx[0]} of {fx[1]}. No agent's visible output raised security. Requests must be rewritten."),
           ("The judge needs a second check",
            f"Reading the code finds the bug in {n_review_bug} runs, not {nrep}. Two “tests pass” avoids still have "
            "it. Tests must check the property, and every task needs a project test."),

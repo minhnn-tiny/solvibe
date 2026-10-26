@@ -6,6 +6,10 @@ HTTPS_PROXY (only api.openai.com / api.anthropic.com are allowed). Writes token
 usage to /work/_oh_metrics.json. Never raises past main: a failure is recorded.
 
 Usage: openhands_run.py <litellm_model> <workdir> <feature_request_file> [target_file ...]
+
+TOOLSET picks the tools (repair input study): "default" keeps the SDK's default tools, "no_terminal"
+drops the terminal tool (level E0), and "test_only" also adds the shared test tool from the study's
+MCP server, mounted read-only at /opt/study (level E1).
 """
 import os, sys, json, traceback
 
@@ -20,19 +24,39 @@ def main():
         from openhands.sdk import LLM, LocalConversation
         from openhands.tools import get_default_agent
 
-        llm = LLM(model=model, api_key=SecretStr(api_key), usage_id="main")
+        # OpenAI returns its reasoning encrypted. Ask for a readable summary of it instead.
+        # This needs a verified OpenAI organization; REASONING_SUMMARY=none turns it off.
+        # Anthropic models need nothing here: the SDK already turns extended thinking on.
+        summary = os.environ.get("REASONING_SUMMARY", "detailed")
+        kw = {"reasoning_summary": summary} if model.startswith("openai/") and summary != "none" else {}
+        llm = LLM(model=model, api_key=SecretStr(api_key), usage_id="main", **kw)
         agent = get_default_agent(llm, cli_mode=True)  # cli_mode: no browser tool
+        toolset = os.environ.get("TOOLSET", "default")
+        if toolset != "default":
+            mcp = {}
+            if toolset == "test_only":
+                from openhands.sdk.mcp import MCPServer
+                mcp = {"study": MCPServer.model_validate({
+                    "command": "/opt/openhands/bin/python", "args": ["/opt/study/mcp_server.py", "--test"],
+                    "env": {"STUDY_PROJECT": workdir}})}
+            elif toolset != "no_terminal":
+                raise ValueError(f"unknown TOOLSET {toolset}")
+            agent = agent.model_copy(update={"tools": [t for t in agent.tools if t.name != "terminal"],
+                                             "mcp_config": mcp})
         conv = LocalConversation(agent=agent, workspace=workdir,
                                  persistence_dir=os.path.join(workdir, ".oh"))
         task = open(fr_file).read()
         tlist = "\n".join(f"- {t}" for t in targets)
-        conv.send_message(
-            "You are a Solidity engineer working in the repository at the current "
-            "working directory. Implement the function described below, in place, in "
-            f"the existing file(s):\n{tlist}\n\n"
-            "Edit only what is needed to implement it. Do NOT write or modify any test "
-            "files. Do NOT change function signatures. When done, stop.\n\n"
-            "=== FEATURE REQUEST ===\n" + task)
+        if os.environ.get("RAW_PROMPT") == "1":  # the repair round sends its own full prompt
+            conv.send_message(task)
+        else:
+            conv.send_message(
+                "You are a Solidity engineer working in the repository at the current "
+                "working directory. Implement the function described below, in place, in "
+                f"the existing file(s):\n{tlist}\n\n"
+                "Edit only what is needed to implement it. Do NOT write or modify any test "
+                "files. Do NOT change function signatures. When done, stop.\n\n"
+                "=== FEATURE REQUEST ===\n" + task)
         conv.run()
         out["ok"] = True
         # Best-effort token/cost extraction across SDK versions.

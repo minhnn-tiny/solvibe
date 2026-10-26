@@ -1,0 +1,17 @@
+{
+ "model": "gpt-6.1-sol",
+ "review": {
+  "flaws": [
+   {
+    "title": "Returning an uninitialized bit-255 tick can make valid zero-for-one swaps revert",
+    "severity": "Medium",
+    "lines": "        if (bitPos == 255) {\n            self.currentTick = TickLib.toTick(wordPos, bitPos, self.tickSpacing);\n            return;\n        }",
+    "sequence": "1. Consider a native/token1 pool with tick spacing 1, zero LP and hook fees, sqrtPriceX96 = 2^96 - 1 (current tick -1), and total liquidity 20,001 supplied over [-100, 100). Tick -1 is not initialized. 2. In a new block, before another taxed swap, a trader calls PoolManager.swap with zeroForOne=true, amountSpecified=-4,900,010, sqrtPriceLimitX96=TickMath.getSqrtPriceAtTick(-3), and a priority fee of 1 wei. The swap tax is 4,900,000 wei, and the swap reaches tick -3 without crossing an initialized tick. 3. AngstromL2._zeroForOneDistributeTax initializes the downward iterator. Tick -1 maps to bit position 255, so reset returns it without checking whether its bitmap bit is set. 4. CompensationPriceFinder.getZeroForOne therefore splits the price movement at this nonexistent boundary. Its first segment has rounded amount0=1 and amount1=0; the remaining segment has amount0=2 and amount1=1. With the stated tax, it returns a compensation price below the final pool price and lastTick=type(int24).min. 5. The hook resets the iterator and enters _zeroForOneCreditRewards. The phantom tick -1 is returned again. For its first segment, delta0=1 and delta1=0, so `(delta1.divX96(pstarX96) - delta0)` underflows and reverts the entire swap. Without the phantom tick, neither caller would process an intermediate boundary, and this subtraction would not execute.",
+    "impact": "Otherwise valid zero-for-one swaps revert in affected pool states. The uninitialized boundary introduces an artificial price segment whose rounding triggers a checked arithmetic underflow, preventing traders from executing these swaps.",
+    "known_finding": "none",
+    "confidence": "high"
+   }
+  ],
+  "requirement_breaks": []
+ }
+}

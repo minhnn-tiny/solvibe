@@ -1,0 +1,38 @@
+diff --git a/src/libraries/TickIterator.sol b/src/libraries/TickIterator.sol
+index a4d6577..8ddf21e 100644
+--- a/src/libraries/TickIterator.sol
++++ b/src/libraries/TickIterator.sol
+@@ -134,15 +134,30 @@ library TickIteratorLib {
+     }
+ 
+     function reset(TickIteratorDown memory self, int24 startTick) internal view {
+-        if (!(self.endTick <= startTick)) revert InvalidRange();
++        if (self.endTick > startTick) revert InvalidRange();
++
+         self.currentTick = startTick;
+ 
+         if (startTick == self.endTick) return;
+ 
+-        (int16 wordPos,) = TickLib.position(startTick.compress(self.tickSpacing));
++        // Load the bitmap word where the walk begins.
++        (int16 wordPos, uint8 bitPos) = TickLib.position(TickLib.compress(startTick, self.tickSpacing));
+         self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);
+ 
+-        _advanceToNextDown(self);
++        // If startTick is already at a tick boundary, begin from that tick.
++        // Otherwise begin from the nearest initialized tick strictly below startTick.
++        if (bitPos == 0) {
++            self.currentTick = TickLib.toTick(wordPos, bitPos, self.tickSpacing);
++            if (self.currentTick > self.endTick) return;
++            return;
++        }
++
++        (bool initialized, uint8 nextBitPos) = self.currentWord.nextBitPosLte(bitPos - 1);
++        self.currentTick = TickLib.toTick(wordPos, nextBitPos, self.tickSpacing);
++
++        if (!initialized) {
++            _advanceToNextDown(self);
++        }
+     }
+ 
+     /// @notice Check if the iterator has more ticks

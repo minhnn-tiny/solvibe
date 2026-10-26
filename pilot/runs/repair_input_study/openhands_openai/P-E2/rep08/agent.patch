@@ -1,0 +1,32 @@
+diff --git a/src/libraries/TickIterator.sol b/src/libraries/TickIterator.sol
+index a4d6577..418f582 100644
+--- a/src/libraries/TickIterator.sol
++++ b/src/libraries/TickIterator.sol
+@@ -142,6 +142,27 @@ library TickIteratorLib {
+         (int16 wordPos,) = TickLib.position(startTick.compress(self.tickSpacing));
+         self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);
+ 
++        int24 probeTick = startTick;
++        uint256 probeWord = self.currentWord;
++        bool initialized;
++        do {
++            (int16 probeWordPos, uint8 probeBitPos) =
++                TickLib.position((probeTick - 1).compress(self.tickSpacing));
++
++            if (probeBitPos == 255) {
++                probeWord = self.manager.getPoolBitmapInfo(self.poolId, probeWordPos);
++            }
++
++            (initialized, probeBitPos) = probeWord.nextBitPosLte(probeBitPos);
++            probeTick = TickLib.toTick(probeWordPos, probeBitPos, self.tickSpacing);
++            if (initialized) break;
++        } while (self.endTick < probeTick);
++
++        if (self.endTick.normalizeUnchecked(self.tickSpacing) != self.endTick && probeTick > self.endTick) {
++            (, int128 liquidityNet) = self.manager.getTickLiquidity(self.poolId, startTick);
++            if (liquidityNet != 0) return;
++        }
++
+         _advanceToNextDown(self);
+     }
+ 

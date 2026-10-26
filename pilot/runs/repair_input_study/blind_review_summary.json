@@ -1,0 +1,1097 @@
+{
+ "aider_openai/P-E0/rep01": {
+  "blind_id": "R006",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Rewrites the first search inside reset, but it still starts at compress(startTick - 1), so an initialized start tick is still skipped. When that position is bit 255 of a word, it also returns that bit's tick without checking whether it is initialized."
+ },
+ "aider_openai/P-E0/rep02": {
+  "blind_id": "R046",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "The repair adds an if/else on bitPos == 255 whose two branches load the same bitmap word, and rewrites the range check in an equivalent form. The walk is unchanged and still skips an initialized start tick."
+ },
+ "aider_openai/P-E0/rep03": {
+  "blind_id": "R093",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Rewrites reset with its own search that starts at the start tick's own bit, then walks lower words only while the current tick is above the end tick. It returns an initialized start tick and sets the current tick to the end tick when nothing initialized lies in range."
+ },
+ "aider_openai/P-E0/rep04": {
+  "blind_id": "R126",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "High",
+   "description": "For a negative start tick that is not a multiple of the spacing, the patch skips the initialized tick just below the start, which the audited code returned correctly. It also sets currentTick to a floor tick without checking the bitmap, so ticks that are not initialized are returned.",
+   "scenario": "Tick spacing 10, pool at tick -105, one position over [-110, 100) with liquidity L, so tick -110 has liquidityNet +L. A taxed zero-for-one swap moves the tick to -150. The iterator returns -120 and never -110, so CompensationPriceFinder and _zeroForOneCreditRewards keep using liquidity L below -110, where the true value is 0, and rewardGrowthOutsideX128[-110] never gets the growth earned above it. Rewards are computed with the wrong liquidity and shift between LPs, the same accounting error as the original finding. It only needs the taxed swap to start at a negative tick that is not a multiple of the spacing."
+  },
+  "summary": "Sets currentTick straight to the start's floor tick without searching the bitmap, and for negative unaligned starts steps one more spacing down. The walk returns uninitialized ticks and, for negative unaligned starts, skips the initialized tick just below the start."
+ },
+ "aider_openai/P-E0/rep05": {
+  "blind_id": "R089",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Sets the current tick to the end tick and clears the word for an empty range, loads the start word through an if and else whose branches are identical, and calls _advanceToNextDown with member syntax. The code does not compile, and even if it did the search would still start strictly below the start tick."
+ },
+ "aider_openai/P-E0/rep06": {
+  "blind_id": "R098",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Only changes the empty-range case to set the current tick to type(int24).min, which still makes hasNext false. The walk for a non-empty range is unchanged and still skips an initialized start tick."
+ },
+ "aider_openai/P-E0/rep07": {
+  "blind_id": "R123",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Sets currentTick one aligned step above the start's compressed position so the search includes the start tick. But when that position is bit 255 it returns early with currentTick at the start's floor tick without checking the bitmap, so the walk can return a tick that is not initialized."
+ },
+ "aider_openai/P-E0/rep08": {
+  "blind_id": "R009",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Wraps the word load in an if/else whose two branches are the same and clears currentWord for an empty range. The search still starts strictly below the start tick, so an initialized start tick is still skipped."
+ },
+ "aider_openai/P-E0/rep09": {
+  "blind_id": "R040",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "The repair searches the start word for the highest initialized tick at or below compress(startTick). If there is none, it loads lower words one by one until it finds one or passes the end tick. It leaves currentTick on the found tick with that tick's word cached, so the start tick is included, unaligned and negative starts round down correctly, and the search stops at the end tick."
+ },
+ "aider_openai/P-E0/rep10": {
+  "blind_id": "R036",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "High",
+   "description": "For an unaligned start tick whose compressed position is bit 0 of a word, reset loads the word below instead of the start's own word. The first search then reads bit 0 of the wrong word, so it can skip an initialized tick that the audited code handled correctly.",
+   "scenario": "Tick spacing 60, pool tick 30, and tick 0 is the lower tick of an in-range position. The first taxed zero-for-one swap in a block moves the price to tick -30. The walk skips tick 0, so the hook keeps using the liquidity from above tick 0 for the range below it. This is the same liquidity mismatch as the original finding: depending on the net liquidity at tick 0, the swap reverts on a later subtraction or the tax is divided by the wrong liquidity."
+  },
+  "summary": "For an unaligned start tick, reset loads the bitmap word of the compressed start minus one, then calls _advanceToNextDown from the start tick as before. Aligned initialized start ticks are still skipped, and when the compressed start is bit 0 of a word the first search reads the wrong word."
+ },
+ "aider_openai/P-E0/rep11": {
+  "blind_id": "R106",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Adds a branch for a start tick that is a multiple of the spacing, but that branch does exactly what the other path does: load the start word and call _advanceToNextDown. The walk is unchanged and still skips an initialized start tick."
+ },
+ "aider_openai/P-E0/rep12": {
+  "blind_id": "R023",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Keeps the start tick as the first tick whenever it is a multiple of the tick spacing, without checking its bitmap bit. It also adds a bit-255 branch that can never run, because the rounded-down tick is never above the start."
+ },
+ "aider_openai/P-E1/rep01": {
+  "blind_id": "R130",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": {
+   "severity": "Medium",
+   "description": "The search for the first tick is not bounded by the end tick. After the start word it reads one bitmap word per step until it finds any initialized tick, or until word type(int16).min.",
+   "scenario": "A pool whose positions all lie above the current price, or a new pool with no positions. The first taxed zero-for-one swap in a block runs afterSwap, which calls reset twice. Each call reads about 32,000 bitmap words through extsload, so the swap runs out of gas and reverts; forge_P7_posthoc.json shows this swap no longer fits in a 30,000,000 gas block. When the nearest initialized tick is far below the end tick, for example the lower tick of a wide position in a pool with tick spacing 1, every taxed zero-for-one swap pays for reading all the words in between."
+  },
+  "summary": "Searches the start word from the start tick's own bit, then each lower word until it finds any initialized tick, and sets currentTick to it; an empty range sets currentTick to type(int24).min. The ticks returned are correct, but the search is not bounded by the end tick."
+ },
+ "aider_openai/P-E1/rep02": {
+  "blind_id": "R074",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "High",
+   "description": "When the compressed start is bit 0 of a bitmap word (for example pool ticks 0 to 59 with spacing 60), reset starts one tick spacing lower. The walk then also skips the initialized tick just below an aligned start, and for an unaligned start it skips the rounded-down tick that the audited code returned. The hook subtracts the wrong net liquidity: in the functional suite the plain zero-for-one swap tests test_simpleZeroForOneSwap1 to 5 now revert in afterSwap with ArithmeticOverflowUnderflow (0xc9654ed4), and test_zeroForOneSwapEndingOnInitializedTick credits rewards that do not match the tax. So taxed zero-for-one swaps that start at such ticks revert or credit rewards to the wrong positions."
+  },
+  "summary": "If the compressed start is bit 0 of a word, reset moves the start one tick spacing lower before calling _advanceToNextDown; otherwise it behaves like the audited code. It never returns the start tick, adds a new skip at word boundaries, and also deletes the NatSpec comments of other functions."
+ },
+ "aider_openai/P-E1/rep03": {
+  "blind_id": "R052",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "High",
+   "description": "For an unaligned start tick whose rounded-down tick is bit 255 of its word, the repair now skips that rounded-down tick, although it lies below the start and the audited code returned it. This makes the skipped-tick problem reachable from every tick in such an interval, for example any tick from -9 to -1 with spacing 10.",
+   "scenario": "Tick spacing 10, positions [-10, 50) with L and [-100, -10) with 2L, so tick -10 has net -L. A taxed zero-for-one swap moves the tick from -5 to -50. The walk returns no ticks instead of [-10], so the hook keeps liquidity L where the real value is 2L. The tax is spread over L, so the [-100, -10) position is credited about twice the tax paid, taken from other LPs' rewards. With other liquidity shapes the liquidity subtraction underflows and the swap reverts."
+  },
+  "summary": "The repair sets currentTick to the aligned tick just above the rounded-down start, so the search includes the start tick, except when the rounded-down start is bit 255 of its word. There it sets currentTick to the rounded-down tick itself, so that tick is skipped, both for an aligned start and for unaligned starts in the same interval."
+ },
+ "aider_openai/P-E1/rep04": {
+  "blind_id": "R069",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "The repair removes the call to _advanceToNextDown from reset and leaves currentTick at startTick. The start tick is now always returned first, even when it is not initialized or not a multiple of the spacing. The extra tick has zero net liquidity and its reward-growth slot is not used by any existing position, so I found no new High or Medium flaw."
+ },
+ "aider_openai/P-E1/rep05": {
+  "blind_id": "R048",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "The repair adds an if/else on bitPos == 255 whose two branches load the same bitmap word, and rewrites the range check in an equivalent form. The walk is unchanged and still skips an initialized start tick."
+ },
+ "aider_openai/P-E1/rep06": {
+  "blind_id": "R081",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "Medium",
+   "description": "The search loop in reset is not limited by the end tick. A taxed zero-for-one swap that starts below every initialized tick makes afterSwap revert: with spacing 2 or more TickLib.toTick overflows after a few hundred words, and with spacing 1 the loop loads about 32,768 words and runs out of gas. When an initialized tick exists but lies far below the end tick, each reset still loads every word down to it, for example about 3,466 words in a spacing-1 pool whose nearest lower tick is a full-range position at -887272, and the hook calls reset twice per swap."
+  },
+  "summary": "Searches from the start tick's own bit, so an initialized start tick is returned, then loops down word by word until it finds any initialized tick, without stopping at the end tick. It finally moves the current tick up to the end tick if the tick it found is below it."
+ },
+ "aider_openai/P-E1/rep07": {
+  "blind_id": "R028",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "High",
+   "description": "For an unaligned start tick the repair searches from the next multiple of the tick spacing above the start. If that tick is initialized, the walk returns it although the price never crossed it, and the hook subtracts its net liquidity and adds reward growth to it.",
+   "scenario": "Tick spacing 10, pool tick 105, and a position [110, 120) above the price. On the first taxed zero-for-one swap in a block, the hook subtracts the net liquidity of tick 110 from the active liquidity. If that position holds more liquidity than the active liquidity, the subtraction underflows and the swap reverts. With a smaller position, the hook adds reward growth to tick 110, so the out-of-range position earns part of the tax and the rest is divided by a wrong liquidity."
+  },
+  "summary": "For an unaligned start tick, reset moves the search up to the next multiple of the tick spacing and searches at or below it, falling back to _advanceToNextDown from the start tick when that position is bit 255. This can return an initialized tick above the start, and an aligned initialized start tick at bit 255 is still skipped."
+ },
+ "aider_openai/P-E1/rep08": {
+  "blind_id": "R053",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "High",
+   "description": "For an unaligned start tick whose rounded-down tick is bit 0 of its word, the repair caches the word below. _advanceToNextDown only reloads at bit 255, so its first search reads bit 0 of the wrong word. The rounded-down tick is then skipped when it is initialized, or returned as initialized when bit 0 of the word below is set. The audited code handled these starts correctly, and they include every tick from 1 to spacing - 1.",
+   "scenario": "Tick spacing 10, positions [-100, 0) with 2L and [0, 100) with L, so tick 0 has net -L. A taxed zero-for-one swap moves the tick from 5 to -50. The walk checks bit 0 of word -1 instead of word 0, skips tick 0 and returns nothing. The hook keeps liquidity L where the real value is 2L, so the [-100, 0) position is credited about twice the tax. With other shapes the liquidity subtraction underflows: the functional suite's five simple zero-for-one swap tests revert with this repair."
+  },
+  "summary": "The repair loads the word below when compress(startTick) is bit 0 of its word, but the search still runs strictly below the start tick, so an initialized start tick is never returned. The new load only changes the walk for unaligned starts at bit 0, where it makes the first search read the wrong bitmap word."
+ },
+ "aider_openai/P-E1/rep09": {
+  "blind_id": "R066",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "Medium",
+   "description": "reset now reverts whenever no initialized tick lies at or below the start tick. When one does exist, gas grows with its distance below the start rather than with the swap range.",
+   "scenario": "Tick spacing 10, only position [100, 200), pool tick 50. A taxed zero-for-one swap from tick 50 to 40 makes reset scan about 32,800 empty words and then panic, so the swap reverts. With tick spacing 1 and only a full-range position, every taxed zero-for-one swap near tick 0 makes each reset load about 3,500 words."
+  },
+  "summary": "The repair finds the highest initialized tick at or below compress(startTick) with its own loop, so an initialized start tick is included and unaligned, negative and word-edge starts are handled. The loop never checks the end tick and decrements an int16 word index with checked arithmetic, so reset reverts when no initialized tick exists at or below the start."
+ },
+ "aider_openai/P-E1/rep10": {
+  "blind_id": "R116",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Copies the downward search into reset, starting from startTick - 1 and loading each word directly. The search still begins strictly below an aligned start tick, so the walk returns the same ticks as the audited code."
+ },
+ "aider_openai/P-E1/rep11": {
+  "blind_id": "R102",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "High",
+   "description": "For every start whose compressed position is not bit 0 of a word, the rounded-down tick is now skipped even when the start is not a multiple of the spacing. The audited code only skipped exactly aligned starts, so the wrong liquidity walk now hits most taxed zero-for-one swaps that start inside a spacing interval whose lower tick is initialized, and attacks P1 to P4 still work. When the compressed start is bit 0, reset returns the rounded-down tick without checking the bitmap, so the walk can also yield an uninitialized tick."
+  },
+  "summary": "Treats bit 0 of a bitmap word as if it meant the start was on a tick boundary: at bit 0 it returns the start's rounded-down tick without checking the bitmap, and otherwise it searches strictly below the start's bit. The start tick is included only at bit 0, and unaligned starts lose the tick the audited code returned."
+ },
+ "aider_openai/P-E1/rep12": {
+  "blind_id": "R107",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "High",
+   "description": "Unless the compressed start is bit 255 of its word, the first search includes the tick one spacing above the start, which the swap never crossed. The hook subtracts that tick's net liquidity and adds reward growth to it. In the functional suite test_zeroForOneSwapEndingOnInitializedTick credits about 7.0e15 in rewards against 9.8e15 of tax. If the tick above is the lower tick of a position with more liquidity than the active liquidity, the subtraction underflows and the taxed swap reverts with ArithmeticOverflowUnderflow."
+  },
+  "summary": "Replaces the call to _advanceToNextDown in reset with its own search, which adds one to the start's bit before searching (except at bit 255) and then walks lower words. The start tick is included, but so is the initialized tick one spacing above it."
+ },
+ "codex_openai/L-E2/rep01": {
+  "blind_id": "R075",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Loads the bitmap word of the tick just below the start instead of the start's own word, and moves the empty-range check below the load. _advanceToNextDown would load that word anyway, so the walk is unchanged and an initialized start tick is still skipped."
+ },
+ "codex_openai/L-E2/rep02": {
+  "blind_id": "R045",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "The repair only moves the empty-range return below the bitmap load. The walk still searches strictly below the start tick, so an initialized start tick is still skipped and all five attacks still work."
+ },
+ "codex_openai/L-E2/rep03": {
+  "blind_id": "R091",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Sets the current tick to the start tick plus one before loading the word, or leaves it at the start when the start is type(int24).max, which is never a valid pool tick. The search in _advanceToNextDown then begins at the start tick itself, the same rule as the reference repair."
+ },
+ "codex_openai/L-E2/rep04": {
+  "blind_id": "R025",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Only moves the word load above the empty-range return. The search still starts strictly below the start tick, so an initialized start tick is still skipped."
+ },
+ "codex_openai/L-E2/rep05": {
+  "blind_id": "R086",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Moves the bitmap word load above the empty-range check and changes nothing else. The current tick is still the start tick when _advanceToNextDown runs, so an initialized start tick is skipped as before."
+ },
+ "codex_openai/L-E2/rep06": {
+  "blind_id": "R080",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Loads the bitmap word of the tick just below the start instead of the start's own word. The current tick is still the start tick, so _advanceToNextDown still searches strictly below it and the walk is unchanged."
+ },
+ "codex_openai/L-E2/rep07": {
+  "blind_id": "R097",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "When the start is a multiple of the tick spacing and its bit is set, keeps the current tick at the start so it is returned first. Unaligned starts and uninitialized aligned starts call _advanceToNextDown as before."
+ },
+ "codex_openai/L-E2/rep08": {
+  "blind_id": "R013",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Replaces the first _advanceToNextDown call with a loop that searches from the start tick's own bit, one word at a time, and stops at the first set bit or once it reaches endTick."
+ },
+ "codex_openai/L-E2/rep09": {
+  "blind_id": "R095",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Moves the bitmap word load above the empty-range check and changes nothing else. The current tick is still the start tick when _advanceToNextDown runs, so an initialized start tick is skipped as before."
+ },
+ "codex_openai/L-E2/rep10": {
+  "blind_id": "R029",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Moves the word load above the empty-range return and sets currentTick to type(int24).min for an empty range. The search still starts strictly below the start tick, so an initialized start tick is still skipped."
+ },
+ "codex_openai/L-E2/rep11": {
+  "blind_id": "R108",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "High",
+   "description": "Every taxed zero-for-one swap that stays inside one tick walks the tick start + 1, which it never crossed. When that tick is initialized, the hook subtracts its net liquidity and adds reward growth to it. This happens for any tick in a spacing-1 pool, or when the pool sits one tick below a multiple of the spacing. Example: spacing 1, pool at tick 500 with active liquidity L1, and a position whose lower tick is 501 with liquidity L2 smaller than L1. A taxed swap that stays at tick 500 makes the reward walk divide the leftover tax by L1 - L2 instead of L1, so in-range positions are credited more than the tax collected. With L2 larger than L1 the subtraction underflows and the swap reverts."
+  },
+  "summary": "Sets the current tick to the start tick plus one before the empty-range check. Non-empty walks now include the start tick, but an empty range no longer gives hasNext false."
+ },
+ "codex_openai/L-E2/rep12": {
+  "blind_id": "R007",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Only sets currentWord to zero in the empty-range case. The search still starts strictly below the start tick, so an initialized start tick is still skipped."
+ },
+ "codex_openai/P-E0/rep01": {
+  "blind_id": "R063",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "After the empty-range return and the bitmap load, the repair sets currentTick to startTick + 1, so the search covers ticks at or below the start. This is the same rule as the reference repair."
+ },
+ "codex_openai/P-E0/rep02": {
+  "blind_id": "R110",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Keeps the empty-range return with currentTick at the start, loads the start word, then sets currentTick to startTick + 1 so the existing search begins at the start tick's own bit. This is the same change as the reference repair."
+ },
+ "codex_openai/P-E0/rep03": {
+  "blind_id": "R078",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Sets the current tick to the start tick rounded down to the tick spacing and keeps it there when that tick's bit is set; otherwise it calls _advanceToNextDown as before. This returns an initialized start tick and keeps unaligned starts correct."
+ },
+ "codex_openai/P-E0/rep04": {
+  "blind_id": "R134",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "If the start tick equals the tick of its own bitmap position, which means it is aligned, and that bit is set, reset skips the advance so getNext returns the start tick first. Otherwise it calls _advanceToNextDown as before."
+ },
+ "codex_openai/P-E0/rep05": {
+  "blind_id": "R128",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "If the start tick is a multiple of the spacing and its bitmap bit is set, reset returns with currentTick at the start tick, so getNext returns it first. Otherwise it calls _advanceToNextDown as before, which is correct for unaligned or uninitialized start ticks."
+ },
+ "codex_openai/P-E0/rep06": {
+  "blind_id": "R031",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Loads the start word before the empty-range return and calls _advanceToNextDown only when the start tick is not aligned or its bitmap bit is clear. An aligned, initialized start tick is returned first."
+ },
+ "codex_openai/P-E0/rep07": {
+  "blind_id": "R111",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Replaces the call to _advanceToNextDown with a loop that searches the start word from the start tick's own bit, then moves down one word at a time until it finds an initialized tick or the word's lowest tick is at or below the end tick. The start tick is returned whenever it is initialized, and the loop is bounded by the end tick."
+ },
+ "codex_openai/P-E0/rep08": {
+  "blind_id": "R051",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "The repair returns the start tick first when it equals toTick of its own word and bit, which means it is a multiple of the spacing, and that bit is set. Otherwise it advances strictly below the start as before. The rule covers unaligned, negative and word-edge starts. The word load now happens before the empty-range return, which is harmless."
+ },
+ "codex_openai/P-E0/rep09": {
+  "blind_id": "R064",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "The repair returns the start tick first when the start is a multiple of the spacing and isInitialized reports its bit as set. Otherwise it advances strictly below the start as before. The rule is general; it only reads the start word one extra time."
+ },
+ "codex_openai/P-E0/rep10": {
+  "blind_id": "R113",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Rewrites the start search as a loop that looks in the start word from the start tick's own bit, then in lower words, and stops once a word lies wholly at or below the end tick. currentTick becomes the first initialized tick above the end tick, or the end tick when there is none, so an empty range and a range with no ticks both give hasNext false."
+ },
+ "codex_openai/P-E0/rep11": {
+  "blind_id": "R117",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "If the start tick is a multiple of the spacing and its bitmap bit is set, reset leaves currentTick at the start tick and does not advance, so getNext returns it first. Otherwise it calls _advanceToNextDown as before, which is correct for unaligned or uninitialized start ticks."
+ },
+ "codex_openai/P-E0/rep12": {
+  "blind_id": "R004",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Skips _advanceToNextDown when the bitmap bit at the compressed start position is set, so currentTick stays at startTick. This works for aligned start ticks, but for an unaligned start it returns the start tick itself, which is not initialized."
+ },
+ "codex_openai/P-E1/rep01": {
+  "blind_id": "R101",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Reads the start tick's net liquidity and, when it is not zero, skips the call to _advanceToNextDown so getNext returns the start tick first. An initialized start tick whose net liquidity is zero is still skipped."
+ },
+ "codex_openai/P-E1/rep02": {
+  "blind_id": "R084",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "Medium",
+   "description": "The search loop in reset never compares the scanned word with the end tick. A taxed zero-for-one swap that starts below every initialized tick needs about 149 million gas and reverts. When an initialized tick exists but lies far below the end tick, each reset still loads every word down to it, for example about 3,466 words in a spacing-1 pool whose nearest lower tick is a full-range position at -887272, and the hook calls reset twice per swap."
+  },
+  "summary": "Rewrites reset with its own loop that searches from the start tick's own bit, so an initialized start tick is returned. The loop keeps loading lower words until it finds any initialized tick or reaches the lowest word, and never stops at the end tick."
+ },
+ "codex_openai/P-E1/rep03": {
+  "blind_id": "R068",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "The repair sets currentTick to the aligned tick one compressed step above the rounded-down start and loads that tick's word. _advanceToNextDown then searches from compress(startTick) inclusive. When that position is bit 255 the two words differ, but the search reloads the right word at bit 255, so the start tick is included in every case."
+ },
+ "codex_openai/P-E1/rep04": {
+  "blind_id": "R059",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "After the empty-range return, the repair sets currentTick to startTick + 1 before loading the start word, so the search covers ticks at or below the start. This is the same rule as the reference repair."
+ },
+ "codex_openai/P-E1/rep05": {
+  "blind_id": "R132",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "Medium",
+   "description": "The patch moved the currentTick assignment below the empty-range return. When start equals end, reset leaves currentTick unchanged: 0 for a new iterator from initDown, or wherever the earlier pass stopped when the hook calls reset again. At a negative tick, hasNext is then true and the walk returns ticks above the current price.",
+   "scenario": "Tick spacing 10, pool at tick -50 with active liquidity L1 from [-100, 100). An attacker adds a position over [-20, 100) with liquidity L2 larger than L1, which does not change active liquidity at -50. A trader makes the first taxed zero-for-one swap of a block and the tick stays at -50. initDown(-50, -50) leaves currentTick at 0, so CompensationPriceFinder.getZeroForOne visits ticks 0 and -20, and liquidity.sub(L2) reverts the swap. With a smaller L2 the swap goes through with wrong liquidity, and if the first pass returns early, the second pass after reset continues from the stale position and adds reward growth to ticks that were never crossed."
+  },
+  "summary": "Checks the bitmap bit of the start's floor tick and skips the advance when it is set, leaving currentTick at the start tick. For an unaligned start this returns the start tick itself, which is not an initialized tick, and the patch also moved the currentTick assignment below the empty-range return, so start equal to end can leave a stale currentTick."
+ },
+ "codex_openai/P-E1/rep06": {
+  "blind_id": "R129",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "If the bit for the start's floor tick is set, reset sets currentTick to that floor tick, so getNext returns it first; otherwise it calls _advanceToNextDown. For an aligned start the floor tick is the start tick itself, and for an unaligned start it is the first aligned tick below it, which the walk also needs."
+ },
+ "codex_openai/P-E1/rep07": {
+  "blind_id": "R027",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Loads the start word before the empty-range return, then returns early when the start tick is aligned and its bitmap bit is set, so getNext yields it first."
+ },
+ "codex_openai/P-E1/rep08": {
+  "blind_id": "R011",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Sets currentTick to startTick + 1 before _advanceToNextDown, so the first search includes the start tick. It adds a separate path for startTick equal to type(int24).max, which is not a valid Uniswap tick."
+ },
+ "codex_openai/P-E1/rep09": {
+  "blind_id": "R060",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "The repair skips the call to _advanceToNextDown whenever the bitmap bit of compress(startTick) is set. This returns an initialized aligned start tick, but for an unaligned start whose rounded-down tick is initialized it returns the unaligned start tick itself. The extra tick has zero net liquidity and the hook only writes reward growth to an unaligned tick that no position can use, so I found no new High or Medium flaw."
+ },
+ "codex_openai/P-E1/rep10": {
+  "blind_id": "R022",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": {
+   "severity": "Medium",
+   "description": "The new loop in reset keeps loading bitmap words downward until it finds any set bit. It does not stop once it passes endTick. When no initialized tick lies at or below the start tick, it loads every word down to int16.min, which is about 32,000 external reads, and the hook calls reset twice for each taxed swap.",
+   "scenario": "Every position is above the current price, for example after the price fell below all ranges. The first taxed zero-for-one swap in a block runs this loop and runs out of gas, so the swap reverts. The post-hoc test for this case (forge_P7_posthoc.json) used about 148 million gas. In other layouts the gas grows with the distance to the next initialized tick below the start, not with the size of the swap."
+  },
+  "summary": "Replaces the first _advanceToNextDown call with a loop that searches from the start tick's own bit and moves down one word at a time until it finds a set bit, then clamps the result to endTick. The ticks it returns are correct, but the loop does not stop once it passes endTick."
+ },
+ "codex_openai/P-E1/rep11": {
+  "blind_id": "R088",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "Medium",
+   "description": "The search loop in reset never compares the scanned word with the end tick. A taxed zero-for-one swap that starts below every initialized tick needs far more gas than a 30 million gas block holds, so afterSwap reverts. When an initialized tick exists but lies far below the end tick, each reset still loads every word down to it, for example about 3,466 words in a spacing-1 pool whose nearest lower tick is a full-range position at -887272, and the hook calls reset twice per swap."
+  },
+  "summary": "Rewrites reset with its own loop that searches from the start tick's own bit, so an initialized start tick is returned. The loop keeps loading lower words until it finds any initialized tick or reaches the lowest word, and never stops at the end tick."
+ },
+ "codex_openai/P-E1/rep12": {
+  "blind_id": "R114",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Searches the start word from the start tick's own bit, and if an initialized tick is found there it becomes currentTick. If none is found, the code falls back to _advanceToNextDown from the start tick, which is safe because the start tick is then not initialized."
+ },
+ "codex_openai/P-E2/rep01": {
+  "blind_id": "R100",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "Medium",
+   "description": "The patch removed the line that sets the current tick before the empty-range return. When start equals end, the current tick keeps its old value: 0 for a fresh iterator from initDown, or wherever the last walk stopped. At a negative tick this makes hasNext true, so the walk yields tick 0 and the initialized ticks between 0 and the current tick, none of which the swap crossed. Example: tick spacing 60, pool at tick -300 with active liquidity L1, and a position [0, 600) with liquidity L2 larger than L1. A taxed zero-for-one swap that stays inside tick -300 gets tick 0 from the walk, the hook subtracts its net liquidity L2 from L1, and afterSwap reverts with ArithmeticOverflowUnderflow. Anyone can add such a position to block these swaps."
+  },
+  "summary": "Sets the current tick to the start plus one only when no initialized tick lies below the start in the same bitmap word; otherwise the start tick is still skipped. It also stops setting the current tick for an empty range, so hasNext can be true when start equals end."
+ },
+ "codex_openai/P-E2/rep02": {
+  "blind_id": "R121",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Replaces the advance with a loop that loads each word from the start word down to the end tick's word and searches from the start tick's own bit. currentTick becomes the first initialized tick above the end tick, or the end tick when there is none."
+ },
+ "codex_openai/P-E2/rep03": {
+  "blind_id": "R005",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "High",
+   "description": "When startTick equals endTick, reset returns without setting currentTick. On the new iterator from initDown, currentTick is 0, so for any negative pool tick hasNext is true and the walk returns tick 0 and every initialized tick between the pool tick and 0. The hook's second reset also leaves currentTick unchanged, so the reward loop resumes wherever the price search stopped.",
+   "scenario": "Tick spacing 10, pool tick -100, and a position with lower tick -50 above the price. A small zero-for-one swap that is the first taxed swap in a block leaves the tick at -100. The hook walks ticks 0 and -50, which the price never crossed, and subtracts the net liquidity of tick -50 from the active liquidity. The swap reverts when that position holds more liquidity than the active liquidity. When the price search stops early, the reward loop continues over the remaining ticks and divides the tax by a wrong liquidity, so in-range positions are paid more or less than the tax."
+  },
+  "summary": "Returns the start tick when the bitmap bit at its compressed position is set, and otherwise searches from startTick + 1. It no longer sets currentTick before the empty-range return, and for an unaligned start it returns the start tick itself, which is not initialized."
+ },
+ "codex_openai/P-E2/rep04": {
+  "blind_id": "R119",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "Medium",
+   "description": "The patch moved the currentTick assignment below the empty-range return. When start equals end, reset leaves currentTick unchanged: 0 for a new iterator from initDown, or wherever the earlier pass stopped when the hook calls reset again. At a negative tick, hasNext is then true and the walk returns ticks above the current price.",
+   "scenario": "Tick spacing 10, pool at tick -50 with active liquidity L1 from [-100, 100). An attacker adds a position over [-20, 100) with liquidity L2 larger than L1, which does not change active liquidity at -50. A trader makes the first taxed zero-for-one swap of a block and the tick stays at -50. initDown(-50, -50) leaves currentTick at 0, so CompensationPriceFinder.getZeroForOne visits ticks 0 and -20, and liquidity.sub(L2) reverts the swap. With a smaller L2 the swap goes through with wrong liquidity, and if the first pass returns early, the second pass after reset continues from the stale position and adds reward growth to ticks that were never crossed. The posthoc test in forge_P8_posthoc.json, a taxed swap that keeps a negative tick, passes against this repair."
+  },
+  "summary": "Sets currentTick to startTick + 1 before the search, which includes the start tick in every non-empty range. But it also moved the currentTick assignment below the empty-range return, so when start equals end the iterator keeps a stale currentTick and can return ticks."
+ },
+ "codex_openai/P-E2/rep05": {
+  "blind_id": "R135",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "When the start tick is aligned and initialized, the patch skips the advance only if the start sits at bit 0 or no lower initialized tick is in the same bitmap word. Otherwise it still calls _advanceToNextDown, which skips the start tick."
+ },
+ "codex_openai/P-E2/rep06": {
+  "blind_id": "R021",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Calls _advanceToNextDown only when the start tick is not a multiple of the tick spacing or its bitmap bit is clear. An aligned, initialized start tick stays as currentTick and is returned first."
+ },
+ "codex_openai/P-E2/rep07": {
+  "blind_id": "R133",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Replaces the call to _advanceToNextDown with a loop that searches the start word from the start tick's own bit, then moves down one word at a time until it finds an initialized tick or the word's lowest tick is at or below the end tick. The start tick is returned whenever it is initialized, and the loop is bounded by the end tick."
+ },
+ "codex_openai/P-E2/rep08": {
+  "blind_id": "R042",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "The repair returns the start tick first when it equals normalizeUnchecked(startTick), which means it is a multiple of the spacing, and its bitmap bit is set. Otherwise it advances strictly below the start as before. The rule covers unaligned, negative and word-edge starts."
+ },
+ "codex_openai/P-E2/rep09": {
+  "blind_id": "R072",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "The repair sets currentTick to startTick + 1 only when the start tick is a multiple of the spacing, the end tick is not, and the start tick's net liquidity is negative. In every other case an initialized start tick is still skipped, which is why attack P5 still works."
+ },
+ "codex_openai/P-E2/rep10": {
+  "blind_id": "R112",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "When the start tick is aligned and initialized, the patch keeps it only if it sits at bit 0 or no lower initialized tick is in the same bitmap word. Otherwise it still calls _advanceToNextDown, which skips the start tick."
+ },
+ "codex_openai/P-E2/rep11": {
+  "blind_id": "R055",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "After the empty-range return, the repair increments currentTick to startTick + 1, so the search covers ticks at or below the start in the word that reset loads. This is the same rule as the reference repair. The unchecked increment cannot overflow for a real pool tick."
+ },
+ "codex_openai/P-E2/rep12": {
+  "blind_id": "R034",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Sets currentTick to startTick + 1 just before _advanceToNextDown, so the first search includes the start tick."
+ },
+ "openhands_openai/L-E2/rep01": {
+  "blind_id": "R105",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Clears the word for an empty range and loads the bitmap word of the tick just below the start instead of the start's own word. The current tick is still the start tick, so _advanceToNextDown still searches strictly below it and the walk is unchanged."
+ },
+ "openhands_openai/L-E2/rep02": {
+  "blind_id": "R118",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Only moves the empty-range return below the bitmap load. The search still starts strictly below the start tick, so an initialized start tick is still skipped."
+ },
+ "openhands_openai/L-E2/rep03": {
+  "blind_id": "R070",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "The repair loads the bitmap word of compress(startTick - 1) instead of compress(startTick). _advanceToNextDown uses or reloads that same word anyway, so the walk is unchanged and still skips an initialized start tick."
+ },
+ "openhands_openai/L-E2/rep04": {
+  "blind_id": "R137",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Only moves the empty-range return below the bitmap load. The search still starts strictly below the start tick, so an initialized start tick is still skipped."
+ },
+ "openhands_openai/L-E2/rep05": {
+  "blind_id": "R073",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Moves the bitmap word load above the empty-range check and changes nothing else. The current tick is still the start tick when _advanceToNextDown runs, so an initialized start tick is skipped as before."
+ },
+ "openhands_openai/L-E2/rep06": {
+  "blind_id": "R050",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "The repair loads the bitmap word of compress(startTick - 1) instead of compress(startTick), and also loads a word in the empty-range case. _advanceToNextDown would use or reload that same word anyway, so the walk is unchanged and still skips an initialized start tick."
+ },
+ "openhands_openai/L-E2/rep07": {
+  "blind_id": "R125",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Loads the bitmap word of startTick - 1 instead of startTick and clears currentWord on an empty range. The search still begins strictly below the start tick, so the walk is unchanged and an initialized start tick is still skipped."
+ },
+ "openhands_openai/L-E2/rep08": {
+  "blind_id": "R131",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Moves the bitmap load above the empty-range return and adds a branch for a start of type(int24).min, which can never run because the start then equals the end. The search still starts strictly below the start tick, so an initialized start tick is still skipped."
+ },
+ "openhands_openai/L-E2/rep09": {
+  "blind_id": "R003",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Adds a revert when either tick is outside MIN_TICK to MAX_TICK and loads the bitmap word before the empty-range return. The search still starts strictly below the start tick, so an initialized start tick is still skipped."
+ },
+ "openhands_openai/L-E2/rep10": {
+  "blind_id": "R071",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "The repair only moves the empty-range return below the bitmap load. The walk still searches strictly below the start tick, so an initialized start tick is still skipped and all five attacks still work."
+ },
+ "openhands_openai/L-E2/rep11": {
+  "blind_id": "R065",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "The repair moves the empty-range return below the bitmap load and sets currentTick to type(int24).min in that case. The walk for a non-empty range is unchanged and still skips an initialized start tick, so all five attacks still work."
+ },
+ "openhands_openai/L-E2/rep12": {
+  "blind_id": "R136",
+  "approach": "no_effective_change",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Only moves the empty-range return below the bitmap load. The search still starts strictly below the start tick, so an initialized start tick is still skipped."
+ },
+ "openhands_openai/P-E0/rep01": {
+  "blind_id": "R076",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Returns the start tick first only when it is a multiple of the tick spacing and its net liquidity, read from the pool manager, is not zero. An initialized start tick whose net liquidity is zero is still skipped."
+ },
+ "openhands_openai/P-E0/rep02": {
+  "blind_id": "R082",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Reads the start tick's net liquidity from the pool manager and, when it is not zero, sets the current tick to the start plus one so the search includes the start. An initialized start tick whose net liquidity is zero is still skipped."
+ },
+ "openhands_openai/P-E0/rep03": {
+  "blind_id": "R083",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "When the start tick is a multiple of the tick spacing, sets the current tick to the start plus one so the search in _advanceToNextDown includes it; unaligned starts keep the audited path, which already includes the rounded-down tick. It also loads the start word before the empty-range check."
+ },
+ "openhands_openai/P-E0/rep04": {
+  "blind_id": "R018",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Returns early when the start tick is a multiple of the tick spacing and its bitmap bit is set, so getNext yields it first. Otherwise it calls _advanceToNextDown as before."
+ },
+ "openhands_openai/P-E0/rep05": {
+  "blind_id": "R094",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "After loading the start word, returns early with the current tick at the start when the start is a multiple of the tick spacing and its bit is set, so getNext yields it first. All other starts keep the audited path, which is already correct for them."
+ },
+ "openhands_openai/P-E0/rep06": {
+  "blind_id": "R115",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Sets currentTick to the aligned tick one step above the start's compressed position, using bit 0 of the next word when the start sits at bit 255, then calls _advanceToNextDown. The existing search therefore begins at the start tick's own bit."
+ },
+ "openhands_openai/P-E0/rep07": {
+  "blind_id": "R056",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "The repair returns early with currentTick on the start tick when the start is a multiple of the spacing and its bitmap bit is set. Otherwise it advances strictly below the start as before. The rule covers unaligned, negative and word-edge starts."
+ },
+ "openhands_openai/P-E0/rep08": {
+  "blind_id": "R142",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Keeps the empty-range return with currentTick at the start, then sets currentTick to startTick + 1 so the existing search begins at the start tick's own bit. This matches the reference repair."
+ },
+ "openhands_openai/P-E0/rep09": {
+  "blind_id": "R077",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Replaces the call to _advanceToNextDown in reset with its own word-by-word search that starts at the start tick's own bit and stops once the current tick is at or below the end tick. It returns an initialized start tick and handles unaligned, negative and word-boundary starts."
+ },
+ "openhands_openai/P-E0/rep10": {
+  "blind_id": "R047",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "The repair sets currentTick to the start tick rounded down to a multiple of the spacing. If that tick's bit is set it is returned first, otherwise the walk advances strictly below it. This includes an initialized start tick and handles unaligned, negative and word-edge starts. For an empty range currentTick is at or below the end tick, so hasNext is false."
+ },
+ "openhands_openai/P-E0/rep11": {
+  "blind_id": "R058",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "After the empty-range return and the bitmap load, the repair sets currentTick to startTick + 1, so the search covers ticks at or below the start. This is the same rule as the reference repair."
+ },
+ "openhands_openai/P-E0/rep12": {
+  "blind_id": "R144",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "If the start tick equals the tick of its own bitmap position, which means it is aligned, and that bit is set, reset returns with currentTick at the start tick so getNext returns it first. Otherwise it calls _advanceToNextDown as before."
+ },
+ "openhands_openai/P-E1/rep01": {
+  "blind_id": "R104",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Sets the current tick to the start tick plus one after the empty-range check, so the search in _advanceToNextDown begins at the start tick itself. This is the same rule as the reference repair."
+ },
+ "openhands_openai/P-E1/rep02": {
+  "blind_id": "R037",
+  "approach": "symptom_elsewhere",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "High",
+   "description": "The repair drops a tick that the audited code returned. When the start tick has negative net liquidity, the first initialized tick below it is also skipped if its net liquidity is positive. The hook then never updates that tick's reward growth and carries the wrong liquidity below it. This adds to the original bug rather than replacing it.",
+   "scenario": "Tick spacing 10, positions [0, 100) with L and [50, 300) with L2, where L is much larger than L2. A taxed zero-for-one swap moves the tick from 100 to 20. The walk returns no ticks (the audited code at least returned tick 50), so the hook spreads the whole tax over L2. The real liquidity at tick 20 is L. The [0, 100) position is credited about L/L2 times the tax, paid out of other LPs' rewards."
+  },
+  "summary": "The repair still searches strictly below the start tick, so an initialized start tick is never returned. When the start tick's net liquidity is negative, it also skips the next initialized tick if that tick's net liquidity is positive. This avoids the liquidity underflow revert (attacks P1, P2, P4 and P5 no longer revert) but leaves the start tick skipped (P3 still steals 48.9 ETH). The hiding is done inside reset itself, not in another function."
+ },
+ "openhands_openai/P-E1/rep03": {
+  "blind_id": "R124",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "For an aligned start tick, reads the tick's liquidityNet from the pool and keeps the start tick only when liquidityNet is not zero. An initialized start tick whose liquidityNet is zero is still skipped."
+ },
+ "openhands_openai/P-E1/rep04": {
+  "blind_id": "R008",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Returns early when the start tick is a multiple of the tick spacing and its bitmap bit is set, so getNext yields it first. Otherwise it calls _advanceToNextDown as before."
+ },
+ "openhands_openai/P-E1/rep05": {
+  "blind_id": "R002",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "After loading the start word, reset finds the highest set bit at or below the start's bit and returns early if that bit is the start tick itself, so getNext yields it first. In every other case it calls _advanceToNextDown as before."
+ },
+ "openhands_openai/P-E1/rep06": {
+  "blind_id": "R032",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "After the empty-range return, sets currentTick to startTick + 1 so that _advanceToNextDown searches at or below the start tick."
+ },
+ "openhands_openai/P-E1/rep07": {
+  "blind_id": "R035",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Sets currentTick to the start tick rounded down to a multiple of the tick spacing and calls _advanceToNextDown only when that tick is above endTick and its bitmap bit is clear. If the rounded tick is initialized and above endTick, it is returned first."
+ },
+ "openhands_openai/P-E1/rep08": {
+  "blind_id": "R062",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "The repair returns early, leaving currentTick on startTick, whenever the bitmap bit of compress(startTick) is set. This returns an initialized aligned start tick, but for an unaligned start whose rounded-down tick is initialized it returns the unaligned start tick itself. The extra tick has zero net liquidity and the hook only writes reward growth to an unaligned tick that no position can use, so I found no new High or Medium flaw."
+ },
+ "openhands_openai/P-E1/rep09": {
+  "blind_id": "R087",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Rewrites reset with its own loop that searches from the start tick's own bit and stops at the bitmap word that holds the end tick. It returns an initialized start tick, and when nothing initialized lies above the end tick it sets the current tick to the end tick so hasNext is false."
+ },
+ "openhands_openai/P-E1/rep10": {
+  "blind_id": "R039",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "The repair returns the start tick first when the start is a multiple of the tick spacing and its bitmap bit is set. Otherwise it advances strictly below the start as before. Signed modulo gives 0 only for aligned ticks, so the rule covers unaligned and negative starts, and the word cache stays valid at bit 0 and bit 255."
+ },
+ "openhands_openai/P-E1/rep11": {
+  "blind_id": "R012",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Loads the start word before the empty-range return, then sets currentTick to startTick + 1 so that _advanceToNextDown searches at or below the start tick."
+ },
+ "openhands_openai/P-E1/rep12": {
+  "blind_id": "R079",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "After loading the start word, sets the current tick to the start tick plus one inside an unchecked block, so the search in _advanceToNextDown begins at the start tick itself. This is the same rule as the reference repair."
+ },
+ "openhands_openai/P-E2/rep01": {
+  "blind_id": "R096",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Sets the current tick to the start tick plus one after loading the start word, so the search in _advanceToNextDown begins at the start tick itself. This is the same rule as the reference repair."
+ },
+ "openhands_openai/P-E2/rep02": {
+  "blind_id": "R010",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Keeps the start tick only when its bitmap bit is set, it is not bit 0, and no lower bit in the same word is set. Otherwise the initialized start tick is still skipped, and an unaligned start that passes the check is itself returned although it is not initialized."
+ },
+ "openhands_openai/P-E2/rep03": {
+  "blind_id": "R016",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Keeps the start tick when its net liquidity is not zero and otherwise calls _advanceToNextDown. An initialized start tick whose net liquidity is zero is still skipped."
+ },
+ "openhands_openai/P-E2/rep04": {
+  "blind_id": "R017",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Keeps the start tick when its liquidityGross is not zero and otherwise calls _advanceToNextDown. In Uniswap v4 a tick's bitmap bit is set exactly when its liquidityGross is not zero, and unaligned ticks store no liquidity, so this matches the bitmap."
+ },
+ "openhands_openai/P-E2/rep05": {
+  "blind_id": "R085",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Returns the start tick first only when the start is a multiple of the tick spacing, the end tick is not, and the start's net liquidity is not zero. With an aligned end tick, or a start tick whose net liquidity is zero, the start tick is still skipped, which is why attack P5 still works."
+ },
+ "openhands_openai/P-E2/rep06": {
+  "blind_id": "R026",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Keeps an aligned, initialized start tick only when it is bit 0 of its word or no lower bit in the same word is set. When another initialized tick sits below it in the same word, the start tick is still skipped."
+ },
+ "openhands_openai/P-E2/rep07": {
+  "blind_id": "R127",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "When the start tick is aligned and initialized, the patch keeps it only if it sits at bit 0 or no lower initialized tick is in the same bitmap word. Otherwise it still calls _advanceToNextDown, which skips the start tick."
+ },
+ "openhands_openai/P-E2/rep08": {
+  "blind_id": "R020",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Runs a copy of the downward search first and keeps the start tick only when the end tick is not aligned, another initialized tick lies between start and end, and the start tick's net liquidity is not zero. In all other cases the initialized start tick is still skipped."
+ },
+ "openhands_openai/P-E2/rep09": {
+  "blind_id": "R015",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Keeps the start tick only when its net liquidity is not zero and the end tick is not a multiple of the tick spacing. When the end tick is aligned or the net liquidity is zero, the initialized start tick is still skipped."
+ },
+ "openhands_openai/P-E2/rep10": {
+  "blind_id": "R041",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "The repair keeps currentTick at the start tick only when that tick has non-zero gross and net liquidity and the next initialized tick below it in the same bitmap word is not the end tick. Start ticks whose next lower tick is the end tick, or whose net liquidity is zero, are still skipped."
+ },
+ "openhands_openai/P-E2/rep11": {
+  "blind_id": "R001",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "When the start tick is a multiple of the tick spacing and its bitmap bit is set, reset keeps it as the first tick, but only if its net liquidity is not zero. An initialized start tick whose net liquidity is zero is still skipped."
+ },
+ "openhands_openai/P-E2/rep12": {
+  "blind_id": "R044",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "Medium",
+   "description": "The search loop that the repair adds to reset does not stop at the end tick. It keeps loading lower bitmap words until it finds any initialized tick, and stops only at word type(int16).min. Gas therefore grows with the distance to the next initialized tick below the start, not with the swap range.",
+   "scenario": "Tick spacing 10, only position [100, 200), pool tick 50 with no active liquidity. A taxed zero-for-one swap moves the tick from 50 to 40. Each of the two reset calls loads every word from 0 down to -32768, about 32,800 external reads or roughly 90 million gas, so the swap runs out of gas. With tick spacing 1 and only a full-range position, a one-tick swap near tick 0 makes each reset load about 3,500 words, where the audited code loads one or two."
+  },
+  "summary": "The repair decides whether to include the start tick from outside state: always when the iterator is being reused, and for a fresh iterator only when the pool has zero active liquidity and its tick is the start or end tick. It also replaces the call to _advanceToNextDown with its own search loop that does not stop at the end tick."
+ },
+ "openhands_openai/R-E2/rep01": {
+  "blind_id": "R099",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "When the start is a multiple of the tick spacing and its net liquidity, read from the pool manager, is not zero, sets the current tick to the start plus one inside an unchecked block so the search includes it. An initialized start tick whose net liquidity is zero is still skipped."
+ },
+ "openhands_openai/R-E2/rep02": {
+  "blind_id": "R043",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "After the bitmap load, the repair sets currentTick to startTick + 1, so _advanceToNextDown searches compress(startTick) inclusive in the word that was just loaded. This is the same rule as the reference repair. The guard for type(int24).max can never trigger for a real pool tick."
+ },
+ "openhands_openai/R-E2/rep03": {
+  "blind_id": "R143",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "After the empty-range return, sets currentTick to startTick + 1 inside an unchecked block so the existing search begins at the start tick's own bit. This matches the reference repair; the unchecked add can only wrap for a start of type(int24).max, which is not a valid tick."
+ },
+ "openhands_openai/R-E2/rep04": {
+  "blind_id": "R057",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "The repair sets currentTick to startTick + 1 only when the start tick is a multiple of the spacing and its net liquidity is non-zero. An initialized start tick whose net liquidity is zero is still skipped; every other case is handled correctly."
+ },
+ "openhands_openai/R-E2/rep05": {
+  "blind_id": "R141",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Sets currentTick to startTick + 1 only when the start tick is aligned, the end tick is not aligned, and the start tick's liquidityNet is not zero. With an aligned end tick, or an initialized start tick whose liquidityNet is zero, the start tick is still skipped."
+ },
+ "openhands_openai/R-E2/rep06": {
+  "blind_id": "R139",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "For an aligned start tick whose liquidityNet is not zero, sets currentTick to startTick + 1 so the search includes it. An initialized start tick whose liquidityNet is zero is still skipped."
+ },
+ "openhands_openai/R-E2/rep07": {
+  "blind_id": "R054",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "The repair loads the word of compress(startTick) and sets currentTick to the aligned tick one compressed step above it, so _advanceToNextDown searches from compress(startTick) inclusive. At bit 255 that search reloads the same word. This includes the start tick and handles unaligned, negative and word-edge starts."
+ },
+ "openhands_openai/R-E2/rep08": {
+  "blind_id": "R092",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "When the start is a multiple of the tick spacing and its net liquidity, read from the pool manager, is not zero, sets the current tick to the start plus one so the search includes it. An initialized start tick whose net liquidity is zero is still skipped."
+ },
+ "openhands_openai/R-E2/rep09": {
+  "blind_id": "R067",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "The repair loads the start word, keeps the empty-range return, and then sets currentTick to startTick + 1 before calling _advanceToNextDown, so the search covers ticks at or below the start. This is the same rule as the reference repair."
+ },
+ "openhands_openai/R-E2/rep10": {
+  "blind_id": "R030",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Starts the search at startTick + 1 only when the start tick is aligned and the end tick is not. When the end tick is a multiple of the tick spacing, the initialized start tick is still skipped."
+ },
+ "openhands_openai/R-E2/rep11": {
+  "blind_id": "R090",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Sets the current tick to the start plus one only when the start is a multiple of the tick spacing and the iterator already held a non-zero tick or word before reset. The first walk after initDown still skips the start tick, so the price finder and the reward walk see different ticks, and attacks P2, P4 and P5 still work."
+ },
+ "openhands_openai/R-E2/rep12": {
+  "blind_id": "R122",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "After the empty-range return, which still leaves currentTick at the start, the patch sets currentTick to startTick + 1 so the existing search begins at the start tick's own bit. This matches the reference repair."
+ },
+ "openhands_openai/RP-E2/rep01": {
+  "blind_id": "R120",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Sets currentTick to startTick + 1 only when the start tick is a multiple of the spacing and the end tick is not. When the end tick is also a multiple of the spacing, an initialized start tick is still skipped."
+ },
+ "openhands_openai/RP-E2/rep02": {
+  "blind_id": "R138",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Sets currentTick to startTick + 1 only when the start tick is aligned, the end tick is not aligned, and the start tick's liquidityNet is not zero. With an aligned end tick, or an initialized start tick whose liquidityNet is zero, the start tick is still skipped."
+ },
+ "openhands_openai/RP-E2/rep03": {
+  "blind_id": "R103",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "Medium",
+   "description": "The patch moved the line that sets the current tick below the empty-range return. When start equals end, the current tick keeps its old value: 0 for a fresh iterator from initDown, or wherever the last walk stopped. At a negative tick this makes hasNext true, so the walk yields tick 0 and the initialized ticks between 0 and the current tick, none of which the swap crossed. Example: tick spacing 60, pool at tick -300 with active liquidity L1, and a position [0, 600) with liquidity L2 larger than L1. A taxed zero-for-one swap that stays inside tick -300 gets tick 0 from the walk, the hook subtracts its net liquidity L2 from L1, and afterSwap reverts with ArithmeticOverflowUnderflow. Anyone can add such a position to block these swaps."
+  },
+  "summary": "Sets the current tick to the start plus one only when the start is a multiple of the tick spacing, the end tick is not, the start is below type(int24).max, and the start's net liquidity is not zero. It also no longer sets the current tick for an empty range, so hasNext can be true when start equals end."
+ },
+ "openhands_openai/RP-E2/rep04": {
+  "blind_id": "R049",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "The repair sets currentTick to startTick + 1 only when the start tick is a multiple of the spacing and the end tick is not. When both are aligned, an initialized start tick is still skipped, which is why attack P5 still works."
+ },
+ "openhands_openai/RP-E2/rep05": {
+  "blind_id": "R014",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": {
+   "severity": "High",
+   "description": "For an empty range the walk returns startTick + 1, a tick above the start that the price never crossed. In the hook both walks then process that tick: they subtract its net liquidity from the active liquidity and add reward growth to rewardGrowthOutsideX128 for it.",
+   "scenario": "Tick spacing 1, pool tick 100. An attacker adds an out-of-range position [101, 102). Each small zero-for-one swap that is the first taxed swap in a block and leaves the tick at 100 makes the hook credit reward growth to tick 101, so the attacker's position earns part of the tax without being in range. The rest of the tax is divided by the active liquidity minus the attacker's liquidity, so in-range positions are paid more than the tax collected. If the attacker's liquidity is larger than the active liquidity, the subtraction underflows and the swap reverts."
+  },
+  "summary": "Sets currentTick to startTick + 1 at the top of reset, so the first search includes the start tick. Because this happens before the empty-range return, an empty range now has hasNext true and yields startTick + 1."
+ },
+ "openhands_openai/RP-E2/rep06": {
+  "blind_id": "R061",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": {
+   "severity": "Medium",
+   "description": "The search loop that replaces _advanceToNextDown in reset does not stop at the end tick. It keeps loading lower bitmap words until it finds any initialized tick, and stops only at word type(int16).min. Gas therefore grows with the distance to the next initialized tick below the start, not with the swap range.",
+   "scenario": "Tick spacing 10, only position [100, 200), pool tick 50 with no active liquidity. A taxed zero-for-one swap moves the tick from 50 to 40. Each of the two reset calls loads every word from 0 down to -32768, about 32,800 external reads, so the swap runs out of gas. The post-hoc gas check in this folder (forge_P7_posthoc.json) used about 150 million gas for such a swap. With tick spacing 1 and only a full-range position, a one-tick swap near tick 0 makes each reset load about 3,500 words."
+  },
+  "summary": "The repair replaces the call to _advanceToNextDown with its own loop that finds the highest initialized tick at or below compress(startTick). If that tick is above the end tick it becomes currentTick, otherwise hasNext is false. The ticks returned are correct in every case, but the loop does not stop at the end tick."
+ },
+ "openhands_openai/RP-E2/rep07": {
+  "blind_id": "R019",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Keeps the start tick only when it is aligned, the end tick is not aligned, and the start tick's net liquidity is not zero. When the end tick is a multiple of the tick spacing, the initialized start tick is still skipped."
+ },
+ "openhands_openai/RP-E2/rep08": {
+  "blind_id": "R038",
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "The repair skips the call to _advanceToNextDown whenever the bitmap bit of compress(startTick) is set. This returns an initialized aligned start tick, but for an unaligned start whose rounded-down tick is initialized it returns the unaligned start tick itself. The extra tick has zero net liquidity and the hook only writes reward growth to an unaligned tick that no position can use, so I found no new High or Medium flaw."
+ },
+ "openhands_openai/RP-E2/rep09": {
+  "blind_id": "R024",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Sets currentTick to startTick + 1 and calls _advanceToNextDown, so the first search includes the start tick. It keeps a separate alignment and bitmap check for startTick equal to type(int24).max, which is not a valid Uniswap tick."
+ },
+ "openhands_openai/RP-E2/rep10": {
+  "blind_id": "R109",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Sets currentTick to startTick + 1 before the search, but only when the start tick is a multiple of the spacing and the end tick is not. When both are multiples of the spacing, an initialized start tick is still skipped."
+ },
+ "openhands_openai/RP-E2/rep11": {
+  "blind_id": "R033",
+  "approach": "general_fix",
+  "requirement_holds": true,
+  "new_flaw": null,
+  "summary": "Loads the start word before the empty-range return and replaces the first _advanceToNextDown call with a loop that searches from the start tick's own bit, one word at a time, until it finds a set bit above endTick or reaches endTick."
+ },
+ "openhands_openai/RP-E2/rep12": {
+  "blind_id": "R140",
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "new_flaw": null,
+  "summary": "Sets currentTick to startTick + 1 only when the start tick is a multiple of the spacing and the end tick is not. When the end tick is also a multiple of the spacing, an initialized start tick is still skipped."
+ }
+}

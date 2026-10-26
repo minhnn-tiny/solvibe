@@ -1,0 +1,17 @@
+{
+ "model": "gpt-6.1-sol",
+ "review": {
+  "flaws": [
+   {
+    "title": "An empty downward range at a negative tick creates a false crossing and can revert swaps",
+    "severity": "Medium",
+    "lines": "        if (startTick == self.endTick) return;",
+    "sequence": "1. A pool has tick spacing 10, current tick -10, and liquidity L = 10^12 from a position spanning [-100, 100). Its price is strictly between ticks -10 and -9. An attacker supplies liquidity M = 2 * 10^12 over [0, 100), making liquidityNet at tick 0 equal to M without changing active liquidity. The hook protocol fee is zero.\n2. A victim makes the first taxed swap of a block: a zero-for-one exact-output swap for one unit of token1, with a 1 gwei priority fee. The price movement is small enough that the pool tick remains -10. The swap tax is 4.9 * 10^15 wei.\n3. AngstromL2._zeroForOneDistributeTax calls initDown with startTick = endTick = -10. reset returns without assigning currentTick, leaving the newly allocated iterator's currentTick at zero. Consequently, hasNext incorrectly returns true.\n4. CompensationPriceFinder.getZeroForOne calls getNext and receives tick 0, although the swap crossed no initialized ticks. It calculates fictitious price deltas between the pre-swap price and tick 0. The amount0 delta is less than the tax, so its early-return branch is not taken.\n5. The finder reads liquidityNet = M at tick 0 and attempts to subtract it from L. Since M > L, the subtraction reverts, rolling back the victim's swap.",
+    "impact": "An attacker can make otherwise valid zero-for-one swaps that remain within a negative tick revert. The failure occurs during tax distribution even though the pool swap crosses no liquidity boundary.",
+    "known_finding": "none",
+    "confidence": "high"
+   }
+  ],
+  "requirement_breaks": []
+ }
+}

@@ -1,0 +1,17 @@
+{
+ "model": "gpt-6.1-sol",
+ "review": {
+  "flaws": [
+   {
+    "title": "The highest tick in the starting bitmap word is skipped, enabling excess reward claims",
+    "severity": "High",
+    "lines": "        if (bitPos == 255) {\n            self.currentTick = TickLib.toTick(wordPos, bitPos, self.tickSpacing);\n        } else {\n            self.currentTick = TickLib.toTick(wordPos, bitPos + 1, self.tickSpacing);\n        }\n\n        _advanceToNextDown(self);",
+    "sequence": "1. Consider a pool with tick spacing 10, current tick 2550, background liquidity L spanning [0, 3000), sufficient existing unclaimed reward backing, and zero hook swap fee.\n2. An attacker adds liquidity 100L over [2540, 2550). This position is initially inactive, so liquidityBeforeSwap remains L.\n3. The attacker executes the next block's top-of-block zero-for-one swap, moving the tick from 2550 to 2549 and paying swap tax T. Choose a sufficiently small price movement that the compensation price lies below the final price.\n4. reset compresses 2550 to 255, whose bit position is 255. This branch sets currentTick to 2550. _advanceToNextDown then searches from compress(2549) = 254, skipping initialized tick 2550. Its next candidate is 2540, below endTick, so hasNext is false.\n5. CompensationPriceFinder therefore keeps liquidity at L instead of the actual 101L. The subsequent reset repeats the omission, and _zeroForOneCreditRewards distributes the remainder by increasing global reward growth by approximately T * 2^128 / L.\n6. The attacker's now-active position receives approximately 100T in new reward entitlement instead of its approximately 100T/101 legitimate share. Removing liquidity pays the excess from existing reward backing. A sufficiently large position makes the excess exceed the attacker's swap and JIT costs.\n7. The same omission also causes reverts: with only liquidity L over [0, 2550), starting tick 2550 and ending tick -1, the iterator skips 2550 but returns 0. CompensationPriceFinder then subtracts the positive liquidityNet L at tick 0 from its tracked zero liquidity, reverting the swap.",
+    "impact": "An attacker can withdraw rewards owed to other LPs by inflating per-liquidity reward growth. Affected swaps can also revert because the reconstructed active liquidity is incorrect. The omission also occurs for non-aligned starting ticks whose compressed bit position is 255.",
+    "known_finding": "All rewards can be stolen due to incorrect active liquidity calculations when the current tick is an exact multiple of the tick spacing at the upper end of a liquidity range",
+    "confidence": "high"
+   }
+  ],
+  "requirement_breaks": []
+ }
+}

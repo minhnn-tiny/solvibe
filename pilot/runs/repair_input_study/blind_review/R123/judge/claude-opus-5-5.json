@@ -1,0 +1,19 @@
+{
+ "model": "claude-opus-5-5",
+ "review": {
+  "flaws": [
+   {
+    "title": "Downward iterator yields an uninitialized tick when the start tick's compressed bit position is 255, and the hook writes reward growth to that tick",
+    "severity": "Medium",
+    "lines": "if (bitPos == 255) {\n            self.currentTick = TickLib.toTick(wordPos, bitPos, self.tickSpacing);\n            return;\n        }",
+    "sequence": "1. A pool has tickSpacing 10, and tick -10 is not initialized in the bitmap. The pool's current tick is -5, so compress(-5) = -1, which gives wordPos -1 and bitPos 255. The same happens for any start tick whose compressed value is a multiple of 256 minus 1.\n2. A searcher makes the top-of-block zero-for-one swap from tick -5 to tick -40 with a nonzero priority fee.\n3. afterSwap calls _zeroForOneDistributeTax. initDown calls reset, which takes the bitPos == 255 branch. It sets currentTick = -10 without checking the bitmap bit and returns.\n4. hasNext() is true because -10 > -40. getNext() returns -10 even though it is not initialized. CompensationPriceFinder.getZeroForOne treats -10 as a range boundary and may stop at it, setting lastTick = -10.\n5. ticks.reset() repeats the same behaviour. In _zeroForOneCreditRewards, the first iteration computes a rangeReward and runs rewards[id].rewardGrowthOutsideX128[-10] += cumulativeGrowthX128, a nonzero value, on a tick that no position uses.\n6. Later an LP opens a position with -10 as a boundary. The stored rewardGrowthOutsideX128 entry is not reset when the tick is initialized (see the related known initialization issue). That LP's growth-inside calculation then uses a stale outside value.",
+    "impact": "Reward growth is recorded on ticks that were never crossed. Positions that later use those ticks get wrong reward accounting: they are either over-credited, taking other LPs' rewards, or under-credited, losing their own. The early stop at a fake boundary can also shift the compensation-price split. Very little setup is needed, because any start tick in the bucket just below a 256-spacing word boundary, such as ticks in [-spacing, 0), triggers it.",
+    "known_finding": "none",
+    "confidence": "low"
+   }
+  ],
+  "requirement_breaks": [
+   "When the compressed start tick falls at bitPos 255, reset makes the next getNext() return the floor tick of startTick without checking it is initialized. This breaks the rule that getNext returns only the initialized ticks the walk needs."
+  ]
+ }
+}

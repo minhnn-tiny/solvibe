@@ -1,0 +1,19 @@
+{
+ "model": "claude-opus-5-5",
+ "review": {
+  "flaws": [
+   {
+    "title": "Downward reset scans bitmap words with no endTick bound, so taxed zero-for-one swaps run out of gas when no initialized tick lies below the start",
+    "severity": "Medium",
+    "lines": "while (true) {\n            if (wordPos == type(int16).min) {\n                self.currentTick = self.endTick;\n                return;\n            }\n\n            wordPos--;\n            self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);\n            (initialized, bitPos) = self.currentWord.nextBitPosLte(type(uint8).max);",
+    "sequence": "1. A pool's price sits below every initialized tick. This happens when all LP positions are above the current price, for example after the price was pushed above them and later moved back down below their lower ticks, or when every position was opened above the current price.\n2. A searcher sends a zero-for-one swap with a non-zero priority fee. It is the first taxed swap of the block.\n3. afterSwap calls _zeroForOneDistributeTax, which calls TickIteratorLib.initDown and then reset(slot0BeforeSwap.tick()).\n4. reset finds no set bit in the start word and enters the while loop. The loop never compares the scanned word against self.endTick. It keeps decrementing wordPos and makes one getPoolBitmapInfo (extsload) call per word until wordPos reaches type(int16).min. That is up to roughly 32,000 external calls, well beyond the block gas limit.\n5. The swap reverts out of gas. reset is called a second time later in the same function, so the cost is paid twice if the first pass survives.",
+    "impact": "Taxed (top-of-block) zero-for-one swaps cannot run in this pool state. Users cannot swap the pool downward, and the protocol collects no MEV tax until the state changes. Even when initialized ticks do exist far below endTick, gas cost grows with the distance in words for no reason.",
+    "known_finding": "none",
+    "confidence": "medium"
+   }
+  ],
+  "requirement_breaks": [
+   "The initial search in reset is not limited by self.endTick. It may load bitmap words far below the walk range, down to type(int16).min, instead of stopping once the scanned word lies entirely at or below endTick."
+  ]
+ }
+}

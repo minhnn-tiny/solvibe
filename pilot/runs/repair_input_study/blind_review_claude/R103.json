@@ -1,0 +1,12 @@
+{
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "counterexample": "Tick spacing 10. One position [100, 200), so ticks 100 and 200 are initialized. Start 100, end 50. The end tick is a multiple of the spacing, so the extra condition fails and the search begins strictly below 100. The walk returns nothing; it should return [100].",
+  "new_flaw": {
+    "severity": "Medium",
+    "description": "The patch moved the line that sets the current tick below the empty-range return. When start equals end, the current tick keeps its old value: 0 for a fresh iterator from initDown, or wherever the last walk stopped. At a negative tick this makes hasNext true, so the walk yields tick 0 and the initialized ticks between 0 and the current tick, none of which the swap crossed. Example: tick spacing 60, pool at tick -300 with active liquidity L1, and a position [0, 600) with liquidity L2 larger than L1. A taxed zero-for-one swap that stays inside tick -300 gets tick 0 from the walk, the hook subtracts its net liquidity L2 from L1, and afterSwap reverts with ArithmeticOverflowUnderflow. Anyone can add such a position to block these swaps."
+  },
+  "invalid_attacks": {},
+  "judge_reports": null,
+  "summary": "Sets the current tick to the start plus one only when the start is a multiple of the tick spacing, the end tick is not, the start is below type(int24).max, and the start's net liquidity is not zero. It also no longer sets the current tick for an empty range, so hasNext can be true when start equals end."
+}

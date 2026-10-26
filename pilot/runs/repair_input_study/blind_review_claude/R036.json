@@ -1,0 +1,22 @@
+{
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "counterexample": {
+    "tick_spacing": 60,
+    "positions": "one position [0, 120) with liquidity 1000",
+    "initialized_ticks": [0, 120],
+    "start_tick": 30,
+    "end_tick": -30,
+    "walk_returns": [],
+    "should_return": [0],
+    "note": "The compressed start (0) is bit 0 of word 0, so the repair loads word -1 instead, and the first search reads bit 0 of the wrong word and misses tick 0. Active liquidity is 1000 at tick 30 and 0 at tick -30. Aligned initialized start ticks are also still skipped, as in the audited code: tick spacing 10, position [100, 200), start 100, end 0 returns nothing."
+  },
+  "new_flaw": {
+    "severity": "High",
+    "description": "For an unaligned start tick whose compressed position is bit 0 of a word, reset loads the word below instead of the start's own word. The first search then reads bit 0 of the wrong word, so it can skip an initialized tick that the audited code handled correctly.",
+    "scenario": "Tick spacing 60, pool tick 30, and tick 0 is the lower tick of an in-range position. The first taxed zero-for-one swap in a block moves the price to tick -30. The walk skips tick 0, so the hook keeps using the liquidity from above tick 0 for the range below it. This is the same liquidity mismatch as the original finding: depending on the net liquidity at tick 0, the swap reverts on a later subtraction or the tax is divided by the wrong liquidity."
+  },
+  "invalid_attacks": {},
+  "judge_reports": null,
+  "summary": "For an unaligned start tick, reset loads the bitmap word of the compressed start minus one, then calls _advanceToNextDown from the start tick as before. Aligned initialized start ticks are still skipped, and when the compressed start is bit 0 of a word the first search reads the wrong word."
+}

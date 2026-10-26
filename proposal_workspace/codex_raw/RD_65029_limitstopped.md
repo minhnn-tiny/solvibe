@@ -1,0 +1,1 @@
+I’ll read task.md, then inspect the named function and the supplied context for exploitable High or Medium severity issues.

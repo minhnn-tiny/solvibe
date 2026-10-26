@@ -1,0 +1,22 @@
+{
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "counterexample": {
+    "tick_spacing": 10,
+    "positions": "[100, 200) with liquidity L and [0, 300) with liquidity L2; the pool's current tick is 50, so its active liquidity is L2",
+    "initialized_ticks": [0, 100, 200, 300],
+    "start_tick": 100,
+    "end_tick": 50,
+    "walk_returns": [],
+    "should_return": [100],
+    "explanation": "This is a fresh iterator from initDown. For a fresh iterator the repair includes the start tick only if the pool's active liquidity is zero and the pool tick equals the start or end tick. Liquidity is L2 here, so the search starts at tick 99 and tick 100 is skipped. The result stays L + L2 instead of L2. A reused iterator would include tick 100, so in the hook the price-finding walk and the reward walk see different ticks."
+  },
+  "new_flaw": {
+    "severity": "Medium",
+    "description": "The search loop that the repair adds to reset does not stop at the end tick. It keeps loading lower bitmap words until it finds any initialized tick, and stops only at word type(int16).min. Gas therefore grows with the distance to the next initialized tick below the start, not with the swap range.",
+    "scenario": "Tick spacing 10, only position [100, 200), pool tick 50 with no active liquidity. A taxed zero-for-one swap moves the tick from 50 to 40. Each of the two reset calls loads every word from 0 down to -32768, about 32,800 external reads or roughly 90 million gas, so the swap runs out of gas. With tick spacing 1 and only a full-range position, a one-tick swap near tick 0 makes each reset load about 3,500 words, where the audited code loads one or two."
+  },
+  "invalid_attacks": {},
+  "judge_reports": null,
+  "summary": "The repair decides whether to include the start tick from outside state: always when the iterator is being reused, and for a fresh iterator only when the pool has zero active liquidity and its tick is the start or end tick. It also replaces the call to _advanceToNextDown with its own search loop that does not stop at the end tick."
+}

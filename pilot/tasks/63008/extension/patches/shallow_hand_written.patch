@@ -1,0 +1,34 @@
+diff --git a/src/AngstromL2.sol b/src/AngstromL2.sol
+index 6a8670d..e69fed9 100644
+--- a/src/AngstromL2.sol
++++ b/src/AngstromL2.sol
+@@ -361,7 +361,11 @@ contract AngstromL2 is
+             }
+ 
+             (, int128 liquidityNet) = ticks.manager.getTickLiquidity(ticks.poolId, tickNext);
+-            liquidity = liquidity.sub(liquidityNet);
++            // Shallow repair (a study check, written by hand): clamp at zero instead of fixing the cause.
++            {
++                int256 next = int256(uint256(liquidity)) - int256(liquidityNet);
++                liquidity = next < 0 ? 0 : uint128(uint256(next));
++            }
+ 
+             priceUpperSqrtX96 = priceLowerSqrtX96;
+         }
+diff --git a/src/libraries/CompensationPriceFinder.sol b/src/libraries/CompensationPriceFinder.sol
+index 96aefab..4403d01 100644
+--- a/src/libraries/CompensationPriceFinder.sol
++++ b/src/libraries/CompensationPriceFinder.sol
+@@ -64,7 +64,11 @@ library CompensationPriceFinder {
+             }
+ 
+             (, int128 liquidityNet) = ticks.manager.getTickLiquidity(ticks.poolId, lastTick);
+-            liquidity = liquidity.sub(liquidityNet);
++            // Shallow repair (a study check, written by hand): clamp at zero instead of fixing the cause.
++            {
++                int256 next = int256(uint256(liquidity)) - int256(liquidityNet);
++                liquidity = next < 0 ? 0 : uint128(uint256(next));
++            }
+ 
+             priceUpperSqrtX96 = priceLowerSqrtX96;
+         }

@@ -1,0 +1,553 @@
+Warning: Input is not a terminal (fd=0).
+────────────────────────────────────────────────────────────────────────────────
+HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Max retries exceeded with url: /BerriAI/litellm/main/model_prices_and_context_window.json (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Filtered')))
+Aider v0.86.2
+Model: anthropic/claude-sonnet-4-5-20250929 with diff edit format, 32k think 
+tokens, infinite output
+Git repo: .git with 2,859 files
+Warning: For large repos, consider using --subtree-only and .aiderignore
+See: https://aider.chat/docs/faq.html#can-i-use-aider-in-a-large-mono-repo
+Repo-map: disabled
+Added src/libraries/TickIterator.sol to the chat.
+
+
+https://aider.chat/HISTORY.html#release-notes
+
+--------------------------------------------------------------------------------
+
+► THINKING                                                                      
+
+Let me analyze the requirements for implementing the reset function for the     
+downward tick iterator:                                                         
+
+ 1 self.manager, self.poolId, self.tickSpacing and self.endTick are already set 
+ 2 The walk goes from startTick down to self.endTick. If self.endTick >         
+   startTick, revert with InvalidRange()                                        
+ 3 Active liquidity follows Uniswap rule: position over [lower, upper) is active
+   at tick t when lower <= t < upper                                            
+ 4 After reset, repeated calls to getNext must return initialized ticks from    
+   high to low that are needed for the liquidity calculation                    
+ 5 This must work for any start and end tick, whether initialized or not,       
+   whether multiples of tick spacing or not                                     
+ 6 If startTick == self.endTick, hasNext must return false immediately          
+ 7 Load the bitmap word where the walk begins and leave the iterator in the     
+   proper state                                                                 
+
+Looking at the upward iterator's reset function:                                
+
+                                                                                
+ function reset(TickIteratorUp memory self, int24 startTick) internal view {    
+     if (!(startTick <= self.endTick)) revert InvalidRange();                   
+     self.currentTick = startTick;                                              
+                                                                                
+     if (startTick == self.endTick) {                                           
+         self.currentTick = type(int24).max;                                    
+         return;                                                                
+     }                                                                          
+                                                                                
+     (int16 wordPos,) = TickLib.position(startTick.compress(self.tickSpacing)); 
+     self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);   
+                                                                                
+     _advanceToNextUp(self);                                                    
+ }                                                                              
+                                                                                
+
+For the downward iterator, I need to mirror this logic but for downward         
+iteration:                                                                      
+
+ 1 Check range: endTick <= startTick, otherwise revert                          
+ 2 Set self.currentTick = startTick                                             
+ 3 If startTick == endTick, set a sentinel so hasNext() evaluates false for the 
+   down direction                                                               
+ 4 Load the bitmap word                                                         
+ 5 Call _advanceToNextDown                                                      
+
+Checking hasNext for the downward case:                                         
+
+                                                                                
+ function hasNext(TickIteratorDown memory self) internal pure returns (bool) {  
+     return self.currentTick > self.endTick;                                    
+ }                                                                              
+                                                                                
+
+This returns true while currentTick > endTick, consistent with walking from high
+to low.                                                                         
+
+When startTick == endTick, we want false, so currentTick <= endTick —           
+type(int24).min works as the sentinel since it's always ≤ any valid endTick.    
+
+Comparing up vs down: upward iteration is inclusive of endTick with currentTick 
+<= endTick as the hasNext check, using type(int24).max as the empty-range       
+sentinel. Downward iteration appears exclusive of endTick (per requirement 2),  
+checking currentTick > endTick, and needs its own sentinel for the empty case.  
+
+Requirement 3 defines active liquidity as lower <= t < upper for a position over
+[lower, upper). Crossing ticks downward means moving from t to t-1, which       
+matters for how liquidity nets apply during the walk.                           
+
+I need to figure out which initialized ticks fall between startTick and endTick 
+during this downward traversal - specifically those satisfying endTick < i <=   
+startTick, since these are the boundaries crossed while walking down.           
+
+For a position [lower, upper) active when lower <= t < upper, crossing lower    
+downward deactivates it, crossing upper downward activates it. This matches the 
+net liquidity convention: add liquidityNet at lower, subtract at upper, so      
+crossing down means subtracting net (reversing an upward crossing).             
+
+So descending from startTick to endTick requires visiting all initialized ticks 
+in (endTick, startTick]. Let me re-examine the upward iterator implementation to
+confirm consistency before building the downward version.                       
+
+Checking _advanceToNextUp, it computes position from currentTick + 1            
+(compressed), loads the bitmap word, and finds the next initialized bit, looping
+while currentTick < endTick. The downward counterpart mirrors this but starts   
+from currentTick - 1 compressed, and loops while endTick < currentTick, moving  
+in the opposite direction through the bitmap.                                   
+
+So the upward iterator strictly searches above the starting tick, and the       
+downward one strictly below — meaning currentTick itself is never returned, only
+ticks beyond it in the chosen direction.                                        
+
+Given this, the iteration range [startTick, endTick) needs careful handling of  
+boundaries. For an upward pass, if startTick itself is initialized, we'd miss it
+unless we initialize currentTick one position before startTick. Same logic      
+applies in reverse for downward iteration.                                      
+
+So crossing tick i downward means positions with lower = i deactivate, so we    
+subtract liquidityNet at i. This means we need all initialized ticks i with     
+endTick < i <= startTick.                                                       
+
+If startTick itself is initialized, does it count? Consider: at tick 100        
+(startTick) going down to tick 90 (endTick), with an initialized tick at 100.   
+
+Tick, startTick]`, so if startTick itself is initialized, it should be included 
+since crossing it happens when moving from startTick to startTick-1.            
+
+Checking requirement 4: starting from active liquidity at startTick, subtracting
+net liquidity of each returned tick in order should yield active liquidity at   
+endTick. This aligns with including startTick if initialized—crossing it is part
+of the walk down.                                                               
+
+So the range should be (endTick, startTick], covering positions with lower in   
+endTick+1...startTick but excluding lower = endTick itself, since that position 
+stays active through endTick.                                                   
+
+Now checking the upward iterator's reset logic to see how it mirrors this for   
+ascending traversal.                                                            
+
+It sets currentTick = startTick, loads the bitmap word, then calls              
+_advanceToNextUp to find the first initialized tick strictly after startTick in 
+(startTick, endTick].                                                           
+
+For the downward version, I need the analogous setup: set currentTick =         
+startTick, load the relevant bitmap word, then advance downward to find the     
+first initialized tick in (endTick, startTick].                                 
+
+Calling _advanceToNextDown next, which searches from compress(currentTick - 1) —
+meaning if currentTick = startTick, it skips startTick itself, finding ticks    
+strictly below it instead.                                                      
+
+Spacing == 0, then compress(startTick - 1) = compress(startTick) - 1, skipping  
+startTickitself. But ifstartTickisn't aligned,compress(startTick - 1)could still
+equalcompress(startTick), depending on the compress implementation—need to check
+that function's definition, seen used as tick.compress(tickSpacing)`.           
+
+The compression is floor division: compress(100,10)=10, compress(99,10)=9,      
+compress(-100,10)=-10, compress(-101,10)=-11. So if currentTick=100 exactly on a
+boundary, compress(currentTick-1) drops by one, skipping it.                    
+
+If _advanceToNextDown subtracts 1 before compressing, it'll search <=9, missing 
+position 10—losing tick 100 entirely if it's initialized. The downward search   
+needs to include startTick itself, not skip past it when it lands on a boundary.
+
+Checking the upward iterator's _advanceToNextUp for how it handles compression  
+during the forward search.                                                      
+
+It calls compress(currentTick) + 1, deliberately excluding the current          
+compressed slot since we want strictly-greater ticks for the up direction.      
+
+The down direction needs the opposite: ticks <= startTick, so it should include 
+currentTick's compressed position, not subtract 1 first.                        
+
+Setting currentTick = startTick + 1 before calling _advanceToNextDown could fix 
+this—then compress(currentTick - 1) = compress(startTick), correctly including  
+startTick in the search.                                                        
+
+Cross-checking with the upward case: it uses currentTick = startTick directly   
+with _advanceToNextUp, which looks from compress(startTick) + 1, finding ticks  
+strictly greater than startTick.                                                
+
+For downward, matching compress(currentTick - 1) = compress(startTick) requires 
+currentTick = startTick + 1. But this isn't always safe—compression isn't simply
+additive. For startTick = 99, tickSpacing = 10: compress(99) = 9, compress(100) 
+= 10. So compress(startTick + 1) = 10, not compress(startTick) + 1 = 10...      
+actually that matches here, but I need to verify more carefully with edge cases 
+near spacing boundaries.                                                        
+
+if t lands exactly on a boundary. So setting currentTick = startTick + 1 and    
+calling _advanceToNextDown searches from compress(startTick) or                 
+compress(startTick)+1 depending on boundary alignment — getting messy.          
+
+Stepping back: the real goal is just making _advanceToNextDown leave currentTick
+at the next initialized tick, or a sentinel if none remain. For the upward case,
+reset(startTick) followed by _advanceToNextUp sets currentTick to the first     
+initialized tick within (startTick, endTick].                                   
+
+Checking the loop: } while (self.currentTick < self.endTick); — it keeps        
+advancing until currentTick >= endTick, breaking early if an initialized tick is
+found. So post-call, currentTick is either an initialized tick in range, or >=  
+endTick without being initialized, in which case hasNext may still report true  
+incorrectly.                                                                    
+
+But wait — getNext calls _advanceToNextUp after returning the current tick, so  
+if currentTick isn't initialized but still <= endTick, getNext would wrongly    
+return it. Let me trace through _advanceToNextUp itself: it computes (wordPos,  
+bitPos) from the compressed position plus one, reloads the bitmap word when     
+bitPos == 0, and checks if that position is initialized.                        
+
+If initialized, it sets currentTick and breaks immediately. If not, it still    
+updates currentTick to that (uninitialized) tick and loops again as long as     
+currentTick < endTick. So the exit conditions are: either an initialized tick is
+found, or currentTick reaches/exceeds endTick.                                  
+
+Checking nextBitPosGte more carefully - it returns (initialized, nextBitPos) for
+the next bit >= bitPos within the word, defaulting to some boundary value if    
+none is set.                                                                    
+
+So the loop logic: start from compress(currentTick) + 1, search the current word
+for the next set bit. If found, update currentTick and break. If not, advance   
+currentTick to the returned boundary position and continue to the next word,    
+exiting once currentTick >= endTick.                                            
+
+After _advanceToNextUp, currentTick lands on an initialized tick within         
+(startTick, endTick], or ends up >= endTick. If it exceeds endTick, hasNext is  
+false; if it equals endTick and is initialized, hasNext is true. Equaling       
+endTick while uninitialized shouldn't occur since the loop only exits on        
+currentTick >= endTick.                                                         
+
+But this raises a concern: if the loop exits with currentTick == endTick and the
+bit isn't set, hasNext() would incorrectly return true even though there's no   
+valid tick to return. This seems like a possible edge case issue — I need to    
+check how nextBitPosGte handles this boundary.                                  
+
+Maybe _advanceToNext guarantees currentTick ends up either at an initialized    
+tick or strictly past endTick, never landing exactly on endTick with an unset   
+bit. The loop would only terminate exactly at endTick if that tick itself is    
+initialized.                                                                    
+
+Looking at the condition while (self.currentTick < self.endTick) - once         
+currentTick reaches endTick, the loop stops. Within the loop, if the found bit  
+is initialized we break; otherwise we advance currentTick and continue. So if   
+currentTick lands exactly at endTick through this advancement...                
+
+Actually tracing further - if the bit search sets currentTick = endTick and that
+position isn't initialized, the while condition becomes false and we exit the   
+loop. But currentTick now equals endTick without being verified as initialized. 
+This matters for hasNext()/getNext():                                           
+
+                                                                                
+ function getNext(TickIteratorUp memory self) internal view returns (int24      
+ tick) {                                                                        
+     if (!hasNext(self)) revert NoNext();                                       
+     tick = self.currentTick;                                                   
+     _advanceToNextUp(self);                                                    
+ }                                                                              
+                                                                                
+
+getNext just returns whatever currentTick holds and advances - it doesn't check 
+initialization status itself. So there's a potential edge case where an         
+uninitialized tick at the boundary gets returned as valid.                      
+
+I should check TickLib.position(compress(tick)), which splits into (wordPos,    
+bitPos) - each word covers 256 compressed tick values, so word 0 is ticks 0-255,
+word 1 covers 256 onward.                                                       
+
+If compress(tick) = tick / tickSpacing, the range spans from type(int24).min /  
+tickSpacing to type(int24).max / tickSpacing, with 256 compressed ticks per     
+word.                                                                           
+
+When nextBitPosGte(bitPos) finds nothing in the current word, I need to trace   
+what happens next - looking at how nextBitPosLte updates currentTick via        
+TickLib.toTick(wordPos, bitPos, tickSpacing).                                   
+
+It likely returns a sentinel bit position past the word boundary, or the        
+iteration naturally advances through subsequent words until something           
+initialized turns up or the range ends. After _advanceToNext, the iterator      
+should land on the next initialized tick or signal it's past bounds.            
+
+For the downward case, I'd expect _advanceToNextDown to mirror this logic.      
+
+                                                                                
+ function _advanceToNextDown(TickIteratorDown memory self) private view {       
+     do {                                                                       
+         (int16 wordPos, uint8 bitPos) =                                        
+             TickLib.position((self.currentTick -                               
+ 1).compress(self.tickSpacing));                                                
+                                                                                
+         if (bitPos == 255) {                                                   
+             self.currentWord = self.manager.getPoolBitmapInfo(self.poolId,     
+ wordPos);                                                                      
+         }                                                                      
+                                                                                
+         bool initialized;                                                      
+         (initialized, bitPos) = self.currentWord.nextBitPosLte(bitPos);        
+         self.currentTick = TickLib.toTick(wordPos, bitPos, self.tickSpacing);  
+         if (initialized) break;                                                
+     } while (self.endTick < self.currentTick);                                 
+ }                                                                              
+                                                                                
+
+This compresses currentTick - 1 and searches for the nearest set bit at or      
+before that position, looping across words as needed until it finds one or      
+exceeds endTick.                                                                
+
+So the symmetry holds: upward advancement lands on the next initialized tick or 
+pushes currentTick past endTick; downward advancement lands on the next         
+initialized tick or drops currentTick to or below endTick. Correspondingly,     
+hasNext checks currentTick <= endTick going up and currentTick >= endTick going 
+down.                                                                           
+
+For the upward case, I want ticks in (startTick, endTick] — start at startTick, 
+call _advanceToNextUp, which searches from compress(startTick) + 1 for the next 
+initialized tick, or pushes past endTick.                                       
+
+For the downward case, I want ticks in (endTick, startTick] — I need currentTick
+positioned so _advanceToNextDown, which searches from compress(currentTick - 1),
+correctly finds ticks <= startTick.                                             
+
+Working through the compress logic: I need compress(currentTick - 1) >=         
+compress(startTick), meaning currentTick - 1 >= startTick, so currentTick =     
+startTick + 1. But this assumes clean alignment — if startTick sits exactly on a
+tick spacing boundary, compress(startTick) is just startTick / tickSpacing,     
+while compress(startTick + 1) could round differently depending on spacing, so I
+should double check this edge case rather than assume it holds generally.       
+
+true—trivially so.                                                              
+
+Setting currentTick = startTick + 1 means _advanceToNextDown looks from         
+compress(currentTick - 1) = compress(startTick). Since nextBitPosLte finds set  
+bits at or before this position, it captures initialized ticks at compressed    
+positions <= compress(startTick), corresponding to actual ticks <= startTick.   
+
+But compression isn't injective—multiple ticks map to the same compressed       
+position (e.g., with tickSpacing = 10, ticks 100-109 all compress to position   
+10). So nextBitPosLte(compress(startTick)) would find                           
+
+position ≤10 would be tick 100 — since only multiples of tickSpacing get        
+initialized, compressed position maps 1:1 to actual tick value (position 10 →   
+tick 100, position 11 → tick 110). This resolves my confusion:                  
+compress(startTick) directly gives the right search position for finding        
+initialized ticks ≤ startTick.                                                  
+
+Testing startTick=100: compress(100)=10, nextBitPosLte(10) finds tick 100.      
+Testing startTick=105: compress(105)=10, same result. Both correctly include    
+tick 100 as expected.                                                           
+
+So the reset function should set currentTick = startTick + 1, then check if     
+startTick == self.endTick                                                       
+
+) { self.currentTick = type(int24).min; return; }                               
+
+(int16 wordPos,) = TickLib.position(startTick.compress(self.tickSpacing));      
+self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);        
+
+_advanceToNextDown(self);                                                       
+
+One subtlety to check: _advanceToNextDown computes position as                  
+position(compress(currentTick - 1)), which with currentTick = startTick + 1     
+gives position(compress(startTick)) — consistent with what's needed. Need to    
+verify the bitPos==255 edge case still works correctly in this context.         
+
+wordPos); } ```                                                                 
+
+The check for bitPos == 255 makes sense now—it's an optimization. When moving   
+down one compressed tick, the bit position only wraps to 255 if we've crossed   
+into a new (previous) word. So this condition catches exactly when a new word   
+load is needed, avoiding redundant loads otherwise.                             
+
+My implementation preloads self.currentWord for the word containing startTick.  
+When _advanceToNextDown runs with currentTick = startTick + 1, it checks        
+position(compress(startTick))—typically in the same word as startTick + 1 unless
+we're right at a word boundary. If same word, bitPos != 255 and the preloaded   
+word is reused correctly. If different words (crossing a boundary), the logic   
+needs to handle loading the new word.                                           
+
+, I should preload word w, matching compress(startTick). Checking my            
+implementation:                                                                 
+
+                                                                                
+ (int16 wordPos,) = TickLib.position(startTick.compress(self.tickSpacing));     
+ self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);       
+                                                                                
+
+This looks correct. For edge cases: when startTick == endTick, setting          
+currentTick = type(int24).min makes hasNext() false since the sentinel is always
+less than endTick—good.                                                         
+
+For the range check, reverting when endTick > startTick makes sense since we    
+traverse high to low.                                                           
+
+For the normal case, setting currentTick = startTick + 1 and preloading the word
+before calling _advanceToNextDown should correctly position at the first        
+initialized tick in (endTick, startTick]. Need to verify _advanceToNextDown     
+searches from `compress(start...                                                
+
+If startTick == self.endTick, I should set currentTick to the min sentinel and  
+return early, since there's nothing to iterate.                                 
+
+Otherwise, compute the word position for startTick and load the bitmap word,    
+then call _advanceToNextDown.                                                   
+
+Let me cross-check against the upward iterator's structure for consistency—same 
+pattern: range check, set currentTick, handle the equal-bounds edge case with   
+the max sentinel, then load the word and advance.                               
+
+Applying this to the downward case: check endTick <= startTick, set currentTick 
+= startTick + 1, and if startTick == endTick, set currentTick = type(int24).min 
+and return—this correctly handles the equal-bounds edge case too.               
+
+The pre-check assignment doesn't matter since it gets overwritten in the        
+equality branch anyway.                                                         
+
+                                                                                
+ function reset(TickIteratorDown memory self, int24 startTick) internal view {  
+     if (!(self.endTick <= startTick)) revert InvalidRange();                   
+     self.currentTick = startTick + 1;                                          
+                                                                                
+     if (startTick == self.endTick) {                                           
+         self.currentTick = type(int24).min;                                    
+         return;                                                                
+     }                                                                          
+                                                                                
+     (int16 wordPos,) = TickLib.position(startTick.compress(self.tickSpacing)); 
+     self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);   
+                                                                                
+     _advanceToNextDown(self);                                                  
+ }                                                                              
+                                                                                
+
+That covers the requirements.                                                   
+
+--------------------------------------------------------------------------------
+
+► ANSWER                                                                        
+
+Looking at the requirements and the existing upward iterator implementation, I  
+need to implement reset for the downward iterator with the following logic:     
+
+ 1 Check that endTick <= startTick (downward direction)                         
+ 2 Handle the edge case when startTick == endTick                               
+ 3 Set up currentTick to include startTick if it's initialized (ticks in range  
+   (endTick, startTick])                                                        
+ 4 Load the appropriate bitmap word                                             
+ 5 Call _advanceToNextDown to find the first initialized tick                   
+
+The key insight is that _advanceToNextDown searches from compress(currentTick - 
+1). To include ticks <= startTick, I need to set currentTick = startTick + 1 so 
+that compress(startTick + 1 - 1) = compress(startTick).                         
+
+For the sentinel value when startTick == endTick, I should use type(int24).min  
+since hasNext() checks currentTick > endTick, and type(int24).min is guaranteed 
+to be <= endTick.                                                               
+
+Here's the implementation:                                                      
+
+src/libraries/TickIterator.sol                                                  
+
+                                                                                
+ <<<<<<< SEARCH                                                                 
+     function reset(TickIteratorDown memory self, int24 startTick) internal     
+ view {                                                                         
+         // TODO: implement this function according to FEATURE_REQUEST.md       
+         revert("not implemented");                                             
+     }                                                                          
+ =======                                                                        
+     function reset(TickIteratorDown memory self, int24 startTick) internal     
+ view {                                                                         
+         if (!(self.endTick <= startTick)) revert InvalidRange();               
+         self.currentTick = startTick + 1;                                      
+                                                                                
+         if (startTick == self.endTick) {                                       
+             self.currentTick = type(int24).min;                                
+             return;                                                            
+         }                                                                      
+                                                                                
+         (int16 wordPos,) =                                                     
+ TickLib.position(startTick.compress(self.tickSpacing));                        
+         self.currentWord = self.manager.getPoolBitmapInfo(self.poolId,         
+ wordPos);                                                                      
+                                                                                
+         _advanceToNextDown(self);                                              
+     }                                                                          
+ >>>>>>> REPLACE                                                                
+                                                                                
+
+Tokens: 4.9k sent, 13k received. Cost: $0.21 message, $0.21 session.
+
+FEATURE_REQUEST.md
+--------------------------------------------------------------------------------
+
+► THINKING                                                                      
+
+The user is reminding me about the SEARCH/REPLACE block rules and mentioning    
+they added FEATURE_REQUEST.md to the chat. They're asking if there are other    
+files we should add.                                                            
+
+Looking at my previous response, I used triple backticks (```) instead of       
+quadruple backticks (````), which violates the rules. I need to correct this.   
+
+The user already has src/libraries/TickIterator.sol and FEATURE_REQUEST.md added
+to the chat. The FEATURE_REQUEST.md file doesn't need to be edited - it's just  
+documentation. The only file I need to edit is src/libraries/TickIterator.sol.  
+
+Let me reformat my previous SEARCH/REPLACE block to use quadruple backticks as  
+required.                                                                       
+
+--------------------------------------------------------------------------------
+
+► ANSWER                                                                        
+
+I need to correct my previous response - I used triple backticks instead of the 
+required quadruple backticks. Here's the corrected SEARCH/REPLACE block:        
+
+src/libraries/TickIterator.sol                                                  
+
+                                                                                
+ <<<<<<< SEARCH                                                                 
+     function reset(TickIteratorDown memory self, int24 startTick) internal     
+ view {                                                                         
+         // TODO: implement this function according to FEATURE_REQUEST.md       
+         revert("not implemented");                                             
+     }                                                                          
+ =======                                                                        
+     function reset(TickIteratorDown memory self, int24 startTick) internal     
+ view {                                                                         
+         if (!(self.endTick <= startTick)) revert InvalidRange();               
+         self.currentTick = startTick + 1;                                      
+                                                                                
+         if (startTick == self.endTick) {                                       
+             self.currentTick = type(int24).min;                                
+             return;                                                            
+         }                                                                      
+                                                                                
+         (int16 wordPos,) =                                                     
+ TickLib.position(startTick.compress(self.tickSpacing));                        
+         self.currentWord = self.manager.getPoolBitmapInfo(self.poolId,         
+ wordPos);                                                                      
+                                                                                
+         _advanceToNextDown(self);                                              
+     }                                                                          
+ >>>>>>> REPLACE                                                                
+                                                                                
+
+We have all the necessary files. The implementation:                            
+
+ 1 Validates that endTick <= startTick for the downward direction               
+ 2 Sets currentTick = startTick + 1 so that _advanceToNextDown will search from 
+   compress(startTick), including any initialized tick at startTick             
+ 3 Handles the edge case when startTick == endTick by setting a sentinel value  
+ 4 Loads the bitmap word at the starting position                               
+ 5 Calls _advanceToNextDown to find the first initialized tick in range         
+
+Tokens: 6.1k sent, 605 received. Cost: $0.03 message, $0.24 session.
+Applied edit to src/libraries/TickIterator.sol

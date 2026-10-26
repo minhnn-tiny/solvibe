@@ -1,0 +1,12 @@
+{
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "counterexample": "Tick spacing 60. The only position is [600, 1200), so no tick at or below 0 is initialized. Start 0, end -120. The walk should return nothing. reset keeps loading lower words without ever checking the end tick, and near word -547 TickLib.toTick overflows int24, so reset reverts with panic 0x11. The functional tests test_iterateDown_noInitializedTicks and test_iterateDown_minTick fail with this panic.",
+  "new_flaw": {
+    "severity": "Medium",
+    "description": "The search loop in reset is not limited by the end tick. A taxed zero-for-one swap that starts below every initialized tick makes afterSwap revert: with spacing 2 or more TickLib.toTick overflows after a few hundred words, and with spacing 1 the loop loads about 32,768 words and runs out of gas. When an initialized tick exists but lies far below the end tick, each reset still loads every word down to it, for example about 3,466 words in a spacing-1 pool whose nearest lower tick is a full-range position at -887272, and the hook calls reset twice per swap."
+  },
+  "invalid_attacks": {},
+  "judge_reports": null,
+  "summary": "Searches from the start tick's own bit, so an initialized start tick is returned, then loops down word by word until it finds any initialized tick, without stopping at the end tick. It finally moves the current tick up to the end tick if the tick it found is below it."
+}

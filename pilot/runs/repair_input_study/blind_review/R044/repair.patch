@@ -1,0 +1,61 @@
+diff --git a/src/libraries/TickIterator.sol b/src/libraries/TickIterator.sol
+index a4d6577..0527601 100644
+--- a/src/libraries/TickIterator.sol
++++ b/src/libraries/TickIterator.sol
+@@ -135,14 +135,54 @@ library TickIteratorLib {
+ 
+     function reset(TickIteratorDown memory self, int24 startTick) internal view {
+         if (!(self.endTick <= startTick)) revert InvalidRange();
++
++        bool freshIterator = self.currentTick == 0 && self.currentWord == 0;
++        int24 poolTick = self.manager.getSlot0(self.poolId).tick();
++        bool includeStart = !freshIterator
++            || (self.manager.getPoolLiquidity(self.poolId) == 0
++                && (poolTick == startTick || poolTick == self.endTick));
+         self.currentTick = startTick;
+ 
+         if (startTick == self.endTick) return;
+ 
+-        (int16 wordPos,) = TickLib.position(startTick.compress(self.tickSpacing));
++        int24 searchTick = startTick;
++        if (!includeStart) {
++            if (startTick == type(int24).min) {
++                self.currentTick = self.endTick;
++                return;
++            }
++
++            unchecked {
++                searchTick = startTick - 1;
++            }
++        }
++
++        (int16 wordPos, uint8 bitPos) = TickLib.position(searchTick.compress(self.tickSpacing));
+         self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);
+ 
+-        _advanceToNextDown(self);
++        while (true) {
++            bool initialized;
++            (initialized, bitPos) = self.currentWord.nextBitPosLte(bitPos);
++            if (initialized) {
++                self.currentTick = TickLib.toTick(wordPos, bitPos, self.tickSpacing);
++                if (self.currentTick > self.endTick) return;
++
++                self.currentTick = self.endTick;
++                return;
++            }
++
++            if (wordPos == type(int16).min) {
++                self.currentTick = self.endTick;
++                return;
++            }
++
++            unchecked {
++                wordPos -= 1;
++            }
++
++            self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);
++            bitPos = type(uint8).max;
++        }
+     }
+ 
+     /// @notice Check if the iterator has more ticks

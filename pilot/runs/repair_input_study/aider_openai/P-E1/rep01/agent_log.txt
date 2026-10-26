@@ -1,0 +1,96 @@
+Warning: Input is not a terminal (fd=0).
+────────────────────────────────────────────────────────────────────────────────
+HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Max retries exceeded with url: /BerriAI/litellm/main/model_prices_and_context_window.json (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Filtered')))
+Aider v0.86.2
+Model: openai/gpt-5.4-mini-2026-03-17 with whole edit format
+Git repo: .git with 2,859 files
+Warning: For large repos, consider using --subtree-only and .aiderignore
+See: https://aider.chat/docs/faq.html#can-i-use-aider-in-a-large-mono-repo
+Repo-map: disabled
+Added src/libraries/TickIterator.sol to the chat.
+
+
+https://aider.chat/HISTORY.html#release-notes
+
+
+test/SwapFromTickBoundary.t.sol
+src/libraries/TickIterator.sol                                                  
+
+                                                                                
+ @@ -132,19 +132,44 @@                                                          
+          self.reset(startTick);                                                
+          return self;                                                          
+      }                                                                         
+                                                                                
+      function reset(TickIteratorDown memory self, int24 startTick) internal    
+ view {                                                                         
+ -        if (!(self.endTick <= startTick)) revert InvalidRange();              
+ +        if (self.endTick > startTick) revert InvalidRange();                  
+ +                                                                              
+          self.currentTick = startTick;                                         
+                                                                                
+ -        if (startTick == self.endTick) return;                                
+ -                                                                              
+ -        (int16 wordPos,) =                                                    
+ TickLib.position(startTick.compress(self.tickSpacing));                        
+ +        if (startTick == self.endTick) {                                      
+ +            self.currentTick = type(int24).min;                               
+ +            return;                                                           
+ +        }                                                                     
+ +                                                                              
+ +        (int16 wordPos, uint8 bitPos) =                                       
+ TickLib.position(TickLib.compress(startTick, self.tickSpacing));               
+          self.currentWord = self.manager.getPoolBitmapInfo(self.poolId,        
+ wordPos);                                                                      
+                                                                                
+ -        _advanceToNextDown(self);                                             
+ +        bool initialized;                                                     
+ +        (initialized, bitPos) = self.currentWord.nextBitPosLte(bitPos);       
+ +                                                                              
+ +        if (initialized) {                                                    
+ +            self.currentTick = TickLib.toTick(wordPos, bitPos,                
+ self.tickSpacing);                                                             
+ +            return;                                                           
+ +        }                                                                     
+ +                                                                              
+ +        while (true) {                                                        
+ +            if (wordPos == type(int16).min) {                                 
+ +                self.currentTick = self.endTick;                              
+ +                return;                                                       
+ +            }                                                                 
+ +                                                                              
+ +            wordPos--;                                                        
+ +            self.currentWord = self.manager.getPoolBitmapInfo(self.poolId,    
+ wordPos);                                                                      
+ +            (initialized, bitPos) =                                           
+ self.currentWord.nextBitPosLte(type(uint8).max);                               
+ +            if (initialized) {                                                
+ +                self.currentTick = TickLib.toTick(wordPos, bitPos,            
+ self.tickSpacing);                                                             
+ +                return;                                                       
+ +            }                                                                 
+ +        }                                                                     
+      }                                                                         
+                                                                                
+      /// @notice Check if the iterator has more ticks                          
+      /// @param self The iterator                                              
+      /// @return True if there are more ticks to iterate                       
+                                                                                
+
+Tokens: 11k sent, 1.6k received.
+Applied edit to src/libraries/TickIterator.sol
+Compiling 5 files with Solc 0.8.26
+Solc 0.8.26 finished in 4.98s
+Compiler run successful with warnings:
+Warning (5574): Contract code size is 25282 bytes and exceeds 24576 bytes (a limit introduced in Spurious Dragon). This contract may not be deployable on Mainnet. Consider enabling the optimizer (with a low "runs" value!), turning off revert strings, or using libraries.
+  --> test/_mocks/UniV4Inspector.sol:12:1:
+   |
+12 | contract UniV4Inspector is PoolManager {
+   | ^ (Relevant source part starts here and spans across multiple lines).
+
+
+Ran 1 test for test/SwapFromTickBoundary.t.sol:SwapFromTickBoundaryTest
+[PASS] test_swapDownFromTickBoundary() (gas: 521779)
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 336.24ms (17.73ms CPU time)
+
+Ran 1 test suite in 343.62ms (336.24ms CPU time): 1 tests passed, 0 failed, 0 skipped (1 total tests)

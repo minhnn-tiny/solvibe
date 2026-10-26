@@ -1,0 +1,1 @@
+I’ll check that v7 constructs exact offsetting nulls and counts false rejections correctly, then verify the reported results and review v6 against C1–C8.

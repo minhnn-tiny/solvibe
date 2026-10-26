@@ -1,0 +1,25 @@
+diff --git a/src/libraries/TickIterator.sol b/src/libraries/TickIterator.sol
+index a4d6577..7d19aee 100644
+--- a/src/libraries/TickIterator.sol
++++ b/src/libraries/TickIterator.sol
+@@ -135,12 +135,18 @@ library TickIteratorLib {
+ 
+     function reset(TickIteratorDown memory self, int24 startTick) internal view {
+         if (!(self.endTick <= startTick)) revert InvalidRange();
++
++        (int16 wordPos, uint8 bitPos) = TickLib.position(startTick.compress(self.tickSpacing));
++        self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);
+         self.currentTick = startTick;
+ 
+         if (startTick == self.endTick) return;
+ 
+-        (int16 wordPos,) = TickLib.position(startTick.compress(self.tickSpacing));
+-        self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);
++        if (startTick == TickLib.toTick(wordPos, bitPos, self.tickSpacing)
++            && self.currentWord.isInitialized(bitPos))
++        {
++            return;
++        }
+ 
+         _advanceToNextDown(self);
+     }

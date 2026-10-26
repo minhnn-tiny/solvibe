@@ -1,0 +1,22 @@
+{
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "counterexample": {
+    "tick_spacing": 10,
+    "positions": "one position [100, 200) with liquidity L",
+    "initialized_ticks": [100, 200],
+    "start_tick": 100,
+    "end_tick": 50,
+    "walk_returns": [],
+    "should_return": [100],
+    "explanation": "Active liquidity is L at tick 100 and 0 at tick 50. compress(100) is bit 10, so the new branch does not run, and the walk still searches strictly below 100 and returns nothing. The result stays L instead of 0."
+  },
+  "new_flaw": {
+    "severity": "High",
+    "description": "For an unaligned start tick whose rounded-down tick is bit 0 of its word, the repair caches the word below. _advanceToNextDown only reloads at bit 255, so its first search reads bit 0 of the wrong word. The rounded-down tick is then skipped when it is initialized, or returned as initialized when bit 0 of the word below is set. The audited code handled these starts correctly, and they include every tick from 1 to spacing - 1.",
+    "scenario": "Tick spacing 10, positions [-100, 0) with 2L and [0, 100) with L, so tick 0 has net -L. A taxed zero-for-one swap moves the tick from 5 to -50. The walk checks bit 0 of word -1 instead of word 0, skips tick 0 and returns nothing. The hook keeps liquidity L where the real value is 2L, so the [-100, 0) position is credited about twice the tax. With other shapes the liquidity subtraction underflows: the functional suite's five simple zero-for-one swap tests revert with this repair."
+  },
+  "invalid_attacks": {},
+  "judge_reports": null,
+  "summary": "The repair loads the word below when compress(startTick) is bit 0 of its word, but the search still runs strictly below the start tick, so an initialized start tick is never returned. The new load only changes the walk for unaligned starts at bit 0, where it makes the first search read the wrong bitmap word."
+}

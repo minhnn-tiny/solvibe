@@ -1,0 +1,12 @@
+{
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "counterexample": "Tick spacing 10. One position [100, 200), so ticks 100 and 200 are initialized. Start 100 (bit 10 of word 0), end 50. The walk returns nothing; it should return [100]. At a word boundary it is worse: tick spacing 60, one position [0, 600), start 30, end -120. The compressed start is bit 0, so reset moves the scan to -30 and the search begins at tick -60. The walk returns nothing; it should return [0], which the audited code did return.",
+  "new_flaw": {
+    "severity": "High",
+    "description": "When the compressed start is bit 0 of a bitmap word (for example pool ticks 0 to 59 with spacing 60), reset starts one tick spacing lower. The walk then also skips the initialized tick just below an aligned start, and for an unaligned start it skips the rounded-down tick that the audited code returned. The hook subtracts the wrong net liquidity: in the functional suite the plain zero-for-one swap tests test_simpleZeroForOneSwap1 to 5 now revert in afterSwap with ArithmeticOverflowUnderflow (0xc9654ed4), and test_zeroForOneSwapEndingOnInitializedTick credits rewards that do not match the tax. So taxed zero-for-one swaps that start at such ticks revert or credit rewards to the wrong positions."
+  },
+  "invalid_attacks": {},
+  "judge_reports": null,
+  "summary": "If the compressed start is bit 0 of a word, reset moves the start one tick spacing lower before calling _advanceToNextDown; otherwise it behaves like the audited code. It never returns the start tick, adds a new skip at word boundaries, and also deletes the NatSpec comments of other functions."
+}

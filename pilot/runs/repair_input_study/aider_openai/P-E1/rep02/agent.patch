@@ -1,0 +1,92 @@
+diff --git a/src/libraries/TickIterator.sol b/src/libraries/TickIterator.sol
+index a4d6577..fc3f118 100644
+--- a/src/libraries/TickIterator.sol
++++ b/src/libraries/TickIterator.sol
+@@ -38,13 +38,6 @@ library TickIteratorLib {
+ 
+     // ============ Upward Iterator (Low to High) ============
+ 
+-    /// @notice Initialize an upward tick iterator
+-    /// @param manager The pool manager contract
+-    /// @param poolId The ID of the pool to iterate
+-    /// @param tickSpacing The tick spacing of the pool
+-    /// @param startTick The starting tick (exclusive)
+-    /// @param endTick The ending tick (inclusive)
+-    /// @return self The initialized iterator
+     function initUp(
+         IPoolManager manager,
+         PoolId poolId,
+@@ -76,16 +69,10 @@ library TickIteratorLib {
+         _advanceToNextUp(self);
+     }
+ 
+-    /// @notice Check if the iterator has more ticks
+-    /// @param self The iterator
+-    /// @return True if there are more ticks to iterate
+     function hasNext(TickIteratorUp memory self) internal pure returns (bool) {
+         return self.currentTick <= self.endTick;
+     }
+ 
+-    /// @notice Get the next tick and advance the iterator
+-    /// @param self The iterator
+-    /// @return tick The next initialized tick
+     function getNext(TickIteratorUp memory self) internal view returns (int24 tick) {
+         if (!hasNext(self)) revert NoNext();
+         tick = self.currentTick;
+@@ -110,13 +97,6 @@ library TickIteratorLib {
+ 
+     // ============ Downward Iterator (High to Low) ============
+ 
+-    /// @notice Initialize a downward tick iterator
+-    /// @param manager The pool manager contract
+-    /// @param poolId The ID of the pool to iterate
+-    /// @param tickSpacing The tick spacing of the pool
+-    /// @param startTick The starting tick (exclusive, should be higher)
+-    /// @param endTick The ending tick (exclusive, should be lower)
+-    /// @return self The initialized iterator
+     function initDown(
+         IPoolManager manager,
+         PoolId poolId,
+@@ -134,27 +114,31 @@ library TickIteratorLib {
+     }
+ 
+     function reset(TickIteratorDown memory self, int24 startTick) internal view {
+-        if (!(self.endTick <= startTick)) revert InvalidRange();
+-        self.currentTick = startTick;
++        if (self.endTick > startTick) revert InvalidRange();
+ 
+-        if (startTick == self.endTick) return;
++        if (startTick == self.endTick) {
++            self.currentTick = startTick;
++            self.currentWord = 0;
++            return;
++        }
+ 
+-        (int16 wordPos,) = TickLib.position(startTick.compress(self.tickSpacing));
+-        self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);
++        int24 scanTick = startTick;
++        (int16 wordPos, uint8 bitPos) = TickLib.position(TickLib.compress(scanTick, self.tickSpacing));
++
++        if (bitPos == 0) {
++            scanTick -= self.tickSpacing;
++            (wordPos, bitPos) = TickLib.position(TickLib.compress(scanTick, self.tickSpacing));
++        }
+ 
++        self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);
++        self.currentTick = scanTick;
+         _advanceToNextDown(self);
+     }
+ 
+-    /// @notice Check if the iterator has more ticks
+-    /// @param self The iterator
+-    /// @return True if there are more ticks to iterate
+     function hasNext(TickIteratorDown memory self) internal pure returns (bool) {
+         return self.currentTick > self.endTick;
+     }
+ 
+-    /// @notice Get the next tick and advance the iterator
+-    /// @param self The iterator
+-    /// @return tick The next initialized tick
+     function getNext(TickIteratorDown memory self) internal view returns (int24 tick) {
+         if (!hasNext(self)) revert NoNext();
+         tick = self.currentTick;

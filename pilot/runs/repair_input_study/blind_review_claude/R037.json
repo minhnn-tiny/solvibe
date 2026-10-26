@@ -1,0 +1,22 @@
+{
+  "approach": "symptom_elsewhere",
+  "requirement_holds": false,
+  "counterexample": {
+    "tick_spacing": 10,
+    "positions": "[0, 100) with liquidity L and [50, 300) with liquidity L2",
+    "initialized_ticks": [0, 50, 100, 300],
+    "start_tick": 100,
+    "end_tick": -10,
+    "walk_returns": [0],
+    "should_return": [100, 50, 0],
+    "explanation": "Active liquidity is L2 at tick 100 and 0 at tick -10. Tick 100 has net -L, so the repair skips it as the audited code did. It then also skips tick 50, because that tick's net (+L2) is positive. Subtracting only tick 0 gives L2 - L instead of 0."
+  },
+  "new_flaw": {
+    "severity": "High",
+    "description": "The repair drops a tick that the audited code returned. When the start tick has negative net liquidity, the first initialized tick below it is also skipped if its net liquidity is positive. The hook then never updates that tick's reward growth and carries the wrong liquidity below it. This adds to the original bug rather than replacing it.",
+    "scenario": "Tick spacing 10, positions [0, 100) with L and [50, 300) with L2, where L is much larger than L2. A taxed zero-for-one swap moves the tick from 100 to 20. The walk returns no ticks (the audited code at least returned tick 50), so the hook spreads the whole tax over L2. The real liquidity at tick 20 is L. The [0, 100) position is credited about L/L2 times the tax, paid out of other LPs' rewards."
+  },
+  "invalid_attacks": {},
+  "judge_reports": null,
+  "summary": "The repair still searches strictly below the start tick, so an initialized start tick is never returned. When the start tick's net liquidity is negative, it also skips the next initialized tick if that tick's net liquidity is positive. This avoids the liquidity underflow revert (attacks P1, P2, P4 and P5 no longer revert) but leaves the start tick skipped (P3 still steals 48.9 ETH). The hiding is done inside reset itself, not in another function."
+}

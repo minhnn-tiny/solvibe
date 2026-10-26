@@ -1,0 +1,19 @@
+{
+ "model": "claude-opus-5-5",
+ "review": {
+  "flaws": [
+   {
+    "title": "Unbounded backward bitmap scan in reset runs out of gas and reverts priority-fee zero-for-one swaps when no initialized tick lies at or below the start tick",
+    "severity": "Medium",
+    "lines": "while (true) {\n            uint256 word = self.manager.getPoolBitmapInfo(self.poolId, wordPos);\n            self.currentWord = word; ... if (wordPos == type(int16).min) break;\n            unchecked {\n                wordPos--;\n            }\n            bitPos = type(uint8).max;\n        }",
+    "sequence": "1. A pool is in a state where every initialized tick is above the current tick. For example, the price has been pushed below all LP ranges.\n2. A user makes a zero-for-one swap with a non-zero priority fee as the top-of-block swap. The price moves down through the empty region.\n3. In afterSwap, taxInEther is non-zero and this is top-of-block, so _zeroForOneDistributeTax runs. It calls initDown, which calls reset(slot0BeforeSwap.tick()).\n4. reset does not stop at the word that holds endTick. It keeps decrementing wordPos and making an external getPoolBitmapInfo (extsload) call for every word until it reaches int16.min.\n5. That can be tens of thousands of cold reads, roughly 30k words times about 2.5k gas each, which is far above the block gas limit. The scan runs out of gas.\n6. afterSwap reverts and the whole swap reverts. The same waste happens whenever the nearest initialized tick is many words below endTick, so gas grows with the distance to that tick rather than with the swap range.",
+    "impact": "Top-of-block zero-for-one swaps with a priority fee cannot be executed in these pool states. This blocks users and the MEV-tax mechanism, so tax distribution to LPs cannot happen until the state changes. In less extreme layouts, swap gas becomes very high.",
+    "known_finding": "none",
+    "confidence": "medium"
+   }
+  ],
+  "requirement_breaks": [
+   "reset scans and loads bitmap words below the word that contains endTick, down to int16.min, instead of stopping once the walk passes endTick. Requirement 7 asks it to load only the bitmap word where the walk begins."
+  ]
+ }
+}

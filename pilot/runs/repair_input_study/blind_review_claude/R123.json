@@ -1,0 +1,28 @@
+{
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "counterexample": {
+    "tick_spacing": 10,
+    "initialized_ticks": "-100 and 100, from one position over [-100, 100)",
+    "start_tick": -5,
+    "end_tick": -50,
+    "walk_returns": [-10],
+    "should_return": [],
+    "note": "compress(-5) is -1, which is bit 255 of word -1. The patch then sets currentTick to -10 and returns without checking the bitmap, so getNext returns -10 although it is not initialized. The liquidity sum is unchanged because tick -10 holds no liquidity, but requirement 4 allows only initialized ticks."
+  },
+  "new_flaw": null,
+  "invalid_attacks": {},
+  "judge_reports": [
+    {
+      "reviewer": "claude-opus-5-5",
+      "verdict": "disagree",
+      "reason": "The uninitialized tick is real and is why requirement 4 fails, but the claimed reward error does not follow: no position uses the tick when growth is written to it, and when a position later uses it the stored value is a constant offset that is recorded in lastGrowthInsideX128 and cancels out of the reward."
+    },
+    {
+      "reviewer": "gpt-6.1-sol",
+      "verdict": "disagree",
+      "reason": "The extra price segment only splits a range of constant liquidity, so it changes the result only by rounding, the same rounding risk already exists at real ticks, and the posthoc test that starts a swap at bit 255 (forge_P6_posthoc.json) did not revert."
+    }
+  ],
+  "summary": "Sets currentTick one aligned step above the start's compressed position so the search includes the start tick. But when that position is bit 255 it returns early with currentTick at the start's floor tick without checking the bitmap, so the walk can return a tick that is not initialized."
+}

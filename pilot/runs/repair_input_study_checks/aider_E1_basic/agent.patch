@@ -1,0 +1,35 @@
+diff --git a/src/libraries/TickIterator.sol b/src/libraries/TickIterator.sol
+index a4d6577..1c5acea 100644
+--- a/src/libraries/TickIterator.sol
++++ b/src/libraries/TickIterator.sol
+@@ -28,6 +28,7 @@ using TickIteratorLib for TickIteratorDown global;
+ using TickIteratorLib for TickIteratorUp global;
+ 
+ /// @author philogy <https://github.com/philogy>
++// study check
+ library TickIteratorLib {
+     using TickLib for int24;
+     using TickLib for uint256;
+@@ -139,7 +140,10 @@ library TickIteratorLib {
+ 
+         if (startTick == self.endTick) return;
+ 
+-        (int16 wordPos,) = TickLib.position(startTick.compress(self.tickSpacing));
++        // The iterator is exclusive of startTick, so seed it from the tick just below
++        // the boundary and let the advancement logic select the next initialized tick.
++        int24 seedTick = startTick - 1;
++        (int16 wordPos,) = TickLib.position(seedTick.compress(self.tickSpacing));
+         self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);
+ 
+         _advanceToNextDown(self);
+@@ -163,8 +167,9 @@ library TickIteratorLib {
+ 
+     function _advanceToNextDown(TickIteratorDown memory self) private view {
+         do {
++            int24 seedTick = self.currentTick - 1;
+             (int16 wordPos, uint8 bitPos) =
+-                TickLib.position((self.currentTick - 1).compress(self.tickSpacing));
++                TickLib.position(seedTick.compress(self.tickSpacing));
+ 
+             if (bitPos == 255) {
+                 self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);

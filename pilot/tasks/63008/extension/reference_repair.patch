@@ -1,0 +1,66 @@
+diff --git a/src/libraries/TickIterator.sol b/src/libraries/TickIterator.sol
+index a4d6577..a93209c 100644
+--- a/src/libraries/TickIterator.sol
++++ b/src/libraries/TickIterator.sol
+@@ -28,6 +28,10 @@ using TickIteratorLib for TickIteratorDown global;
+ using TickIteratorLib for TickIteratorUp global;
+ 
+ /// @author philogy <https://github.com/philogy>
++/// @dev The invariant of the tick iterators is that given a `start -> end` range the iterator
++/// yields every initialized tick between start & end inclusive such that if you start with the
++/// total liquidity at `start` and apply the `netLiquidity` of every yielded tick you derive the
++/// total liquidity at `end`.
+ library TickIteratorLib {
+     using TickLib for int24;
+     using TickLib for uint256;
+@@ -83,6 +87,11 @@ library TickIteratorLib {
+         return self.currentTick <= self.endTick;
+     }
+ 
++    function peekNext(TickIteratorUp memory self) internal pure returns (int24) {
++        if (!hasNext(self)) revert NoNext();
++        return self.currentTick;
++    }
++
+     /// @notice Get the next tick and advance the iterator
+     /// @param self The iterator
+     /// @return tick The next initialized tick
+@@ -105,7 +114,7 @@ library TickIteratorLib {
+             (initialized, bitPos) = self.currentWord.nextBitPosGte(bitPos);
+             self.currentTick = TickLib.toTick(wordPos, bitPos, self.tickSpacing);
+             if (initialized) break;
+-        } while (self.currentTick < self.endTick);
++        } while (self.currentTick <= self.endTick);
+     }
+ 
+     // ============ Downward Iterator (High to Low) ============
+@@ -114,8 +123,8 @@ library TickIteratorLib {
+     /// @param manager The pool manager contract
+     /// @param poolId The ID of the pool to iterate
+     /// @param tickSpacing The tick spacing of the pool
+-    /// @param startTick The starting tick (exclusive, should be higher)
+-    /// @param endTick The ending tick (exclusive, should be lower)
++    /// @param startTick The starting tick (inclusive, should be higher or equal to `endTick`)
++    /// @param endTick The ending tick (exclusive, should be lower or equal to `startTick`)
+     /// @return self The initialized iterator
+     function initDown(
+         IPoolManager manager,
+@@ -135,9 +144,16 @@ library TickIteratorLib {
+ 
+     function reset(TickIteratorDown memory self, int24 startTick) internal view {
+         if (!(self.endTick <= startTick)) revert InvalidRange();
+-        self.currentTick = startTick;
++        // We want the tick iterator to be *inclusive* of the start tick, however
++        // `_advanceToNextDown` searches for the next tick strictly *less than* `self.currentTick`,
++        // therefore we set it `+ 1`.
++        self.currentTick = startTick + 1;
+ 
+-        if (startTick == self.endTick) return;
++        if (startTick == self.endTick) {
++            // An empty range yields no ticks (V1 requirement 6).
++            self.currentTick = startTick;
++            return;
++        }
+ 
+         (int16 wordPos,) = TickLib.position(startTick.compress(self.tickSpacing));
+         self.currentWord = self.manager.getPoolBitmapInfo(self.poolId, wordPos);

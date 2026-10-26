@@ -1,0 +1,32 @@
+{
+  "approach": "wrong_general",
+  "requirement_holds": false,
+  "counterexample": {
+    "tick_spacing": 10,
+    "initialized_ticks": "-100 (liquidityNet +L1), -20 (liquidityNet +L2) and 100 (liquidityNet -(L1+L2)), from positions over [-100, 100) with L1 and [-20, 100) with L2",
+    "start_tick": -50,
+    "end_tick": -50,
+    "walk_returns": [0, -20],
+    "should_return": [],
+    "note": "The iterator comes new from initDown, so currentTick is 0, and reset returns before setting it. hasNext is true because 0 > -50. The walk returns tick 0, which is not initialized, then -20. Active liquidity at -50 is L1, but the walk ends at L1 - L2, and in the hook liquidity.sub reverts when L2 > L1."
+  },
+  "new_flaw": {
+    "severity": "Medium",
+    "description": "The patch moved the currentTick assignment below the empty-range return. When start equals end, reset leaves currentTick unchanged: 0 for a new iterator from initDown, or wherever the earlier pass stopped when the hook calls reset again. At a negative tick, hasNext is then true and the walk returns ticks above the current price.",
+    "scenario": "Tick spacing 10, pool at tick -50 with active liquidity L1 from [-100, 100). An attacker adds a position over [-20, 100) with liquidity L2 larger than L1, which does not change active liquidity at -50. A trader makes the first taxed zero-for-one swap of a block and the tick stays at -50. initDown(-50, -50) leaves currentTick at 0, so CompensationPriceFinder.getZeroForOne visits ticks 0 and -20, and liquidity.sub(L2) reverts the swap. With a smaller L2 the swap goes through with wrong liquidity, and if the first pass returns early, the second pass after reset continues from the stale position and adds reward growth to ticks that were never crossed. The posthoc test in forge_P8_posthoc.json, a taxed swap that keeps a negative tick, passes against this repair."
+  },
+  "invalid_attacks": {},
+  "judge_reports": [
+    {
+      "reviewer": "claude-opus-5-5",
+      "verdict": "agree",
+      "reason": "Without the currentTick assignment before the early return, an empty range at a negative tick has hasNext true and walks ticks above the start; the revert path is confirmed by forge_P8_posthoc.json, while the reward-theft path is less certain because it needs the first pass to return early."
+    },
+    {
+      "reviewer": "gpt-6.1-sol",
+      "verdict": "agree",
+      "reason": "Same root cause, and its revert through liquidity.sub on the stale tick 0 matches the posthoc test in forge_P8_posthoc.json, which passes against this repair."
+    }
+  ],
+  "summary": "Sets currentTick to startTick + 1 before the search, which includes the start tick in every non-empty range. But it also moved the currentTick assignment below the empty-range return, so when start equals end the iterator keeps a stale currentTick and can return ticks."
+}

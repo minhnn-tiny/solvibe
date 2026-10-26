@@ -1,0 +1,623 @@
+Warning: Input is not a terminal (fd=0).
+────────────────────────────────────────────────────────────────────────────────
+HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Max retries exceeded with url: /BerriAI/litellm/main/model_prices_and_context_window.json (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Filtered')))
+Aider v0.86.2
+Model: openai/gpt-5.4-mini-2026-03-17 with whole edit format
+Git repo: .git with 2,859 files
+Warning: For large repos, consider using --subtree-only and .aiderignore
+See: https://aider.chat/docs/faq.html#can-i-use-aider-in-a-large-mono-repo
+Repo-map: disabled
+Added src/libraries/TickIterator.sol to the chat.
+
+
+https://aider.chat/HISTORY.html#release-notes
+
+
+test/SwapFromTickBoundary.t.sol
+src/libraries/TickIterator.sol                                                  
+
+                                                                                
+ @@ -132,17 +132,24 @@                                                          
+          self.reset(startTick);                                                
+          return self;                                                          
+      }                                                                         
+                                                                                
+      function reset(TickIteratorDown memory self, int24 startTick) internal    
+ view {                                                                         
+ -        if (!(self.endTick <= startTick)) revert InvalidRange();              
+ +        if (self.endTick > startTick) revert InvalidRange();                  
+          self.currentTick = startTick;                                         
+                                                                                
+ -        if (startTick == self.endTick) return;                                
+ +        if (startTick == self.endTick) {                                      
+ +            self.currentTick = type(int24).min;                               
+ +            return;                                                           
+ +        }                                                                     
+                                                                                
+ -        (int16 wordPos,) =                                                    
+ TickLib.position(startTick.compress(self.tickSpacing));                        
+ +        (int16 wordPos, uint8 bitPos) =                                       
+ TickLib.position(TickLib.compress(startTick, self.tickSpacing));               
+          self.currentWord = self.manager.getPoolBitmapInfo(self.poolId,        
+ wordPos);                                                                      
+ +                                                                              
+ +        if (bitPos == 0) {                                                    
+ +            self.currentWord = self.manager.getPoolBitmapInfo(self.poolId,    
+ wordPos);                                                                      
+ +        }                                                                     
+                                                                                
+          _advanceToNextDown(self);                                             
+      }                                                                         
+                                                                                
+      /// @notice Check if the iterator has more ticks                          
+                                                                                
+
+Tokens: 11k sent, 1.5k received.
+Applied edit to src/libraries/TickIterator.sol
+Compiling 5 files with Solc 0.8.26
+Solc 0.8.26 finished in 4.22s
+Compiler run successful with warnings:
+Warning (5574): Contract code size is 25282 bytes and exceeds 24576 bytes (a limit introduced in Spurious Dragon). This contract may not be deployable on Mainnet. Consider enabling the optimizer (with a low "runs" value!), turning off revert strings, or using libraries.
+  --> test/_mocks/UniV4Inspector.sol:12:1:
+   |
+12 | contract UniV4Inspector is PoolManager {
+   | ^ (Relevant source part starts here and spans across multiple lines).
+
+
+Ran 1 test for test/SwapFromTickBoundary.t.sol:SwapFromTickBoundaryTest
+[FAIL: WrappedError(0xd13E7816f191ebF25181798184b6C776845b25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)] test_swapDownFromTickBoundary() (gas: 433791)
+Traces:
+  [433791] SwapFromTickBoundaryTest::test_swapDownFromTickBoundary()
+    ├─ [34428] UniV4Inspector::initialize(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xd13E7816f191ebF25181798184b6C776845b25CB }), 79307426338960776842885539845 [7.93e28])
+    │   ├─ [1026] AngstromL2::beforeInitialize(SwapFromTickBoundaryTest: [0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496], PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xd13E7816f191ebF25181798184b6C776845b25CB }), 79307426338960776842885539845 [7.93e28])
+    │   │   └─ ← [Return] 0xdc98354e
+    │   ├─ emit Initialize(id: 0xd1a6b00bf4eb89dde13a09e4fc1d550b1d58c99b93f91a32424ea337116331ba, currency0: 0x0000000000000000000000000000000000000000, currency1: MockERC20: [0xF62849F9A0B5Bf2913b396098F7c7019b51A820a], fee: 8388608 [8.388e6], tickSpacing: 10, hooks: AngstromL2: [0xd13E7816f191ebF25181798184b6C776845b25CB], sqrtPriceX96: 79307426338960776842885539845 [7.93e28], tick: 20)
+    │   └─ ← [Return] 20
+    ├─ [8174] AngstromL2::setPoolLPFee(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xd13E7816f191ebF25181798184b6C776845b25CB }), 50000 [5e4])
+    │   ├─ [1756] UniV4Inspector::updateDynamicLPFee(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xd13E7816f191ebF25181798184b6C776845b25CB }), 50000 [5e4])
+    │   │   └─ ← [Stop]
+    │   ├─ emit PoolLPFeeUpdated(key: PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xd13E7816f191ebF25181798184b6C776845b25CB }), newFee: 50000 [5e4])
+    │   └─ ← [Stop]
+    ├─ [209122] RouterActor::modifyLiquidity(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xd13E7816f191ebF25181798184b6C776845b25CB }), -10, 20, 10000000000000000000000 [1e22], 0x0000000000000000000000000000000000000000000000000000000000000000)
+    │   ├─ [204153] UniV4Inspector::unlock(0x020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f62849f9a0b5bf2913b396098f7c7019b51a820a0000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000d13e7816f191ebf25181798184b6c776845b25cbfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff6000000000000000000000000000000000000000000000000000000000000001400000000000000000000000000000000000000000000021e19e0c9bab24000000000000000000000000000000000000000000000000000000000000000000000)
+    │   │   ├─ [201960] RouterActor::unlockCallback(0x020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f62849f9a0b5bf2913b396098f7c7019b51a820a0000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000d13e7816f191ebf25181798184b6c776845b25cbfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff6000000000000000000000000000000000000000000000000000000000000001400000000000000000000000000000000000000000000021e19e0c9bab24000000000000000000000000000000000000000000000000000000000000000000000)
+    │   │   │   ├─ [159921] UniV4Inspector::modifyLiquidity(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xd13E7816f191ebF25181798184b6C776845b25CB }), ModifyLiquidityParams({ tickLower: -10, tickUpper: 20, liquidityDelta: 10000000000000000000000 [1e22], salt: 0x0000000000000000000000000000000000000000000000000000000000000000 }), 0x)
+    │   │   │   │   ├─ emit ModifyLiquidity(id: 0xd1a6b00bf4eb89dde13a09e4fc1d550b1d58c99b93f91a32424ea337116331ba, sender: RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], tickLower: -10, tickUpper: 20, liquidityDelta: 10000000000000000000000 [1e22], salt: 0x0000000000000000000000000000000000000000000000000000000000000000)
+    │   │   │   │   ├─ [16167] AngstromL2::afterAddLiquidity(RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xd13E7816f191ebF25181798184b6C776845b25CB }), ModifyLiquidityParams({ tickLower: -10, tickUpper: 20, liquidityDelta: 10000000000000000000000 [1e22], salt: 0x0000000000000000000000000000000000000000000000000000000000000000 }), 340282366920938463448371605881628173655 [3.402e38], 0, 0x)
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0xdc5224ad1e62496fd5da1fae53f513ddf00b13c5ebdfc3563e39182381b68662) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x00000000c3500000000000140000000000000001004190c48bf915addfe52805
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x132752c6a8cb0960ac4a5ed387e9cc3b8fb40483d258a9e1e6fd08ea21c728f8) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x8000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0xdd0d0170dbf57cd72e668456b77cc5c2566559cb9938afdf8f65690385e5e560) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000004
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x54125eff248a591c3bc981a0b6905106e6d283dfd6446f6f68b0f99097808c6f) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x00000000000000000000000000000000000000000000021e19e0c9bab2400000
+    │   │   │   │   │   └─ ← [Return] 0x9f063efc, 0
+    │   │   │   │   └─ ← [Return] 340282366920938463448371605881628173655 [3.402e38], 0
+    │   │   │   ├─ [6172] UniV4Inspector::sync(MockERC20: [0xF62849F9A0B5Bf2913b396098F7c7019b51A820a])
+    │   │   │   │   ├─ [2527] MockERC20::balanceOf(UniV4Inspector: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   ├─ [27681] MockERC20::transfer(UniV4Inspector: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 15003001550140037801 [1.5e19])
+    │   │   │   │   ├─ emit Transfer(from: RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], to: UniV4Inspector: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], value: 15003001550140037801 [1.5e19])
+    │   │   │   │   └─ ← [Return] true
+    │   │   │   ├─ [2788] UniV4Inspector::settle()
+    │   │   │   │   ├─ [527] MockERC20::balanceOf(UniV4Inspector: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 15003001550140037801 [1.5e19]
+    │   │   │   │   └─ ← [Return] 15003001550140037801 [1.5e19]
+    │   │   │   └─ ← [Return] 0x00000000000000000000000000000000ffffffffffffffff2fcaa1945744a5570000000000000000000000000000000000000000000000000000000000000000
+    │   │   └─ ← [Return] 0x00000000000000000000000000000000ffffffffffffffff2fcaa1945744a5570000000000000000000000000000000000000000000000000000000000000000
+    │   └─ ← [Return] 340282366920938463448371605881628173655 [3.402e38], 0
+    ├─ [3432] AngstromL2::getPendingPositionRewards(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xd13E7816f191ebF25181798184b6C776845b25CB }), RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], -10, 20, 0x0000000000000000000000000000000000000000000000000000000000000000) [staticcall]
+    │   ├─ [393] UniV4Inspector::extsload(0xdc5224ad1e62496fd5da1fae53f513ddf00b13c5ebdfc3563e39182381b68662) [staticcall]
+    │   │   └─ ← [Return] 0x00000000c3500000000000140000000000000001004190c48bf915addfe52805
+    │   ├─ [393] UniV4Inspector::extsload(0x54125eff248a591c3bc981a0b6905106e6d283dfd6446f6f68b0f99097808c6f) [staticcall]
+    │   │   └─ ← [Return] 0x00000000000000000000000000000000000000000000021e19e0c9bab2400000
+    │   └─ ← [Return] 0
+    ├─ [0] VM::roll(101)
+    │   └─ ← [Return]
+    ├─ [0] VM::txGasPrice(700000000 [7e8])
+    │   └─ ← [Return]
+    ├─ [155574] RouterActor::swap(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xd13E7816f191ebF25181798184b6C776845b25CB }), true, -1000000000000000000000 [-1e21], 79188560314459151373725315960 [7.918e28])
+    │   ├─ [153472] UniV4Inspector::unlock(0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f62849f9a0b5bf2913b396098f7c7019b51a820a0000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000d13e7816f191ebf25181798184b6c776845b25cb0000000000000000000000000000000000000000000000000000000000000001ffffffffffffffffffffffffffffffffffffffffffffffc9ca36523a216000000000000000000000000000000000000000000000ffdf3de87261863e03afb378)
+    │   │   ├─ [152194] RouterActor::unlockCallback(0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f62849f9a0b5bf2913b396098f7c7019b51a820a0000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000d13e7816f191ebf25181798184b6c776845b25cb0000000000000000000000000000000000000000000000000000000000000001ffffffffffffffffffffffffffffffffffffffffffffffc9ca36523a216000000000000000000000000000000000000000000000ffdf3de87261863e03afb378)
+    │   │   │   ├─ [149258] UniV4Inspector::swap(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xd13E7816f191ebF25181798184b6C776845b25CB }), SwapParams({ zeroForOne: true, amountSpecified: -1000000000000000000000 [-1e21], sqrtPriceLimitX96: 79188560314459151373725315960 [7.918e28] }), 0x)
+    │   │   │   │   ├─ [5689] AngstromL2::beforeSwap(RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xd13E7816f191ebF25181798184b6C776845b25CB }), SwapParams({ zeroForOne: true, amountSpecified: -1000000000000000000000 [-1e21], sqrtPriceLimitX96: 79188560314459151373725315960 [7.918e28] }), 0x)
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0xdc5224ad1e62496fd5da1fae53f513ddf00b13c5ebdfc3563e39182381b68662) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x00000000c3500000000000140000000000000001004190c48bf915addfe52805
+    │   │   │   │   │   ├─ [2393] UniV4Inspector::extsload(0xdc5224ad1e62496fd5da1fae53f513ddf00b13c5ebdfc3563e39182381b68665) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   └─ ← [Return] 0x575e24b4, 1167168518538818929679374903490964965294080000000000000 [1.167e54], 0
+    │   │   │   │   ├─ emit Swap(id: 0xd1a6b00bf4eb89dde13a09e4fc1d550b1d58c99b93f91a32424ea337116331ba, sender: RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], amount0: -15784739262410737106 [-1.578e19], amount1: 15003001550140037799 [1.5e19], sqrtPriceX96: 79188560314459151373725315960 [7.918e28], liquidity: 0, tick: -11, fee: 50000 [5e4])
+    │   │   │   │   ├─ [78571] AngstromL2::afterSwap(RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xd13E7816f191ebF25181798184b6C776845b25CB }), SwapParams({ zeroForOne: true, amountSpecified: -1000000000000000000000 [-1e21], sqrtPriceLimitX96: 79188560314459151373725315960 [7.918e28] }), -5371268437442994008728218060229101896688448951558093448537 [-5.371e57], 0x)
+    │   │   │   │   │   ├─ [5691] UniV4Inspector::mint(AngstromL2: [0xd13E7816f191ebF25181798184b6C776845b25CB], 1405310203571408291950365054053061012934685786634 [1.405e48], 0)
+    │   │   │   │   │   │   ├─ emit Transfer(caller: AngstromL2: [0xd13E7816f191ebF25181798184b6C776845b25CB], from: 0x0000000000000000000000000000000000000000, to: AngstromL2: [0xd13E7816f191ebF25181798184b6C776845b25CB], id: 1405310203571408291950365054053061012934685786634 [1.405e48], amount: 0)
+    │   │   │   │   │   │   └─ ← [Stop]
+    │   │   │   │   │   ├─ [26414] UniV4Inspector::mint(AngstromL2: [0xd13E7816f191ebF25181798184b6C776845b25CB], 0, 3430000000000000 [3.43e15])
+    │   │   │   │   │   │   ├─ emit Transfer(caller: AngstromL2: [0xd13E7816f191ebF25181798184b6C776845b25CB], from: 0x0000000000000000000000000000000000000000, to: AngstromL2: [0xd13E7816f191ebF25181798184b6C776845b25CB], id: 0, amount: 3430000000000000 [3.43e15])
+    │   │   │   │   │   │   └─ ← [Stop]
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0xdc5224ad1e62496fd5da1fae53f513ddf00b13c5ebdfc3563e39182381b68662) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x00000000c350000000fffff50000000000000000ffdf3de87261863e03afb378
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0xdd0d0170dbf57cd72e668456b77cc5c2566559cb9938afdf8f65690385e5e560) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000004
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0xdd0d0170dbf57cd72e668456b77cc5c2566559cb9938afdf8f65690385e5e560) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000004
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x132752c6a8cb0960ac4a5ed387e9cc3b8fb40483d258a9e1e6fd08ea21c728f8) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x8000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x132752c6a8cb0960ac4a5ed387e9cc3b8fb40483d258a9e1e6fd08ea21c728f8) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x8000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0xdd0d0170dbf57cd72e668456b77cc5c2566559cb9938afdf8f65690385e5e560) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000004
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x132752c6a8cb0960ac4a5ed387e9cc3b8fb40483d258a9e1e6fd08ea21c728f8) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x8000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x159b78336259e235f2d614072aa89ab0659d4548b0ad76ccad91d8af1f4b4edc) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x000000000000021e19e0c9bab2400000000000000000021e19e0c9bab2400000
+    │   │   │   │   │   └─ ← [Revert] ArithmeticOverflowUnderflow()
+    │   │   │   │   └─ ← [Revert] WrappedError(0xd13E7816f191ebF25181798184b6C776845b25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+    │   │   │   └─ ← [Revert] WrappedError(0xd13E7816f191ebF25181798184b6C776845b25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+    │   │   └─ ← [Revert] WrappedError(0xd13E7816f191ebF25181798184b6C776845b25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+    │   └─ ← [Revert] WrappedError(0xd13E7816f191ebF25181798184b6C776845b25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+    └─ ← [Revert] WrappedError(0xd13E7816f191ebF25181798184b6C776845b25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+
+Backtrace:
+  at AngstromL2.afterSwap
+  at UniV4Inspector.swap
+  at RouterActor.unlockCallback
+  at UniV4Inspector.unlock
+  at RouterActor.swap
+  at SwapFromTickBoundaryTest.test_swapDownFromTickBoundary
+
+Suite result: FAILED. 0 passed; 1 failed; 0 skipped; finished in 78.61ms (2.35ms CPU time)
+
+Ran 1 test suite in 128.43ms (78.61ms CPU time): 0 tests passed, 1 failed, 0 skipped (1 total tests)
+
+Failing tests:
+Encountered 1 failing test in test/SwapFromTickBoundary.t.sol:SwapFromTickBoundaryTest
+[FAIL: WrappedError(0xd13E7816f191ebF25181798184b6C776845b25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)] test_swapDownFromTickBoundary() (gas: 433791)
+
+Encountered a total of 1 failing tests, 0 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 1 failed test
+Added 124 lines of output to the chat.
+src/libraries/TickIterator.sol                                                  
+
+                                                                                
+ @@ -133,21 +133,24 @@                                                          
+          return self;                                                          
+      }                                                                         
+                                                                                
+      function reset(TickIteratorDown memory self, int24 startTick) internal    
+ view {                                                                         
+          if (self.endTick > startTick) revert InvalidRange();                  
+ +                                                                              
+          self.currentTick = startTick;                                         
+                                                                                
+          if (startTick == self.endTick) {                                      
+ -            self.currentTick = type(int24).min;                               
+              return;                                                           
+          }                                                                     
+                                                                                
+ -        (int16 wordPos, uint8 bitPos) =                                       
+ TickLib.position(TickLib.compress(startTick, self.tickSpacing));               
+ +        int24 compressedStart = startTick.compress(self.tickSpacing);         
+ +        (int16 wordPos, uint8 bitPos) = TickLib.position(compressedStart);    
+ +                                                                              
+          self.currentWord = self.manager.getPoolBitmapInfo(self.poolId,        
+ wordPos);                                                                      
+                                                                                
+ -        if (bitPos == 0) {                                                    
+ +        if (bitPos == 255) {                                                  
+ +            (wordPos, bitPos) = TickLib.position(compressedStart - 1);        
+              self.currentWord = self.manager.getPoolBitmapInfo(self.poolId,    
+ wordPos);                                                                      
+          }                                                                     
+                                                                                
+          _advanceToNextDown(self);                                             
+      }                                                                         
+                                                                                
+
+Tokens: 28k sent, 1.5k received.
+Applied edit to src/libraries/TickIterator.sol
+Compiling 5 files with Solc 0.8.26
+Solc 0.8.26 finished in 4.55s
+Compiler run successful with warnings:
+Warning (5574): Contract code size is 25282 bytes and exceeds 24576 bytes (a limit introduced in Spurious Dragon). This contract may not be deployable on Mainnet. Consider enabling the optimizer (with a low "runs" value!), turning off revert strings, or using libraries.
+  --> test/_mocks/UniV4Inspector.sol:12:1:
+   |
+12 | contract UniV4Inspector is PoolManager {
+   | ^ (Relevant source part starts here and spans across multiple lines).
+
+
+Ran 1 test for test/SwapFromTickBoundary.t.sol:SwapFromTickBoundaryTest
+[FAIL: WrappedError(0x82813fDE111F290526b276dBFF063A792447a5CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)] test_swapDownFromTickBoundary() (gas: 433806)
+Traces:
+  [433806] SwapFromTickBoundaryTest::test_swapDownFromTickBoundary()
+    ├─ [34428] UniV4Inspector::initialize(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0x82813fDE111F290526b276dBFF063A792447a5CB }), 79307426338960776842885539845 [7.93e28])
+    │   ├─ [1026] AngstromL2::beforeInitialize(SwapFromTickBoundaryTest: [0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496], PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0x82813fDE111F290526b276dBFF063A792447a5CB }), 79307426338960776842885539845 [7.93e28])
+    │   │   └─ ← [Return] 0xdc98354e
+    │   ├─ emit Initialize(id: 0x686cad9d6c90078321610284d941312e38e4b7e8f21f2762604f2fa8f95981a1, currency0: 0x0000000000000000000000000000000000000000, currency1: MockERC20: [0xF62849F9A0B5Bf2913b396098F7c7019b51A820a], fee: 8388608 [8.388e6], tickSpacing: 10, hooks: AngstromL2: [0x82813fDE111F290526b276dBFF063A792447a5CB], sqrtPriceX96: 79307426338960776842885539845 [7.93e28], tick: 20)
+    │   └─ ← [Return] 20
+    ├─ [8174] AngstromL2::setPoolLPFee(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0x82813fDE111F290526b276dBFF063A792447a5CB }), 50000 [5e4])
+    │   ├─ [1756] UniV4Inspector::updateDynamicLPFee(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0x82813fDE111F290526b276dBFF063A792447a5CB }), 50000 [5e4])
+    │   │   └─ ← [Stop]
+    │   ├─ emit PoolLPFeeUpdated(key: PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0x82813fDE111F290526b276dBFF063A792447a5CB }), newFee: 50000 [5e4])
+    │   └─ ← [Stop]
+    ├─ [209122] RouterActor::modifyLiquidity(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0x82813fDE111F290526b276dBFF063A792447a5CB }), -10, 20, 10000000000000000000000 [1e22], 0x0000000000000000000000000000000000000000000000000000000000000000)
+    │   ├─ [204153] UniV4Inspector::unlock(0x020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f62849f9a0b5bf2913b396098f7c7019b51a820a0000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000a00000000000000000000000082813fde111f290526b276dbff063a792447a5cbfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff6000000000000000000000000000000000000000000000000000000000000001400000000000000000000000000000000000000000000021e19e0c9bab24000000000000000000000000000000000000000000000000000000000000000000000)
+    │   │   ├─ [201960] RouterActor::unlockCallback(0x020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f62849f9a0b5bf2913b396098f7c7019b51a820a0000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000a00000000000000000000000082813fde111f290526b276dbff063a792447a5cbfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff6000000000000000000000000000000000000000000000000000000000000001400000000000000000000000000000000000000000000021e19e0c9bab24000000000000000000000000000000000000000000000000000000000000000000000)
+    │   │   │   ├─ [159921] UniV4Inspector::modifyLiquidity(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0x82813fDE111F290526b276dBFF063A792447a5CB }), ModifyLiquidityParams({ tickLower: -10, tickUpper: 20, liquidityDelta: 10000000000000000000000 [1e22], salt: 0x0000000000000000000000000000000000000000000000000000000000000000 }), 0x)
+    │   │   │   │   ├─ emit ModifyLiquidity(id: 0x686cad9d6c90078321610284d941312e38e4b7e8f21f2762604f2fa8f95981a1, sender: RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], tickLower: -10, tickUpper: 20, liquidityDelta: 10000000000000000000000 [1e22], salt: 0x0000000000000000000000000000000000000000000000000000000000000000)
+    │   │   │   │   ├─ [16167] AngstromL2::afterAddLiquidity(RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0x82813fDE111F290526b276dBFF063A792447a5CB }), ModifyLiquidityParams({ tickLower: -10, tickUpper: 20, liquidityDelta: 10000000000000000000000 [1e22], salt: 0x0000000000000000000000000000000000000000000000000000000000000000 }), 340282366920938463448371605881628173655 [3.402e38], 0, 0x)
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0xcce8fb3933653c0c7f979ebd0f0696d4e0a3986822eeac3e2989a0fca45de013) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x00000000c3500000000000140000000000000001004190c48bf915addfe52805
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x32b8588e1bb13e26aeaae36e43bfeadcac5e5cc87aaeae60657f1f5c51529bbc) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x8000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x0c0968e2728da9086a8f62796b49768b60169e62881766192cf0ff2cd55bfd74) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000004
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x33e11a511cced75f2e08b4119645a0ca967bea6c417769d89ce5c607d021f1eb) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x00000000000000000000000000000000000000000000021e19e0c9bab2400000
+    │   │   │   │   │   └─ ← [Return] 0x9f063efc, 0
+    │   │   │   │   └─ ← [Return] 340282366920938463448371605881628173655 [3.402e38], 0
+    │   │   │   ├─ [6172] UniV4Inspector::sync(MockERC20: [0xF62849F9A0B5Bf2913b396098F7c7019b51A820a])
+    │   │   │   │   ├─ [2527] MockERC20::balanceOf(UniV4Inspector: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   ├─ [27681] MockERC20::transfer(UniV4Inspector: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 15003001550140037801 [1.5e19])
+    │   │   │   │   ├─ emit Transfer(from: RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], to: UniV4Inspector: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], value: 15003001550140037801 [1.5e19])
+    │   │   │   │   └─ ← [Return] true
+    │   │   │   ├─ [2788] UniV4Inspector::settle()
+    │   │   │   │   ├─ [527] MockERC20::balanceOf(UniV4Inspector: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 15003001550140037801 [1.5e19]
+    │   │   │   │   └─ ← [Return] 15003001550140037801 [1.5e19]
+    │   │   │   └─ ← [Return] 0x00000000000000000000000000000000ffffffffffffffff2fcaa1945744a5570000000000000000000000000000000000000000000000000000000000000000
+    │   │   └─ ← [Return] 0x00000000000000000000000000000000ffffffffffffffff2fcaa1945744a5570000000000000000000000000000000000000000000000000000000000000000
+    │   └─ ← [Return] 340282366920938463448371605881628173655 [3.402e38], 0
+    ├─ [3432] AngstromL2::getPendingPositionRewards(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0x82813fDE111F290526b276dBFF063A792447a5CB }), RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], -10, 20, 0x0000000000000000000000000000000000000000000000000000000000000000) [staticcall]
+    │   ├─ [393] UniV4Inspector::extsload(0xcce8fb3933653c0c7f979ebd0f0696d4e0a3986822eeac3e2989a0fca45de013) [staticcall]
+    │   │   └─ ← [Return] 0x00000000c3500000000000140000000000000001004190c48bf915addfe52805
+    │   ├─ [393] UniV4Inspector::extsload(0x33e11a511cced75f2e08b4119645a0ca967bea6c417769d89ce5c607d021f1eb) [staticcall]
+    │   │   └─ ← [Return] 0x00000000000000000000000000000000000000000000021e19e0c9bab2400000
+    │   └─ ← [Return] 0
+    ├─ [0] VM::roll(101)
+    │   └─ ← [Return]
+    ├─ [0] VM::txGasPrice(700000000 [7e8])
+    │   └─ ← [Return]
+    ├─ [155589] RouterActor::swap(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0x82813fDE111F290526b276dBFF063A792447a5CB }), true, -1000000000000000000000 [-1e21], 79188560314459151373725315960 [7.918e28])
+    │   ├─ [153487] UniV4Inspector::unlock(0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f62849f9a0b5bf2913b396098f7c7019b51a820a0000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000a00000000000000000000000082813fde111f290526b276dbff063a792447a5cb0000000000000000000000000000000000000000000000000000000000000001ffffffffffffffffffffffffffffffffffffffffffffffc9ca36523a216000000000000000000000000000000000000000000000ffdf3de87261863e03afb378)
+    │   │   ├─ [152209] RouterActor::unlockCallback(0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f62849f9a0b5bf2913b396098f7c7019b51a820a0000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000a00000000000000000000000082813fde111f290526b276dbff063a792447a5cb0000000000000000000000000000000000000000000000000000000000000001ffffffffffffffffffffffffffffffffffffffffffffffc9ca36523a216000000000000000000000000000000000000000000000ffdf3de87261863e03afb378)
+    │   │   │   ├─ [149273] UniV4Inspector::swap(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0x82813fDE111F290526b276dBFF063A792447a5CB }), SwapParams({ zeroForOne: true, amountSpecified: -1000000000000000000000 [-1e21], sqrtPriceLimitX96: 79188560314459151373725315960 [7.918e28] }), 0x)
+    │   │   │   │   ├─ [5689] AngstromL2::beforeSwap(RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0x82813fDE111F290526b276dBFF063A792447a5CB }), SwapParams({ zeroForOne: true, amountSpecified: -1000000000000000000000 [-1e21], sqrtPriceLimitX96: 79188560314459151373725315960 [7.918e28] }), 0x)
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0xcce8fb3933653c0c7f979ebd0f0696d4e0a3986822eeac3e2989a0fca45de013) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x00000000c3500000000000140000000000000001004190c48bf915addfe52805
+    │   │   │   │   │   ├─ [2393] UniV4Inspector::extsload(0xcce8fb3933653c0c7f979ebd0f0696d4e0a3986822eeac3e2989a0fca45de016) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   └─ ← [Return] 0x575e24b4, 1167168518538818929679374903490964965294080000000000000 [1.167e54], 0
+    │   │   │   │   ├─ emit Swap(id: 0x686cad9d6c90078321610284d941312e38e4b7e8f21f2762604f2fa8f95981a1, sender: RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], amount0: -15784739262410737106 [-1.578e19], amount1: 15003001550140037799 [1.5e19], sqrtPriceX96: 79188560314459151373725315960 [7.918e28], liquidity: 0, tick: -11, fee: 50000 [5e4])
+    │   │   │   │   ├─ [78586] AngstromL2::afterSwap(RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0x82813fDE111F290526b276dBFF063A792447a5CB }), SwapParams({ zeroForOne: true, amountSpecified: -1000000000000000000000 [-1e21], sqrtPriceLimitX96: 79188560314459151373725315960 [7.918e28] }), -5371268437442994008728218060229101896688448951558093448537 [-5.371e57], 0x)
+    │   │   │   │   │   ├─ [5691] UniV4Inspector::mint(AngstromL2: [0x82813fDE111F290526b276dBFF063A792447a5CB], 1405310203571408291950365054053061012934685786634 [1.405e48], 0)
+    │   │   │   │   │   │   ├─ emit Transfer(caller: AngstromL2: [0x82813fDE111F290526b276dBFF063A792447a5CB], from: 0x0000000000000000000000000000000000000000, to: AngstromL2: [0x82813fDE111F290526b276dBFF063A792447a5CB], id: 1405310203571408291950365054053061012934685786634 [1.405e48], amount: 0)
+    │   │   │   │   │   │   └─ ← [Stop]
+    │   │   │   │   │   ├─ [26414] UniV4Inspector::mint(AngstromL2: [0x82813fDE111F290526b276dBFF063A792447a5CB], 0, 3430000000000000 [3.43e15])
+    │   │   │   │   │   │   ├─ emit Transfer(caller: AngstromL2: [0x82813fDE111F290526b276dBFF063A792447a5CB], from: 0x0000000000000000000000000000000000000000, to: AngstromL2: [0x82813fDE111F290526b276dBFF063A792447a5CB], id: 0, amount: 3430000000000000 [3.43e15])
+    │   │   │   │   │   │   └─ ← [Stop]
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0xcce8fb3933653c0c7f979ebd0f0696d4e0a3986822eeac3e2989a0fca45de013) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x00000000c350000000fffff50000000000000000ffdf3de87261863e03afb378
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x0c0968e2728da9086a8f62796b49768b60169e62881766192cf0ff2cd55bfd74) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000004
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x0c0968e2728da9086a8f62796b49768b60169e62881766192cf0ff2cd55bfd74) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000004
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x32b8588e1bb13e26aeaae36e43bfeadcac5e5cc87aaeae60657f1f5c51529bbc) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x8000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x32b8588e1bb13e26aeaae36e43bfeadcac5e5cc87aaeae60657f1f5c51529bbc) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x8000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x0c0968e2728da9086a8f62796b49768b60169e62881766192cf0ff2cd55bfd74) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000004
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x32b8588e1bb13e26aeaae36e43bfeadcac5e5cc87aaeae60657f1f5c51529bbc) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x8000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x15b48cfde1a2ec9bb79a1547aa56e2420cc983316c227ec3958c62954d1db912) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x000000000000021e19e0c9bab2400000000000000000021e19e0c9bab2400000
+    │   │   │   │   │   └─ ← [Revert] ArithmeticOverflowUnderflow()
+    │   │   │   │   └─ ← [Revert] WrappedError(0x82813fDE111F290526b276dBFF063A792447a5CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+    │   │   │   └─ ← [Revert] WrappedError(0x82813fDE111F290526b276dBFF063A792447a5CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+    │   │   └─ ← [Revert] WrappedError(0x82813fDE111F290526b276dBFF063A792447a5CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+    │   └─ ← [Revert] WrappedError(0x82813fDE111F290526b276dBFF063A792447a5CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+    └─ ← [Revert] WrappedError(0x82813fDE111F290526b276dBFF063A792447a5CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+
+Backtrace:
+  at AngstromL2.afterSwap
+  at UniV4Inspector.swap
+  at RouterActor.unlockCallback
+  at UniV4Inspector.unlock
+  at RouterActor.swap
+  at SwapFromTickBoundaryTest.test_swapDownFromTickBoundary
+
+Suite result: FAILED. 0 passed; 1 failed; 0 skipped; finished in 364.68ms (14.67ms CPU time)
+
+Ran 1 test suite in 438.00ms (364.68ms CPU time): 0 tests passed, 1 failed, 0 skipped (1 total tests)
+
+Failing tests:
+Encountered 1 failing test in test/SwapFromTickBoundary.t.sol:SwapFromTickBoundaryTest
+[FAIL: WrappedError(0x82813fDE111F290526b276dBFF063A792447a5CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)] test_swapDownFromTickBoundary() (gas: 433806)
+
+Encountered a total of 1 failing tests, 0 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 1 failed test
+Added 124 lines of output to the chat.
+src/libraries/TickIterator.sol                                                  
+
+                                                                                
+ @@ -145,11 +145,11 @@                                                          
+          int24 compressedStart = startTick.compress(self.tickSpacing);         
+          (int16 wordPos, uint8 bitPos) = TickLib.position(compressedStart);    
+                                                                                
+          self.currentWord = self.manager.getPoolBitmapInfo(self.poolId,        
+ wordPos);                                                                      
+                                                                                
+ -        if (bitPos == 255) {                                                  
+ +        if (bitPos == 0) {                                                    
+              (wordPos, bitPos) = TickLib.position(compressedStart - 1);        
+              self.currentWord = self.manager.getPoolBitmapInfo(self.poolId,    
+ wordPos);                                                                      
+          }                                                                     
+                                                                                
+          _advanceToNextDown(self);                                             
+                                                                                
+
+I fixed the downward iterator reset to initialize from the correct bitmap word  
+and to avoid treating the boundary tick itself as the next candidate when       
+starting exactly on a tick boundary. This should let zero-for-one swaps from an 
+initialized tick boundary proceed without the overflow path you saw.            
+
+Tokens: 45k sent, 1.5k received.
+Applied edit to src/libraries/TickIterator.sol
+Compiling 5 files with Solc 0.8.26
+Solc 0.8.26 finished in 4.29s
+Compiler run successful with warnings:
+Warning (5574): Contract code size is 25282 bytes and exceeds 24576 bytes (a limit introduced in Spurious Dragon). This contract may not be deployable on Mainnet. Consider enabling the optimizer (with a low "runs" value!), turning off revert strings, or using libraries.
+  --> test/_mocks/UniV4Inspector.sol:12:1:
+   |
+12 | contract UniV4Inspector is PoolManager {
+   | ^ (Relevant source part starts here and spans across multiple lines).
+
+
+Ran 1 test for test/SwapFromTickBoundary.t.sol:SwapFromTickBoundaryTest
+[FAIL: WrappedError(0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)] test_swapDownFromTickBoundary() (gas: 433802)
+Traces:
+  [433802] SwapFromTickBoundaryTest::test_swapDownFromTickBoundary()
+    ├─ [34428] UniV4Inspector::initialize(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), 79307426338960776842885539845 [7.93e28])
+    │   ├─ [1026] AngstromL2::beforeInitialize(SwapFromTickBoundaryTest: [0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496], PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), 79307426338960776842885539845 [7.93e28])
+    │   │   └─ ← [Return] 0xdc98354e
+    │   ├─ emit Initialize(id: 0x6d75440b447f244fb349568f3c66165757dbb2fa0f0a8d0016537bd49859ef82, currency0: 0x0000000000000000000000000000000000000000, currency1: MockERC20: [0xF62849F9A0B5Bf2913b396098F7c7019b51A820a], fee: 8388608 [8.388e6], tickSpacing: 10, hooks: AngstromL2: [0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB], sqrtPriceX96: 79307426338960776842885539845 [7.93e28], tick: 20)
+    │   └─ ← [Return] 20
+    ├─ [8174] AngstromL2::setPoolLPFee(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), 50000 [5e4])
+    │   ├─ [1756] UniV4Inspector::updateDynamicLPFee(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), 50000 [5e4])
+    │   │   └─ ← [Stop]
+    │   ├─ emit PoolLPFeeUpdated(key: PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), newFee: 50000 [5e4])
+    │   └─ ← [Stop]
+    ├─ [209122] RouterActor::modifyLiquidity(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), -10, 20, 10000000000000000000000 [1e22], 0x0000000000000000000000000000000000000000000000000000000000000000)
+    │   ├─ [204153] UniV4Inspector::unlock(0x020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f62849f9a0b5bf2913b396098f7c7019b51a820a0000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000b98c751cb4622327cda0fd99ff84b1c929df25cbfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff6000000000000000000000000000000000000000000000000000000000000001400000000000000000000000000000000000000000000021e19e0c9bab24000000000000000000000000000000000000000000000000000000000000000000000)
+    │   │   ├─ [201960] RouterActor::unlockCallback(0x020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f62849f9a0b5bf2913b396098f7c7019b51a820a0000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000b98c751cb4622327cda0fd99ff84b1c929df25cbfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff6000000000000000000000000000000000000000000000000000000000000001400000000000000000000000000000000000000000000021e19e0c9bab24000000000000000000000000000000000000000000000000000000000000000000000)
+    │   │   │   ├─ [159921] UniV4Inspector::modifyLiquidity(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), ModifyLiquidityParams({ tickLower: -10, tickUpper: 20, liquidityDelta: 10000000000000000000000 [1e22], salt: 0x0000000000000000000000000000000000000000000000000000000000000000 }), 0x)
+    │   │   │   │   ├─ emit ModifyLiquidity(id: 0x6d75440b447f244fb349568f3c66165757dbb2fa0f0a8d0016537bd49859ef82, sender: RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], tickLower: -10, tickUpper: 20, liquidityDelta: 10000000000000000000000 [1e22], salt: 0x0000000000000000000000000000000000000000000000000000000000000000)
+    │   │   │   │   ├─ [16167] AngstromL2::afterAddLiquidity(RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), ModifyLiquidityParams({ tickLower: -10, tickUpper: 20, liquidityDelta: 10000000000000000000000 [1e22], salt: 0x0000000000000000000000000000000000000000000000000000000000000000 }), 340282366920938463448371605881628173655 [3.402e38], 0, 0x)
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x31b9c4e54c897659f6585187d913622eb0a7fca2943cfe3057aed7d47e49f85b) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x00000000c3500000000000140000000000000001004190c48bf915addfe52805
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x6c7bec4e4ad5eeb3ba14345e712e6cb624b4910a0c34074171735f0585940d43) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x8000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x893c58b4128db7cf7d66afd0811c1efde2958081a4a03488e5f2c3cc4225bbf9) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000004
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x09737dd7bf7b0e42be5cbe4cf245a2cf5df1d40ea5df67476f10de4fb355a490) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x00000000000000000000000000000000000000000000021e19e0c9bab2400000
+    │   │   │   │   │   └─ ← [Return] 0x9f063efc, 0
+    │   │   │   │   └─ ← [Return] 340282366920938463448371605881628173655 [3.402e38], 0
+    │   │   │   ├─ [6172] UniV4Inspector::sync(MockERC20: [0xF62849F9A0B5Bf2913b396098F7c7019b51A820a])
+    │   │   │   │   ├─ [2527] MockERC20::balanceOf(UniV4Inspector: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   ├─ [27681] MockERC20::transfer(UniV4Inspector: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 15003001550140037801 [1.5e19])
+    │   │   │   │   ├─ emit Transfer(from: RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], to: UniV4Inspector: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], value: 15003001550140037801 [1.5e19])
+    │   │   │   │   └─ ← [Return] true
+    │   │   │   ├─ [2788] UniV4Inspector::settle()
+    │   │   │   │   ├─ [527] MockERC20::balanceOf(UniV4Inspector: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 15003001550140037801 [1.5e19]
+    │   │   │   │   └─ ← [Return] 15003001550140037801 [1.5e19]
+    │   │   │   └─ ← [Return] 0x00000000000000000000000000000000ffffffffffffffff2fcaa1945744a5570000000000000000000000000000000000000000000000000000000000000000
+    │   │   └─ ← [Return] 0x00000000000000000000000000000000ffffffffffffffff2fcaa1945744a5570000000000000000000000000000000000000000000000000000000000000000
+    │   └─ ← [Return] 340282366920938463448371605881628173655 [3.402e38], 0
+    ├─ [3432] AngstromL2::getPendingPositionRewards(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], -10, 20, 0x0000000000000000000000000000000000000000000000000000000000000000) [staticcall]
+    │   ├─ [393] UniV4Inspector::extsload(0x31b9c4e54c897659f6585187d913622eb0a7fca2943cfe3057aed7d47e49f85b) [staticcall]
+    │   │   └─ ← [Return] 0x00000000c3500000000000140000000000000001004190c48bf915addfe52805
+    │   ├─ [393] UniV4Inspector::extsload(0x09737dd7bf7b0e42be5cbe4cf245a2cf5df1d40ea5df67476f10de4fb355a490) [staticcall]
+    │   │   └─ ← [Return] 0x00000000000000000000000000000000000000000000021e19e0c9bab2400000
+    │   └─ ← [Return] 0
+    ├─ [0] VM::roll(101)
+    │   └─ ← [Return]
+    ├─ [0] VM::txGasPrice(700000000 [7e8])
+    │   └─ ← [Return]
+    ├─ [155585] RouterActor::swap(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), true, -1000000000000000000000 [-1e21], 79188560314459151373725315960 [7.918e28])
+    │   ├─ [153483] UniV4Inspector::unlock(0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f62849f9a0b5bf2913b396098f7c7019b51a820a0000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000b98c751cb4622327cda0fd99ff84b1c929df25cb0000000000000000000000000000000000000000000000000000000000000001ffffffffffffffffffffffffffffffffffffffffffffffc9ca36523a216000000000000000000000000000000000000000000000ffdf3de87261863e03afb378)
+    │   │   ├─ [152205] RouterActor::unlockCallback(0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f62849f9a0b5bf2913b396098f7c7019b51a820a0000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000b98c751cb4622327cda0fd99ff84b1c929df25cb0000000000000000000000000000000000000000000000000000000000000001ffffffffffffffffffffffffffffffffffffffffffffffc9ca36523a216000000000000000000000000000000000000000000000ffdf3de87261863e03afb378)
+    │   │   │   ├─ [149269] UniV4Inspector::swap(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), SwapParams({ zeroForOne: true, amountSpecified: -1000000000000000000000 [-1e21], sqrtPriceLimitX96: 79188560314459151373725315960 [7.918e28] }), 0x)
+    │   │   │   │   ├─ [5689] AngstromL2::beforeSwap(RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), SwapParams({ zeroForOne: true, amountSpecified: -1000000000000000000000 [-1e21], sqrtPriceLimitX96: 79188560314459151373725315960 [7.918e28] }), 0x)
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x31b9c4e54c897659f6585187d913622eb0a7fca2943cfe3057aed7d47e49f85b) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x00000000c3500000000000140000000000000001004190c48bf915addfe52805
+    │   │   │   │   │   ├─ [2393] UniV4Inspector::extsload(0x31b9c4e54c897659f6585187d913622eb0a7fca2943cfe3057aed7d47e49f85e) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   └─ ← [Return] 0x575e24b4, 1167168518538818929679374903490964965294080000000000000 [1.167e54], 0
+    │   │   │   │   ├─ emit Swap(id: 0x6d75440b447f244fb349568f3c66165757dbb2fa0f0a8d0016537bd49859ef82, sender: RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], amount0: -15784739262410737106 [-1.578e19], amount1: 15003001550140037799 [1.5e19], sqrtPriceX96: 79188560314459151373725315960 [7.918e28], liquidity: 0, tick: -11, fee: 50000 [5e4])
+    │   │   │   │   ├─ [78582] AngstromL2::afterSwap(RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), SwapParams({ zeroForOne: true, amountSpecified: -1000000000000000000000 [-1e21], sqrtPriceLimitX96: 79188560314459151373725315960 [7.918e28] }), -5371268437442994008728218060229101896688448951558093448537 [-5.371e57], 0x)
+    │   │   │   │   │   ├─ [5691] UniV4Inspector::mint(AngstromL2: [0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB], 1405310203571408291950365054053061012934685786634 [1.405e48], 0)
+    │   │   │   │   │   │   ├─ emit Transfer(caller: AngstromL2: [0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB], from: 0x0000000000000000000000000000000000000000, to: AngstromL2: [0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB], id: 1405310203571408291950365054053061012934685786634 [1.405e48], amount: 0)
+    │   │   │   │   │   │   └─ ← [Stop]
+    │   │   │   │   │   ├─ [26414] UniV4Inspector::mint(AngstromL2: [0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB], 0, 3430000000000000 [3.43e15])
+    │   │   │   │   │   │   ├─ emit Transfer(caller: AngstromL2: [0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB], from: 0x0000000000000000000000000000000000000000, to: AngstromL2: [0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB], id: 0, amount: 3430000000000000 [3.43e15])
+    │   │   │   │   │   │   └─ ← [Stop]
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x31b9c4e54c897659f6585187d913622eb0a7fca2943cfe3057aed7d47e49f85b) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x00000000c350000000fffff50000000000000000ffdf3de87261863e03afb378
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x893c58b4128db7cf7d66afd0811c1efde2958081a4a03488e5f2c3cc4225bbf9) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000004
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x893c58b4128db7cf7d66afd0811c1efde2958081a4a03488e5f2c3cc4225bbf9) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000004
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x6c7bec4e4ad5eeb3ba14345e712e6cb624b4910a0c34074171735f0585940d43) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x8000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x6c7bec4e4ad5eeb3ba14345e712e6cb624b4910a0c34074171735f0585940d43) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x8000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x893c58b4128db7cf7d66afd0811c1efde2958081a4a03488e5f2c3cc4225bbf9) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000004
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x6c7bec4e4ad5eeb3ba14345e712e6cb624b4910a0c34074171735f0585940d43) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x8000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x7be259c28c00319b4089f77329fcfc8dbfd53e6ed5f8319a194572b91c0e35d8) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x000000000000021e19e0c9bab2400000000000000000021e19e0c9bab2400000
+    │   │   │   │   │   └─ ← [Revert] ArithmeticOverflowUnderflow()
+    │   │   │   │   └─ ← [Revert] WrappedError(0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+    │   │   │   └─ ← [Revert] WrappedError(0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+    │   │   └─ ← [Revert] WrappedError(0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+    │   └─ ← [Revert] WrappedError(0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+    └─ ← [Revert] WrappedError(0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+
+Backtrace:
+  at AngstromL2.afterSwap
+  at UniV4Inspector.swap
+  at RouterActor.unlockCallback
+  at UniV4Inspector.unlock
+  at RouterActor.swap
+  at SwapFromTickBoundaryTest.test_swapDownFromTickBoundary
+
+Suite result: FAILED. 0 passed; 1 failed; 0 skipped; finished in 346.10ms (13.80ms CPU time)
+
+Ran 1 test suite in 635.51ms (346.10ms CPU time): 0 tests passed, 1 failed, 0 skipped (1 total tests)
+
+Failing tests:
+Encountered 1 failing test in test/SwapFromTickBoundary.t.sol:SwapFromTickBoundaryTest
+[FAIL: WrappedError(0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)] test_swapDownFromTickBoundary() (gas: 433802)
+
+Encountered a total of 1 failing tests, 0 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 1 failed test
+Added 124 lines of output to the chat.
+src/libraries/TickIterator.sol                                                  
+
+                                                                                
+                                                                                
+                                                                                
+
+Tokens: 62k sent, 1.5k received.
+Applied edit to src/libraries/TickIterator.sol
+No files changed, compilation skipped
+
+Ran 1 test for test/SwapFromTickBoundary.t.sol:SwapFromTickBoundaryTest
+[FAIL: WrappedError(0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)] test_swapDownFromTickBoundary() (gas: 433802)
+Traces:
+  [433802] SwapFromTickBoundaryTest::test_swapDownFromTickBoundary()
+    ├─ [34428] UniV4Inspector::initialize(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), 79307426338960776842885539845 [7.93e28])
+    │   ├─ [1026] AngstromL2::beforeInitialize(SwapFromTickBoundaryTest: [0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496], PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), 79307426338960776842885539845 [7.93e28])
+    │   │   └─ ← [Return] 0xdc98354e
+    │   ├─ emit Initialize(id: 0x6d75440b447f244fb349568f3c66165757dbb2fa0f0a8d0016537bd49859ef82, currency0: 0x0000000000000000000000000000000000000000, currency1: MockERC20: [0xF62849F9A0B5Bf2913b396098F7c7019b51A820a], fee: 8388608 [8.388e6], tickSpacing: 10, hooks: AngstromL2: [0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB], sqrtPriceX96: 79307426338960776842885539845 [7.93e28], tick: 20)
+    │   └─ ← [Return] 20
+    ├─ [8174] AngstromL2::setPoolLPFee(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), 50000 [5e4])
+    │   ├─ [1756] UniV4Inspector::updateDynamicLPFee(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), 50000 [5e4])
+    │   │   └─ ← [Stop]
+    │   ├─ emit PoolLPFeeUpdated(key: PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), newFee: 50000 [5e4])
+    │   └─ ← [Stop]
+    ├─ [209122] RouterActor::modifyLiquidity(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), -10, 20, 10000000000000000000000 [1e22], 0x0000000000000000000000000000000000000000000000000000000000000000)
+    │   ├─ [204153] UniV4Inspector::unlock(0x020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f62849f9a0b5bf2913b396098f7c7019b51a820a0000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000b98c751cb4622327cda0fd99ff84b1c929df25cbfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff6000000000000000000000000000000000000000000000000000000000000001400000000000000000000000000000000000000000000021e19e0c9bab24000000000000000000000000000000000000000000000000000000000000000000000)
+    │   │   ├─ [201960] RouterActor::unlockCallback(0x020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f62849f9a0b5bf2913b396098f7c7019b51a820a0000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000b98c751cb4622327cda0fd99ff84b1c929df25cbfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff6000000000000000000000000000000000000000000000000000000000000001400000000000000000000000000000000000000000000021e19e0c9bab24000000000000000000000000000000000000000000000000000000000000000000000)
+    │   │   │   ├─ [159921] UniV4Inspector::modifyLiquidity(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), ModifyLiquidityParams({ tickLower: -10, tickUpper: 20, liquidityDelta: 10000000000000000000000 [1e22], salt: 0x0000000000000000000000000000000000000000000000000000000000000000 }), 0x)
+    │   │   │   │   ├─ emit ModifyLiquidity(id: 0x6d75440b447f244fb349568f3c66165757dbb2fa0f0a8d0016537bd49859ef82, sender: RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], tickLower: -10, tickUpper: 20, liquidityDelta: 10000000000000000000000 [1e22], salt: 0x0000000000000000000000000000000000000000000000000000000000000000)
+    │   │   │   │   ├─ [16167] AngstromL2::afterAddLiquidity(RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), ModifyLiquidityParams({ tickLower: -10, tickUpper: 20, liquidityDelta: 10000000000000000000000 [1e22], salt: 0x0000000000000000000000000000000000000000000000000000000000000000 }), 340282366920938463448371605881628173655 [3.402e38], 0, 0x)
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x31b9c4e54c897659f6585187d913622eb0a7fca2943cfe3057aed7d47e49f85b) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x00000000c3500000000000140000000000000001004190c48bf915addfe52805
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x6c7bec4e4ad5eeb3ba14345e712e6cb624b4910a0c34074171735f0585940d43) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x8000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x893c58b4128db7cf7d66afd0811c1efde2958081a4a03488e5f2c3cc4225bbf9) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000004
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x09737dd7bf7b0e42be5cbe4cf245a2cf5df1d40ea5df67476f10de4fb355a490) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x00000000000000000000000000000000000000000000021e19e0c9bab2400000
+    │   │   │   │   │   └─ ← [Return] 0x9f063efc, 0
+    │   │   │   │   └─ ← [Return] 340282366920938463448371605881628173655 [3.402e38], 0
+    │   │   │   ├─ [6172] UniV4Inspector::sync(MockERC20: [0xF62849F9A0B5Bf2913b396098F7c7019b51A820a])
+    │   │   │   │   ├─ [2527] MockERC20::balanceOf(UniV4Inspector: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   ├─ [27681] MockERC20::transfer(UniV4Inspector: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], 15003001550140037801 [1.5e19])
+    │   │   │   │   ├─ emit Transfer(from: RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], to: UniV4Inspector: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], value: 15003001550140037801 [1.5e19])
+    │   │   │   │   └─ ← [Return] true
+    │   │   │   ├─ [2788] UniV4Inspector::settle()
+    │   │   │   │   ├─ [527] MockERC20::balanceOf(UniV4Inspector: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 15003001550140037801 [1.5e19]
+    │   │   │   │   └─ ← [Return] 15003001550140037801 [1.5e19]
+    │   │   │   └─ ← [Return] 0x00000000000000000000000000000000ffffffffffffffff2fcaa1945744a5570000000000000000000000000000000000000000000000000000000000000000
+    │   │   └─ ← [Return] 0x00000000000000000000000000000000ffffffffffffffff2fcaa1945744a5570000000000000000000000000000000000000000000000000000000000000000
+    │   └─ ← [Return] 340282366920938463448371605881628173655 [3.402e38], 0
+    ├─ [3432] AngstromL2::getPendingPositionRewards(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], -10, 20, 0x0000000000000000000000000000000000000000000000000000000000000000) [staticcall]
+    │   ├─ [393] UniV4Inspector::extsload(0x31b9c4e54c897659f6585187d913622eb0a7fca2943cfe3057aed7d47e49f85b) [staticcall]
+    │   │   └─ ← [Return] 0x00000000c3500000000000140000000000000001004190c48bf915addfe52805
+    │   ├─ [393] UniV4Inspector::extsload(0x09737dd7bf7b0e42be5cbe4cf245a2cf5df1d40ea5df67476f10de4fb355a490) [staticcall]
+    │   │   └─ ← [Return] 0x00000000000000000000000000000000000000000000021e19e0c9bab2400000
+    │   └─ ← [Return] 0
+    ├─ [0] VM::roll(101)
+    │   └─ ← [Return]
+    ├─ [0] VM::txGasPrice(700000000 [7e8])
+    │   └─ ← [Return]
+    ├─ [155585] RouterActor::swap(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), true, -1000000000000000000000 [-1e21], 79188560314459151373725315960 [7.918e28])
+    │   ├─ [153483] UniV4Inspector::unlock(0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f62849f9a0b5bf2913b396098f7c7019b51a820a0000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000b98c751cb4622327cda0fd99ff84b1c929df25cb0000000000000000000000000000000000000000000000000000000000000001ffffffffffffffffffffffffffffffffffffffffffffffc9ca36523a216000000000000000000000000000000000000000000000ffdf3de87261863e03afb378)
+    │   │   ├─ [152205] RouterActor::unlockCallback(0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f62849f9a0b5bf2913b396098f7c7019b51a820a0000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000b98c751cb4622327cda0fd99ff84b1c929df25cb0000000000000000000000000000000000000000000000000000000000000001ffffffffffffffffffffffffffffffffffffffffffffffc9ca36523a216000000000000000000000000000000000000000000000ffdf3de87261863e03afb378)
+    │   │   │   ├─ [149269] UniV4Inspector::swap(PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), SwapParams({ zeroForOne: true, amountSpecified: -1000000000000000000000 [-1e21], sqrtPriceLimitX96: 79188560314459151373725315960 [7.918e28] }), 0x)
+    │   │   │   │   ├─ [5689] AngstromL2::beforeSwap(RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), SwapParams({ zeroForOne: true, amountSpecified: -1000000000000000000000 [-1e21], sqrtPriceLimitX96: 79188560314459151373725315960 [7.918e28] }), 0x)
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x31b9c4e54c897659f6585187d913622eb0a7fca2943cfe3057aed7d47e49f85b) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x00000000c3500000000000140000000000000001004190c48bf915addfe52805
+    │   │   │   │   │   ├─ [2393] UniV4Inspector::extsload(0x31b9c4e54c897659f6585187d913622eb0a7fca2943cfe3057aed7d47e49f85e) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   └─ ← [Return] 0x575e24b4, 1167168518538818929679374903490964965294080000000000000 [1.167e54], 0
+    │   │   │   │   ├─ emit Swap(id: 0x6d75440b447f244fb349568f3c66165757dbb2fa0f0a8d0016537bd49859ef82, sender: RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], amount0: -15784739262410737106 [-1.578e19], amount1: 15003001550140037799 [1.5e19], sqrtPriceX96: 79188560314459151373725315960 [7.918e28], liquidity: 0, tick: -11, fee: 50000 [5e4])
+    │   │   │   │   ├─ [78582] AngstromL2::afterSwap(RouterActor: [0x2e234DAe75C793f67A35089C9d99245E1C58470b], PoolKey({ currency0: 0x0000000000000000000000000000000000000000, currency1: 0xF62849F9A0B5Bf2913b396098F7c7019b51A820a, fee: 8388608 [8.388e6], tickSpacing: 10, hooks: 0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB }), SwapParams({ zeroForOne: true, amountSpecified: -1000000000000000000000 [-1e21], sqrtPriceLimitX96: 79188560314459151373725315960 [7.918e28] }), -5371268437442994008728218060229101896688448951558093448537 [-5.371e57], 0x)
+    │   │   │   │   │   ├─ [5691] UniV4Inspector::mint(AngstromL2: [0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB], 1405310203571408291950365054053061012934685786634 [1.405e48], 0)
+    │   │   │   │   │   │   ├─ emit Transfer(caller: AngstromL2: [0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB], from: 0x0000000000000000000000000000000000000000, to: AngstromL2: [0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB], id: 1405310203571408291950365054053061012934685786634 [1.405e48], amount: 0)
+    │   │   │   │   │   │   └─ ← [Stop]
+    │   │   │   │   │   ├─ [26414] UniV4Inspector::mint(AngstromL2: [0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB], 0, 3430000000000000 [3.43e15])
+    │   │   │   │   │   │   ├─ emit Transfer(caller: AngstromL2: [0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB], from: 0x0000000000000000000000000000000000000000, to: AngstromL2: [0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB], id: 0, amount: 3430000000000000 [3.43e15])
+    │   │   │   │   │   │   └─ ← [Stop]
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x31b9c4e54c897659f6585187d913622eb0a7fca2943cfe3057aed7d47e49f85b) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x00000000c350000000fffff50000000000000000ffdf3de87261863e03afb378
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x893c58b4128db7cf7d66afd0811c1efde2958081a4a03488e5f2c3cc4225bbf9) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000004
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x893c58b4128db7cf7d66afd0811c1efde2958081a4a03488e5f2c3cc4225bbf9) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000004
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x6c7bec4e4ad5eeb3ba14345e712e6cb624b4910a0c34074171735f0585940d43) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x8000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x6c7bec4e4ad5eeb3ba14345e712e6cb624b4910a0c34074171735f0585940d43) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x8000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x893c58b4128db7cf7d66afd0811c1efde2958081a4a03488e5f2c3cc4225bbf9) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000004
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x6c7bec4e4ad5eeb3ba14345e712e6cb624b4910a0c34074171735f0585940d43) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x8000000000000000000000000000000000000000000000000000000000000000
+    │   │   │   │   │   ├─ [393] UniV4Inspector::extsload(0x7be259c28c00319b4089f77329fcfc8dbfd53e6ed5f8319a194572b91c0e35d8) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 0x000000000000021e19e0c9bab2400000000000000000021e19e0c9bab2400000
+    │   │   │   │   │   └─ ← [Revert] ArithmeticOverflowUnderflow()
+    │   │   │   │   └─ ← [Revert] WrappedError(0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+    │   │   │   └─ ← [Revert] WrappedError(0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+    │   │   └─ ← [Revert] WrappedError(0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+    │   └─ ← [Revert] WrappedError(0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+    └─ ← [Revert] WrappedError(0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)
+
+Backtrace:
+  at AngstromL2.afterSwap
+  at UniV4Inspector.swap
+  at RouterActor.unlockCallback
+  at UniV4Inspector.unlock
+  at RouterActor.swap
+  at SwapFromTickBoundaryTest.test_swapDownFromTickBoundary
+
+Suite result: FAILED. 0 passed; 1 failed; 0 skipped; finished in 312.62ms (10.41ms CPU time)
+
+Ran 1 test suite in 386.75ms (312.62ms CPU time): 0 tests passed, 1 failed, 0 skipped (1 total tests)
+
+Failing tests:
+Encountered 1 failing test in test/SwapFromTickBoundary.t.sol:SwapFromTickBoundaryTest
+[FAIL: WrappedError(0xb98C751cb4622327CdA0Fd99fF84B1C929df25CB, 0xb47b2fb1, 0xc9654ed4, 0xa9e35b2f)] test_swapDownFromTickBoundary() (gas: 433802)
+
+Encountered a total of 1 failing tests, 0 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 1 failed test
+Added 116 lines of output to the chat.
+Only 3 reflections allowed, stopping.

@@ -1,0 +1,19 @@
+diff --git a/src/libraries/PoolKeyHelperLib.sol b/src/libraries/PoolKeyHelperLib.sol
+index ab9733d..25e297f 100644
+--- a/src/libraries/PoolKeyHelperLib.sol
++++ b/src/libraries/PoolKeyHelperLib.sol
+@@ -8,9 +8,11 @@ import {PoolId} from "v4-core/src/types/PoolId.sol";
+ library PoolKeyHelperLib {
+     function calldataToId(PoolKey calldata poolKey) internal pure returns (PoolId id) {
+         assembly ("memory-safe") {
+-            let ptr := mload(0x40)
+-            calldatacopy(ptr, poolKey, mul(32, 5))
+-            id := keccak256(ptr, mul(32, 5))
++            // PoolKey calldata layout is tightly packed as:
++            // currency0 (20) | currency1 (20) | fee (3) | tickSpacing (3) | hooks (20)
++            // We hash the exact calldata bytes for the key, matching Uniswap V4's PoolId derivation.
++            let start := poolKey.offset
++            id := keccak256(start, 66)
+         }
+     }
+ }

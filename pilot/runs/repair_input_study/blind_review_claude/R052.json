@@ -1,0 +1,31 @@
+{
+  "approach": "narrow_condition",
+  "requirement_holds": false,
+  "counterexample": {
+    "tick_spacing": 10,
+    "positions": "one position [-10, 50) with liquidity L",
+    "initialized_ticks": [-10, 50],
+    "start_tick": -10,
+    "end_tick": -30,
+    "walk_returns": [],
+    "should_return": [-10],
+    "explanation": "compress(-10) is -1, which is bit 255 of word -1. In that case the repair sets currentTick to -10 itself, so _advanceToNextDown searches from bit 254 and never returns -10. Active liquidity is L at -10 and 0 at -30, but the walk leaves it at L. The same happens for tick 2550 (bit 255 of word 0)."
+  },
+  "new_flaw": {
+    "severity": "High",
+    "description": "For an unaligned start tick whose rounded-down tick is bit 255 of its word, the repair now skips that rounded-down tick, although it lies below the start and the audited code returned it. This makes the skipped-tick problem reachable from every tick in such an interval, for example any tick from -9 to -1 with spacing 10.",
+    "scenario": "Tick spacing 10, positions [-10, 50) with L and [-100, -10) with 2L, so tick -10 has net -L. A taxed zero-for-one swap moves the tick from -5 to -50. The walk returns no ticks instead of [-10], so the hook keeps liquidity L where the real value is 2L. The tax is spread over L, so the [-100, -10) position is credited about twice the tax paid, taken from other LPs' rewards. With other liquidity shapes the liquidity subtraction underflows and the swap reverts."
+  },
+  "invalid_attacks": {},
+  "judge_reports": {
+    "claude-opus-5-5": {
+      "verdict": "agree",
+      "reason": "When compress(startTick) is bit 255 the search restarts at bit 254, so tick c*s is never returned, and the reward and underflow effects follow as described."
+    },
+    "gpt-6.1-sol": {
+      "verdict": "agree",
+      "reason": "The tick 2550 example is correct: compress(2550) is bit 255, tick 2550 is skipped, and both the reward over-crediting and the underflow revert follow; it also rightly notes that unaligned starts in that interval are hit."
+    }
+  },
+  "summary": "The repair sets currentTick to the aligned tick just above the rounded-down start, so the search includes the start tick, except when the rounded-down start is bit 255 of its word. There it sets currentTick to the rounded-down tick itself, so that tick is skipped, both for an aligned start and for unaligned starts in the same interval."
+}
