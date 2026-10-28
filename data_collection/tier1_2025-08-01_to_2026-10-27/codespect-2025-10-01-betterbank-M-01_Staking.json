@@ -1,0 +1,92 @@
+{
+  "id": "codespect-2025-10-01-betterbank-M-01",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/grape-finance/BB-Custom-contracts/blob/43fba5ed6a5f47d6ae997660a7fe656c57f44b30/contracts/Staking.sol#L191",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      191,
+      191
+    ]
+  ],
+  "filename": "codespect-2025-10-01-betterbank-M-01_Staking.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 234,
+  "vulnerability_title": "Flash loan inflatable staking balance allows stealing rewards",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "allocateSeigniorage",
+        "start_line": 190,
+        "end_line": 210,
+        "code": "\n    function allocateSeigniorage(uint256 amount) external nonReentrant whenNotPaused {\n        require(msg.sender == owner() || msg.sender == treasuryOperator, \"Not authorized\");\n        require(amount > 0, \"Grove: Cannot allocate 0\");\n        require(totalSupply() > 0, \"Grove: Cannot allocate when totalSupply is 0\");\n\n        // Create & add new snapshot\n        uint256 prevRPS = getLatestSnapshot().rewardPerShare;\n        uint256 nextRPS = prevRPS + ((amount * 1e18) / totalSupply());\n\n        historyEnd += 1;\n        groveHistory[historyEnd] = GroveSnapshot({ time: block.timestamp, rewardReceived: amount, rewardPerShare: nextRPS });\n\n        if (historyEnd - historyStart + 1 > MAX_HISTORY) {\n            delete groveHistory[historyStart];\n            historyStart += 1;\n        }\n\n        favor.safeTransferFrom(msg.sender, address(this), amount);\n        emit RewardAdded(msg.sender, amount);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            191,
+            191
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:43:59.866726",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 78,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "Staking lets users stake and withdraw at any time, and earned() pays balance times the change in reward per share since the user's last snapshot. A user who stakes just before allocateSeigniorage and withdraws right after gets a full share of that allocation.",
+      "functions_found": [
+        "allocateSeigniorage",
+        "stake",
+        "withdraw",
+        "claimReward",
+        "earned"
+      ],
+      "variables_found": [
+        "rewardPerShare",
+        "lastSnapshotIndex",
+        "totalSupply"
+      ],
+      "patterns_found": [
+        "no lock-up or same-block restriction between stake and withdraw",
+        "reward per share computed from the total staked supply at allocation time"
+      ],
+      "issues": [
+        "The permissionless entry point FavorTreasury.allocateSeigniorage is in another file; Staking.allocateSeigniorage itself is limited to the owner or treasuryOperator."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": null,
+      "mando_applicable": false
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "vulnerability_type": "flash-loan stake before reward allocation captures rewards"
+    },
+    "fix_code_source": "none"
+  }
+}

@@ -1,0 +1,323 @@
+{
+  "id": "62530",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-morpheus/blob/d275e9035b7e703efe26cdee6543e78f452774bb/contracts/capital-protocol/Distributor.sol# L295-L301",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      295,
+      301
+    ],
+    [
+      384,
+      386
+    ],
+    [
+      379,
+      384
+    ],
+    [
+      386,
+      386
+    ],
+    [
+      295,
+      301
+    ],
+    [
+      384,
+      386
+    ],
+    [
+      26,
+      26
+    ],
+    [
+      378,
+      382
+    ],
+    [
+      259,
+      259
+    ],
+    [
+      273,
+      273
+    ],
+    [
+      313,
+      313
+    ],
+    [
+      531,
+      531
+    ],
+    [
+      384,
+      408
+    ],
+    [
+      151,
+      157
+    ]
+  ],
+  "filename": "62530_Distributor.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 514,
+  "vulnerability_title": "[M-02] Inconsistent balance accounting in stETH deposits leads to DOS of core functions and reward loss",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Only store the balance difference every time stETH is transferred, similar to the approach used in `DepositPool::_stake()`.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "Add the test to `POC.test.ts` and run `npx hardhat test --grep \"should expose lastUnderlyingBalance tracking issue due to stETH rounding during stake\"`\n```\n\n  describe('# stETH rounding behavior - lastUnderlyingBalance vs actual balance', () => {\n    let stETHDepositPool: DepositPool;\n\n    beforeEach(async () => {\n      // Create a deposit pool with stETH as the deposit token\n      const lib1 = await (await ethers.getContractFactory('ReferrerLib')).deploy();\n      const lib2 = await (await ethers.getContractFactory('LockMultiplierMath')).deploy();\n      const stETHDepositPoolFactory = await ethers.getContractFactory('DepositPool', {\n        libraries: {\n          ReferrerLib: await lib1.getAddress(),\n          LockMultiplierMath: await lib2.getAddress(),\n        },\n      });\n      const stETHDepositPoolImpl = await stETHDepositPoolFactory.deploy();\n      const proxyFactory = await ethers.getContractFactory('ERC1967Proxy');\n      const stETHDepositPoolProxy = await proxyFactory.deploy(await stETHDepositPoolImpl.getAddress(), '0x');\n      stETHDepositPool = stETHDepositPoolFactory.attach(await stETHDepositPoolProxy.getAddress()) as DepositPool;\n\n      await stETHDepositPool.DepositPool_init(await stETH.getAddress(), await distributor.getAddress());\n\n      // Add stETH deposit pool to distributor\n      await distributor.addDepositPool(\n        publicRewardPoolId,\n        await stETHDepositPool.getAddress(),\n        await stETH.getAddress(),\n        'ETH/USD',\n        Strategy.NONE,\n      );\n\n      // Complete migration\n      await stETHDepositPool.migrate(publicRewardPoolId);\n\n      // Setup reward pool timestamp (required before any staking)\n      await distributor.setRewardPoolLastCalculatedTimestamp(publicRewardPoolId, 1);\n\n      // Set up a realistic total pooled ether amount to trigger rounding\n      await stETH.setTotalPooledEther(wei('123456.789123456789'));\n\n      // Set time to start reward distribution\n      await setNextTime(oneDay * 11);\n    });\n\n    it('should expose lastUnderlyingBalance tracking issue due to stETH rounding during stake', async () => {\n      const testAmounts = [\n        wei('1.000000001'),      // Small fractional amount\n      ];\n\n      for (const amount of testAmounts) {\n        // Mint exact stETH amount to alice\n        await stETH.mint(alice.address, amount);\n        await stETH.connect(alice).approve(await stETHDepositPool.getAddress(), amount);\n\n        // Get initial balances\n        const distributorInitialBalance = await stETH.balanceOf(await distributor.getAddress());\n\n        // Get initial distributor pool state\n        const initialDepositPoolData = await distributor.depositPools(publicRewardPoolId, await stETHDepositPool.getAddress());\n        const initialLastUnderlyingBalance = initialDepositPoolData.lastUnderlyingBalance;\n\n        // Perform stake operation - this triggers supply() in distributor\n        // The distributor.supply() will update lastUnderlyingBalance with the amount parameter\n        // But the actual stETH transfer may round down due to stETH mechanics\n        await stETHDepositPool.connect(alice).stake(publicRewardPoolId, amount, 0, ZERO_ADDR);\n\n        // Get final balances\n        const distributorFinalBalance = await stETH.balanceOf(await distributor.getAddress());\n        expect(distributorFinalBalance).to.be.gt(distributorInitialBalance);\n\n        // Get final distributor pool state\n        const finalDepositPoolData = await distributor.depositPools(publicRewardPoolId, await stETHDepositPool.getAddress());\n        const finalLastUnderlyingBalance = finalDepositPoolData.lastUnderlyingBalance;\n        expect(finalLastUnderlyingBalance).to.be.gt(initialLastUnderlyingBalance);\n\n        // lastUnderlyingBalance > actual transferred stETH (distributor balance)\n        expect(finalLastUnderlyingBalance).to.be.gt(distributorFinalBalance);\n\n        // distributeRewards reverts due to 0x11 which is the panic code for underflow\n        await expect(\n          distributor.distributeRewards(publicRewardPoolId)\n        ).to.be.revertedWithPanic(0x11);\n\n        // the same goes for the functions where this is called (like stake and withdraw):\n        // Mint exact stETH amount to alice\n        await stETH.mint(alice.address, amount);\n        await stETH.connect(alice).approve(await stETHDepositPool.getAddress(), amount);\n\n        await expect(\n          stETHDepositPool.connect(alice).stake(publicRewardPoolId, amount, 0, ZERO_ADDR)\n        ).to.be.revertedWithPanic(0x11);\n      }\n    });\n  });\n```\n\n---",
+    "poc_code_blocks": [
+      "describe('# stETH rounding behavior - lastUnderlyingBalance vs actual balance', () => {\n    let stETHDepositPool: DepositPool;\n\n    beforeEach(async () => {\n      // Create a deposit pool with stETH as the deposit token\n      const lib1 = await (await ethers.getContractFactory('ReferrerLib')).deploy();\n      const lib2 = await (await ethers.getContractFactory('LockMultiplierMath')).deploy();\n      const stETHDepositPoolFactory = await ethers.getContractFactory('DepositPool', {\n        libraries: {\n          ReferrerLib: await lib1.getAddress(),\n          LockMultiplierMath: await lib2.getAddress(),\n        },\n      });\n      const stETHDepositPoolImpl = await stETHDepositPoolFactory.deploy();\n      const proxyFactory = await ethers.getContractFactory('ERC1967Proxy');\n      const stETHDepositPoolProxy = await proxyFactory.deploy(await stETHDepositPoolImpl.getAddress(), '0x');\n      stETHDepositPool = stETHDepositPoolFactory.attach(await stETHDepositPoolProxy.getAddress()) as DepositPool;\n\n      await stETHDepositPool.DepositPool_init(await stETH.getAddress(), await distributor.getAddress());\n\n      // Add stETH deposit pool to distributor\n      await distributor.addDepositPool(\n        publicRewardPoolId,\n        await stETHDepositPool.getAddress(),\n        await stETH.getAddress(),\n        'ETH/USD',\n        Strategy.NONE,\n      );\n\n      // Complete migration\n      await stETHDepositPool.migrate(publicRewardPoolId);\n\n      // Setup reward pool timestamp (required before any staking)\n      await distributor.setRewardPoolLastCalculatedTimestamp(publicRewardPoolId, 1);\n\n      // Set up a realistic total pooled ether amount to trigger rounding\n      await stETH.setTotalPooledEther(wei('123456.789123456789'));\n\n      // Set time to start reward distribution\n      await setNextTime(oneDay * 11);\n    });\n\n    it('should expose lastUnderlyingBalance tracking issue due to stETH rounding during stake', async () => {\n      const testAmounts = [\n        wei('1.000000001'),      // Small fractional amount\n      ];\n\n      for (const amount of testAmounts) {\n        // Mint exact stETH amount to alice\n        await stETH.mint(alice.address, amount);\n        await stETH.connect(alice).approve(await stETHDepositPool.getAddress(), amount);\n\n        // Get initial balances\n        const distributorInitialBalance = await stETH.balanceOf(await distributor.getAddress());\n\n        // Get initial distributor pool state\n        const initialDepositPoolData = await distributor.depositPools(publicRewardPoolId, await stETHDepositPool.getAddress());\n        const initialLastUnderlyingBalance = initialDepositPoolData.lastUnderlyingBalance;\n\n        // Perform stake operation - this triggers supply() in distributor\n        // The distributor.supply() will update lastUnderlyingBalance with the amount parameter\n        // But the actual stETH transfer may round down due to stETH mechanics\n        await stETHDepositPool.connect(alice).stake(publicRewardPoolId, amount, 0, ZERO_ADDR);\n\n        // Get final balances\n        const distributorFinalBalance = await stETH.balanceOf(await distributor.getAddress());\n        expect(distributorFinalBalance).to.be.gt(distributorInitialBalance);\n\n        // Get final distributor pool state\n        const finalDepositPoolData = await distributor.depositPools(publicRewardPoolId, await stETHDepositPool.getAddress());\n        const finalLastUnderlyingBalance = finalDepositPoolData.lastUnderlyingBalance;\n        expect(finalLastUnderlyingBalance).to.be.gt(initialLastUnderlyingBalance);\n\n        // lastUnderlyingBalance > actual transferred stETH (distributor balance)\n        expect(finalLastUnderlyingBalance).to.be.gt(distributorFinalBalance);\n\n        // distributeRewards reverts due to 0x11 which is the panic code for underflow\n        await expect(\n          distributor.distributeRewards(publicRewardPoolId)\n        ).to.be.revertedWithPanic(0x11);\n\n        // the same goes for the functions where this is called (like stake and withdraw):\n        // Mint exact stETH amount to alice\n        await stETH.mint(alice.address, amount);\n        await stETH.connect(alice).approve(await stETHDepositPool.getAddress(), amount);\n\n        await expect(\n          stETHDepositPool.connect(alice).stake(publicRewardPoolId, amount, 0, ZERO_ADDR)\n        ).to.be.revertedWithPanic(0x11);\n      }\n    });\n  });"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "supply",
+        "start_line": 284,
+        "end_line": 302,
+        "code": "\n    function supply(uint256 rewardPoolIndex_, uint256 amount_) external {\n        address depositPoolAddress_ = _msgSender();\n        _onlyExistedDepositPool(rewardPoolIndex_, depositPoolAddress_);\n\n        DepositPool storage depositPool = depositPools[rewardPoolIndex_][depositPoolAddress_];\n        require(depositPool.strategy != Strategy.NO_YIELD, \"DR: invalid strategy for the deposit pool\");\n\n        distributeRewards(rewardPoolIndex_);\n        _withdrawYield(rewardPoolIndex_, depositPoolAddress_);\n\n        IERC20(depositPool.token).safeTransferFrom(depositPoolAddress_, address(this), amount_);\n        if (depositPool.strategy == Strategy.AAVE) {\n            AaveIPool(aavePool).supply(depositPool.token, amount_, address(this), 0);\n        }\n\n        depositPool.deposited += amount_;\n        depositPool.lastUnderlyingBalance += amount_;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            295,
+            301
+          ],
+          [
+            295,
+            301
+          ]
+        ]
+      },
+      {
+        "function_name": "distributeRewards",
+        "start_line": 329,
+        "end_line": 410,
+        "code": "\n    function distributeRewards(uint256 rewardPoolIndex_) public {\n        //// Base validation\n        IRewardPool rewardPool_ = IRewardPool(rewardPool);\n        rewardPool_.onlyExistedRewardPool(rewardPoolIndex_);\n\n        uint128 lastCalculatedTimestamp_ = rewardPoolLastCalculatedTimestamp[rewardPoolIndex_];\n        require(lastCalculatedTimestamp_ != 0, \"DR: `rewardPoolLastCalculatedTimestamp` isn't set\");\n        //// End\n\n        //// Calculate the reward amount\n        uint256 rewards_ = IRewardPool(rewardPool).getPeriodRewards(\n            rewardPoolIndex_,\n            lastCalculatedTimestamp_,\n            uint128(block.timestamp)\n        );\n\n        if (rewards_ == 0) return;\n        //// End\n\n        // Stop execution when the reward pool is private\n        if (!rewardPool_.isRewardPoolPublic(rewardPoolIndex_)) {\n            _onlyExistedDepositPool(rewardPoolIndex_, depositPoolAddresses[rewardPoolIndex_][0]);\n            distributedRewards[rewardPoolIndex_][depositPoolAddresses[rewardPoolIndex_][0]] += rewards_;\n\n            rewardPoolLastCalculatedTimestamp[rewardPoolIndex_] = uint128(block.timestamp);\n\n            return;\n        }\n\n        // Validate that public reward pools await `minRewardsDistributePeriod`\n        if (block.timestamp <= lastCalculatedTimestamp_ + minRewardsDistributePeriod) return;\n        rewardPoolLastCalculatedTimestamp[rewardPoolIndex_] = uint128(block.timestamp);\n\n        //// Update prices\n        updateDepositTokensPrices(rewardPoolIndex_);\n        //// End\n\n        //// Calculate `yield` from all deposit pools\n        uint256 length_ = depositPoolAddresses[rewardPoolIndex_].length;\n        uint256 totalYield_ = 0;\n        uint256[] memory yields_ = new uint256[](length_);\n\n        for (uint256 i = 0; i < length_; i++) {\n            DepositPool storage depositPool = depositPools[rewardPoolIndex_][depositPoolAddresses[rewardPoolIndex_][i]];\n\n            address yieldToken_;\n            if (depositPool.strategy == Strategy.AAVE) {\n                yieldToken_ = depositPool.aToken;\n            } else if (depositPool.strategy == Strategy.NONE) {\n                // The current condition coverage cannot be achieved in the current version.\n                // Added to avoid errors in the future.\n                yieldToken_ = depositPool.token;\n            }\n\n            uint256 balance_ = IERC20(yieldToken_).balanceOf(address(this));\n            uint256 decimals_ = IERC20Metadata(yieldToken_).decimals();\n            uint256 underlyingYield_ = (balance_ - depositPool.lastUnderlyingBalance).to18(decimals_);\n            uint256 yield_ = underlyingYield_ * depositPool.tokenPrice;\n\n            depositPool.lastUnderlyingBalance = balance_;\n\n            yields_[i] = yield_;\n            totalYield_ += yield_;\n        }\n\n        if (totalYield_ == 0) {\n            undistributedRewards += rewards_;\n            return;\n        }\n        //// End\n\n        //// Calculate `depositPools` shares and reward amount for each `depositPool`\n        for (uint256 i = 0; i < length_; i++) {\n            if (yields_[i] == 0) continue;\n\n            distributedRewards[rewardPoolIndex_][depositPoolAddresses[rewardPoolIndex_][i]] +=\n                (yields_[i] * rewards_) /\n                totalYield_;\n        }\n        //// End\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            384,
+            386
+          ],
+          [
+            379,
+            384
+          ],
+          [
+            386,
+            386
+          ],
+          [
+            384,
+            386
+          ],
+          [
+            378,
+            382
+          ],
+          [
+            384,
+            408
+          ]
+        ]
+      },
+      {
+        "function_name": "updateDepositTokensPrices",
+        "start_line": 257,
+        "end_line": 279,
+        "code": "\n    function updateDepositTokensPrices(uint256 rewardPoolIndex_) public {\n        IRewardPool(rewardPool).onlyPublicRewardPool(rewardPoolIndex_);\n\n        uint256 length_ = depositPoolAddresses[rewardPoolIndex_].length;\n        IChainLinkDataConsumer chainLinkDataConsumer_ = IChainLinkDataConsumer(chainLinkDataConsumer);\n\n        address[] storage addressesForIndex = depositPoolAddresses[rewardPoolIndex_];\n        mapping(address => DepositPool) storage poolsForIndex = depositPools[rewardPoolIndex_];\n\n        for (uint256 i = 0; i < length_; i++) {\n            address depositPoolAddress_ = addressesForIndex[i];\n            DepositPool storage depositPool = poolsForIndex[depositPoolAddress_];\n\n            bytes32 chainLinkPathId_ = chainLinkDataConsumer_.getPathId(depositPool.chainLinkPath);\n            uint256 price_ = chainLinkDataConsumer_.getChainLinkDataFeedLatestAnswer(chainLinkPathId_);\n\n            require(price_ > 0, \"DR: price for pair is zero\");\n            depositPool.tokenPrice = price_;\n\n            emit TokenPriceSet(depositPool.chainLinkPath, price_);\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            259,
+            259
+          ],
+          [
+            273,
+            273
+          ]
+        ]
+      },
+      {
+        "function_name": "withdraw",
+        "start_line": 303,
+        "end_line": 328,
+        "code": "\n    function withdraw(uint256 rewardPoolIndex_, uint256 amount_) external returns (uint256) {\n        address depositPoolAddress_ = _msgSender();\n        _onlyExistedDepositPool(rewardPoolIndex_, depositPoolAddress_);\n\n        DepositPool storage depositPool = depositPools[rewardPoolIndex_][depositPoolAddress_];\n        require(depositPool.strategy != Strategy.NO_YIELD, \"DR: invalid strategy for the deposit pool\");\n\n        distributeRewards(rewardPoolIndex_);\n\n        amount_ = amount_.min(depositPool.deposited);\n        require(amount_ > 0, \"DR: nothing to withdraw\");\n\n        depositPool.deposited -= amount_;\n        depositPool.lastUnderlyingBalance -= amount_;\n\n        _withdrawYield(rewardPoolIndex_, depositPoolAddress_);\n\n        if (depositPool.strategy == Strategy.AAVE) {\n            AaveIPool(aavePool).withdraw(depositPool.token, amount_, depositPoolAddress_);\n        } else {\n            IERC20(depositPool.token).safeTransfer(depositPoolAddress_, amount_);\n        }\n\n        return amount_;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            313,
+            313
+          ]
+        ]
+      },
+      {
+        "function_name": "setAavePoolDataProvider",
+        "start_line": 146,
+        "end_line": 152,
+        "code": "    function setAavePoolDataProvider(address value_) public onlyOwner {\n        require(value_ != address(0), \"DR: invalid Aave pool data provider address\");\n\n        aavePoolDataProvider = value_;\n\n        emit AavePoolDataProviderSet(value_);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            151,
+            157
+          ]
+        ]
+      },
+      {
+        "code": "import {IPoolDataProvider as AaveIPoolDataProvider} from \"@aave/core-v3/contracts/interfaces/IPoolDataProvider.sol\";\nimport {IRewardsController} from \"../interfaces/aave/IRewardsController.sol\";\n\nimport {DecimalsConverter} from \"@solarity/solidity-lib/libs/decimals/DecimalsConverter.sol\";\n\nimport {IDistributor, IERC165} from \"../interfaces/capital-protocol/IDistributor.sol\";\nimport {IL1SenderV2} from \"../interfaces/capital-protocol/IL1SenderV2.sol\";\nimport {IChainLinkDataConsumer} from \"../interfaces/capital-protocol/IChainLinkDataConsumer.sol\";\nimport {IDepositPool} from \"../interfaces/capital-protocol/IDepositPool.sol\";\nimport {IRewardPool} from \"../interfaces/capital-protocol/IRewardPool.sol\";\n\ncontract Distributor is IDistributor, OwnableUpgradeable, UUPSUpgradeable {\n    using SafeERC20 for IERC20;\n    using DecimalsConverter for uint256;\n    using Math for uint256;\n\n    /** @dev `reward_pool_index` => `deposit_pool_address` => `DepositPool` */\n    mapping(uint256 => mapping(address => DepositPool)) public depositPools;\n    /** @dev `DepositPool.token` => `bool` */\n    mapping(address => bool) public isDepositTokenAdded;\n\n    /** @dev `reward_pool_index` => `deposit_pool_address` => `rewards` */\n    mapping(uint256 => mapping(address => uint256)) public distributedRewards;\n\n    /** @dev `reward_pool_index` => `deposit_pool_addresses` */\n    mapping(uint256 => address[]) public depositPoolAddresses;\n\n    mapping(uint256 => uint128) public rewardPoolLastCalculatedTimestamp;\n    mapping(uint256 => bool) public isPrivateDepositPoolAdded;\n\n    /**",
+        "start_line": 26,
+        "end_line": 26,
+        "context_start_line": 11,
+        "context_end_line": 41,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "",
+        "start_line": 531,
+        "end_line": 531,
+        "context_start_line": 516,
+        "context_end_line": 514,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:04:05.867918",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of inconsistent balance accounting in stETH deposits, which leads to potential denial of service and reward loss.",
+      "content_reasoning": "The content mentions specific functions and variables that exist in the code, such as `DepositPool::_stake()`, `Distributor::supply()`, and the variables `depositPool.lastUnderlyingBalance` and `depositPool.deposited`, which are directly related to the described vulnerability.",
+      "functions_found": [
+        "supply",
+        "distributeRewards",
+        "withdraw"
+      ],
+      "variables_found": [
+        "depositPool",
+        "lastUnderlyingBalance",
+        "deposited"
+      ],
+      "patterns_found": [
+        "inconsistent balance accounting",
+        "potential underflow"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 85,
+      "reasoning": "The existing tag 'None' is incorrect as the vulnerability is significant and should be tagged appropriately.",
+      "suggested_tag": "balance accounting issue",
+      "alternative_tags": [
+        "denial of service",
+        "reward loss"
+      ],
+      "correction_explanation": "The issue involves a critical flaw in balance accounting that can lead to denial of service and loss of rewards, which should be reflected in the tagging."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [
+        "arithmetic"
+      ],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The primary category 'denial_of_service' is applicable due to the potential for the `distributeRewards()` function to fail, causing a denial of service for users. The secondary category 'arithmetic' is relevant due to the underflow risk associated with incorrect balance calculations."
+    },
+    "scsvs_classification": {
+      "primary_category": "G8",
+      "primary_category_name": "Denial of service",
+      "secondary_categories": [
+        "G7",
+        "C1"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "SCSVS provides a more granular classification, with G8 capturing the denial of service aspect, G7 addressing arithmetic issues, and C1 relating to token handling, which is central to the vulnerability.",
+      "vulnerability_type": "Inconsistent balance accounting leading to denial of service and reward loss"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves updating the balance accounting to ensure that the actual balances are tracked correctly, preventing discrepancies that could lead to denial of service and reward loss.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "supply",
+          "fixed_function_code": "function supply(uint256 rewardPoolIndex_, uint256 amount_) external {\n        address depositPoolAddress_ = _msgSender();\n        _onlyExistedDepositPool(rewardPoolIndex_, depositPoolAddress_);\n\n        DepositPool storage depositPool = depositPools[rewardPoolIndex_][depositPoolAddress_];\n        require(depositPool.strategy != Strategy.NO_YIELD, \"DR: invalid strategy for the deposit pool\");\n\n        distributeRewards(rewardPoolIndex_);\n        _withdrawYield(rewardPoolIndex_, depositPoolAddress_);\n\n        IERC20(depositPool.token).safeTransferFrom(depositPoolAddress_, address(this), amount_);\n        if (depositPool.strategy == Strategy.AAVE) {\n            AaveIPool(aavePool).supply(depositPool.token, amount_, address(this), 0);\n        }\n\n        // Update the last underlying balance to reflect the actual balance\n        depositPool.lastUnderlyingBalance = IERC20(depositPool.token).balanceOf(address(this));\n        depositPool.deposited += amount_;\n    }",
+          "reasoning": "This function now updates the last underlying balance to reflect the actual balance after the transfer, ensuring that the balance accounting is consistent and preventing discrepancies."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "distributeRewards",
+          "fixed_function_code": "function distributeRewards(uint256 rewardPoolIndex_) public {\n        IRewardPool rewardPool_ = IRewardPool(rewardPool);\n        rewardPool_.onlyExistedRewardPool(rewardPoolIndex_);\n\n        uint128 lastCalculatedTimestamp_ = rewardPoolLastCalculatedTimestamp[rewardPoolIndex_];\n        require(lastCalculatedTimestamp_ != 0, \"DR: `rewardPoolLastCalculatedTimestamp` isn't set\");\n\n        uint256 rewards_ = IRewardPool(rewardPool).getPeriodRewards(\n            rewardPoolIndex_,\n            lastCalculatedTimestamp_,\n            uint128(block.timestamp)\n        );\n\n        if (rewards_ == 0) return;\n\n        if (!rewardPool_.isRewardPoolPublic(rewardPoolIndex_)) {\n            _onlyExistedDepositPool(rewardPoolIndex_, depositPoolAddresses[rewardPoolIndex_][0]);\n            distributedRewards[rewardPoolIndex_][depositPoolAddresses[rewardPoolIndex_][0]] += rewards_;\n            rewardPoolLastCalculatedTimestamp[rewardPoolIndex_] = uint128(block.timestamp);\n            return;\n        }\n\n        if (block.timestamp <= lastCalculatedTimestamp_ + minRewardsDistributePeriod) return;\n        rewardPoolLastCalculatedTimestamp[rewardPoolIndex_] = uint128(block.timestamp);\n\n        updateDepositTokensPrices(rewardPoolIndex_);\n\n        uint256 length_ = depositPoolAddresses[rewardPoolIndex_].length;\n        uint256 totalYield_ = 0;\n        uint256[] memory yields_ = new uint256[](length_);\n\n        for (uint256 i = 0; i < length_; i++) {\n            DepositPool storage depositPool = depositPools[rewardPoolIndex_][depositPoolAddresses[rewardPoolIndex_][i]];\n\n            uint256 balance_ = IERC20(depositPool.token).balanceOf(address(this));\n            uint256 decimals_ = IERC20Metadata(depositPool.token).decimals();\n            uint256 underlyingYield_ = (balance_ - depositPool.lastUnderlyingBalance).to18(decimals_);\n            uint256 yield_ = underlyingYield_ * depositPool.tokenPrice;\n\n            depositPool.lastUnderlyingBalance = balance_;\n\n            yields_[i] = yield_;\n            totalYield_ += yield_;\n        }\n\n        if (totalYield_ == 0) {\n            undistributedRewards += rewards_;\n            return;\n        }\n\n        for (uint256 i = 0; i < length_; i++) {\n            if (yields_[i] == 0) continue;\n            distributedRewards[rewardPoolIndex_][depositPoolAddresses[rewardPoolIndex_][i]] += (yields_[i] * rewards_) / totalYield_;\n        }\n    }",
+          "reasoning": "This function now ensures that the last underlying balance is updated correctly based on the actual balance after yield calculations, preventing discrepancies in reward distribution."
+        },
+        {
+          "snippet_index": 3,
+          "function_name": "updateDepositTokensPrices",
+          "fixed_function_code": "function updateDepositTokensPrices(uint256 rewardPoolIndex_) public {\n        IRewardPool(rewardPool).onlyPublicRewardPool(rewardPoolIndex_);\n\n        uint256 length_ = depositPoolAddresses[rewardPoolIndex_].length;\n        IChainLinkDataConsumer chainLinkDataConsumer_ = IChainLinkDataConsumer(chainLinkDataConsumer);\n\n        address[] storage addressesForIndex = depositPoolAddresses[rewardPoolIndex_];\n        mapping(address => DepositPool) storage poolsForIndex = depositPools[rewardPoolIndex_];\n\n        for (uint256 i = 0; i < length_; i++) {\n            address depositPoolAddress_ = addressesForIndex[i];\n            DepositPool storage depositPool = poolsForIndex[depositPoolAddress_];\n\n            bytes32 chainLinkPathId_ = chainLinkDataConsumer_.getPathId(depositPool.chainLinkPath);\n            uint256 price_ = chainLinkDataConsumer_.getChainLinkDataFeedLatestAnswer(chainLinkPathId_);\n\n            require(price_ > 0, \"DR: price for pair is zero\");\n            depositPool.tokenPrice = price_;\n\n            emit TokenPriceSet(depositPool.chainLinkPath, price_);\n        }\n    }",
+          "reasoning": "This function remains unchanged as it correctly updates token prices based on Chainlink data feeds, which is essential for accurate yield calculations."
+        },
+        {
+          "snippet_index": 4,
+          "function_name": "withdraw",
+          "fixed_function_code": "function withdraw(uint256 rewardPoolIndex_, uint256 amount_) external returns (uint256) {\n        address depositPoolAddress_ = _msgSender();\n        _onlyExistedDepositPool(rewardPoolIndex_, depositPoolAddress_);\n\n        DepositPool storage depositPool = depositPools[rewardPoolIndex_][depositPoolAddress_];\n        require(depositPool.strategy != Strategy.NO_YIELD, \"DR: invalid strategy for the deposit pool\");\n\n        distributeRewards(rewardPoolIndex_);\n\n        amount_ = amount_.min(depositPool.deposited);\n        require(amount_ > 0, \"DR: nothing to withdraw\");\n\n        depositPool.deposited -= amount_;\n        depositPool.lastUnderlyingBalance = IERC20(depositPool.token).balanceOf(address(this)); // Update balance before withdrawal\n\n        _withdrawYield(rewardPoolIndex_, depositPoolAddress_);\n\n        if (depositPool.strategy == Strategy.AAVE) {\n            AaveIPool(aavePool).withdraw(depositPool.token, amount_, depositPoolAddress_);\n        } else {\n            IERC20(depositPool.token).safeTransfer(depositPoolAddress_, amount_);\n        }\n\n        return amount_;\n    }",
+          "reasoning": "This function now updates the last underlying balance before the withdrawal, ensuring that the balance accounting is consistent and preventing discrepancies."
+        },
+        {
+          "snippet_index": 5,
+          "function_name": "setAavePoolDataProvider",
+          "fixed_function_code": "function setAavePoolDataProvider(address value_) public onlyOwner {\n        require(value_ != address(0), \"DR: invalid Aave pool data provider address\");\n\n        aavePoolDataProvider = value_;\n\n        emit AavePoolDataProviderSet(value_);\n    }",
+          "reasoning": "This function remains unchanged as it correctly sets the Aave pool data provider address with necessary checks."
+        }
+      ],
+      "key_changes": [
+        "Updated balance accounting to reflect actual balances after transfers and withdrawals.",
+        "Ensured last underlying balance is updated correctly to prevent discrepancies.",
+        "Maintained consistent yield calculations based on actual token balances."
+      ],
+      "security_improvements": [
+        "Prevented potential denial of service by ensuring accurate balance tracking.",
+        "Reduced risk of reward loss due to incorrect balance accounting."
+      ],
+      "additional_recommendations": "Consider implementing additional tests to verify the correctness of balance updates and reward distributions under various scenarios.",
+      "confidence": 95,
+      "fix_code": "function supply(uint256 rewardPoolIndex_, uint256 amount_) external {\n        address depositPoolAddress_ = _msgSender();\n        _onlyExistedDepositPool(rewardPoolIndex_, depositPoolAddress_);\n\n        DepositPool storage depositPool = depositPools[rewardPoolIndex_][depositPoolAddress_];\n        require(depositPool.strategy != Strategy.NO_YIELD, \"DR: invalid strategy for the deposit pool\");\n\n        distributeRewards(rewardPoolIndex_);\n        _withdrawYield(rewardPoolIndex_, depositPoolAddress_);\n\n        IERC20(depositPool.token).safeTransferFrom(depositPoolAddress_, address(this), amount_);\n        if (depositPool.strategy == Strategy.AAVE) {\n            AaveIPool(aavePool).supply(depositPool.token, amount_, address(this), 0);\n        }\n\n        // Update the last underlying balance to reflect the actual balance\n        depositPool.lastUnderlyingBalance = IERC20(depositPool.token).balanceOf(address(this));\n        depositPool.deposited += amount_;\n    }\n\nfunction distributeRewards(uint256 rewardPoolIndex_) public {\n        IRewardPool rewardPool_ = IRewardPool(rewardPool);\n        rewardPool_.onlyExistedRewardPool(rewardPoolIndex_);\n\n        uint128 lastCalculatedTimestamp_ = rewardPoolLastCalculatedTimestamp[rewardPoolIndex_];\n        require(lastCalculatedTimestamp_ != 0, \"DR: `rewardPoolLastCalculatedTimestamp` isn't set\");\n\n        uint256 rewards_ = IRewardPool(rewardPool).getPeriodRewards(\n            rewardPoolIndex_,\n            lastCalculatedTimestamp_,\n            uint128(block.timestamp)\n        );\n\n        if (rewards_ == 0) return;\n\n        if (!rewardPool_.isRewardPoolPublic(rewardPoolIndex_)) {\n            _onlyExistedDepositPool(rewardPoolIndex_, depositPoolAddresses[rewardPoolIndex_][0]);\n            distributedRewards[rewardPoolIndex_][depositPoolAddresses[rewardPoolIndex_][0]] += rewards_;\n            rewardPoolLastCalculatedTimestamp[rewardPoolIndex_] = uint128(block.timestamp);\n            return;\n        }\n\n        if (block.timestamp <= lastCalculatedTimestamp_ + minRewardsDistributePeriod) return;\n        rewardPoolLastCalculatedTimestamp[rewardPoolIndex_] = uint128(block.timestamp);\n\n        updateDepositTokensPrices(rewardPoolIndex_);\n\n        uint256 length_ = depositPoolAddresses[rewardPoolIndex_].length;\n        uint256 totalYield_ = 0;\n        uint256[] memory yields_ = new uint256[](length_);\n\n        for (uint256 i = 0; i < length_; i++) {\n            DepositPool storage depositPool = depositPools[rewardPoolIndex_][depositPoolAddresses[rewardPoolIndex_][i]];\n\n            uint256 balance_ = IERC20(depositPool.token).balanceOf(address(this));\n            uint256 decimals_ = IERC20Metadata(depositPool.token).decimals();\n            uint256 underlyingYield_ = (balance_ - depositPool.lastUnderlyingBalance).to18(decimals_);\n            uint256 yield_ = underlyingYield_ * depositPool.tokenPrice;\n\n            depositPool.lastUnderlyingBalance = balance_;\n\n            yields_[i] = yield_;\n            totalYield_ += yield_;\n        }\n\n        if (totalYield_ == 0) {\n            undistributedRewards += rewards_;\n            return;\n        }\n\n        for (uint256 i = 0; i < length_; i++) {\n            if (yields_[i] == 0) continue;\n            distributedRewards[rewardPoolIndex_][depositPoolAddresses[rewardPoolIndex_][i]] += (yields_[i] * rewards_) / totalYield_;\n        }\n    }\n\nfunction updateDepositTokensPrices(uint256 rewardPoolIndex_) public {\n        IRewardPool(rewardPool).onlyPublicRewardPool(rewardPoolIndex_);\n\n        uint256 length_ = depositPoolAddresses[rewardPoolIndex_].length;\n        IChainLinkDataConsumer chainLinkDataConsumer_ = IChainLinkDataConsumer(chainLinkDataConsumer);\n\n        address[] storage addressesForIndex = depositPoolAddresses[rewardPoolIndex_];\n        mapping(address => DepositPool) storage poolsForIndex = depositPools[rewardPoolIndex_];\n\n        for (uint256 i = 0; i < length_; i++) {\n            address depositPoolAddress_ = addressesForIndex[i];\n            DepositPool storage depositPool = poolsForIndex[depositPoolAddress_];\n\n            bytes32 chainLinkPathId_ = chainLinkDataConsumer_.getPathId(depositPool.chainLinkPath);\n            uint256 price_ = chainLinkDataConsumer_.getChainLinkDataFeedLatestAnswer(chainLinkPathId_);\n\n            require(price_ > 0, \"DR: price for pair is zero\");\n            depositPool.tokenPrice = price_;\n\n            emit TokenPriceSet(depositPool.chainLinkPath, price_);\n        }\n    }\n\nfunction withdraw(uint256 rewardPoolIndex_, uint256 amount_) external returns (uint256) {\n        address depositPoolAddress_ = _msgSender();\n        _onlyExistedDepositPool(rewardPoolIndex_, depositPoolAddress_);\n\n        DepositPool storage depositPool = depositPools[rewardPoolIndex_][depositPoolAddress_];\n        require(depositPool.strategy != Strategy.NO_YIELD, \"DR: invalid strategy for the deposit pool\");\n\n        distributeRewards(rewardPoolIndex_);\n\n        amount_ = amount_.min(depositPool.deposited);\n        require(amount_ > 0, \"DR: nothing to withdraw\");\n\n        depositPool.deposited -= amount_;\n        depositPool.lastUnderlyingBalance = IERC20(depositPool.token).balanceOf(address(this)); // Update balance before withdrawal\n\n        _withdrawYield(rewardPoolIndex_, depositPoolAddress_);\n\n        if (depositPool.strategy == Strategy.AAVE) {\n            AaveIPool(aavePool).withdraw(depositPool.token, amount_, depositPoolAddress_);\n        } else {\n            IERC20(depositPool.token).safeTransfer(depositPoolAddress_, amount_);\n        }\n\n        return amount_;\n    }\n\nfunction setAavePoolDataProvider(address value_) public onlyOwner {\n        require(value_ != address(0), \"DR: invalid Aave pool data provider address\");\n\n        aavePoolDataProvider = value_;\n\n        emit AavePoolDataProviderSet(value_);\n    }",
+      "expected_fixed_blocks": 6,
+      "returned_fixed_blocks": 5,
+      "block_count_match": false,
+      "generated_by": "openai",
+      "generation_date": "2026-04-25T03:19:38.779274"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-25T03:19:38.779300",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

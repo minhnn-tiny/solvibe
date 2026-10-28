@@ -1,0 +1,167 @@
+{
+  "id": "65025",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-12-panoptic/blob/a4361d6d8dc6420c09187d80ea1a7ce851d1ca36/contracts/RiskEngine.sol# L2307",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      2307,
+      2307
+    ],
+    [
+      2315,
+      2315
+    ],
+    [
+      2319,
+      2319
+    ],
+    [
+      2371,
+      2371
+    ],
+    [
+      2371,
+      2371
+    ],
+    [
+      2315,
+      2315
+    ],
+    [
+      2319,
+      2319
+    ]
+  ],
+  "filename": "65025_RiskEngine.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 2403,
+  "vulnerability_title": "[H-01] BuilderWallet `init()` is unprotected/re-initializable, enabling takeover and theft of builder fees",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "balanceOf",
+        "start_line": 2302,
+        "end_line": 2331,
+        "code": "    function balanceOf(address) external view returns (uint256);\n\n    function transfer(address to, uint256 amount) external returns (bool);\n}\n\ncontract BuilderWallet {\n    address public immutable FACTORY;\n    address public builderAdmin;\n\n    constructor(address factory) {\n        FACTORY = factory;\n    }\n\n    function init(address _builderAdmin) external {\n        builderAdmin = _builderAdmin;\n    }\n\n    function sweep(address token, address to) external {\n        if (msg.sender != builderAdmin) revert Errors.NotBuilder();\n\n        uint256 bal = IERC20(token).balanceOf(address(this));\n        if (bal == 0) return;\n\n        bool ok = IERC20(token).transfer(to, bal);\n        if (!ok) {\n            // `from` is this wallet, `balance` is pre-transfer token balance\n            revert Errors.TransferFailed(token, address(this), bal, bal);\n        }\n    }\n}",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            2307,
+            2307
+          ],
+          [
+            2315,
+            2315
+          ],
+          [
+            2319,
+            2319
+          ],
+          [
+            2315,
+            2315
+          ],
+          [
+            2319,
+            2319
+          ]
+        ]
+      },
+      {
+        "function_name": "deployBuilder",
+        "start_line": 2371,
+        "end_line": 2386,
+        "code": "    function deployBuilder(\n        uint48 builderCode,\n        address builderAdmin\n    ) external onlyOwner returns (address wallet) {\n        bytes32 salt = bytes32(uint256(builderCode));\n\n        // Constructor args are part of the init code and therefore part of the CREATE2 address.\n        bytes memory initCode = abi.encodePacked(\n            type(BuilderWallet).creationCode,\n            abi.encode(address(this))\n        );\n\n        wallet = Create2Lib.deploy(0, salt, initCode);\n        // now set the admin in storage (not part of init code)\n        BuilderWallet(wallet).init(builderAdmin);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            2371,
+            2371
+          ],
+          [
+            2371,
+            2371
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:39.135262",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability in the `init()` function, which lacks access control and can be called multiple times, allowing an attacker to overwrite `builderAdmin`.",
+      "content_reasoning": "The extracted code contains the `init()` function without access control, matching the report's description. The `sweep()` function is also present and relies on `builderAdmin` for authorization.",
+      "functions_found": [
+        "init",
+        "sweep",
+        "deployBuilder"
+      ],
+      "variables_found": [
+        "builderAdmin",
+        "FACTORY"
+      ],
+      "patterns_found": [
+        "lack of access control",
+        "re-initialization"
+      ],
+      "issues": [
+        "unprotected init function"
+      ]
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag. Given the nature of the vulnerability, a tag related to access control issues is appropriate.",
+      "suggested_tag": "access_control",
+      "alternative_tags": [
+        "reinitialization"
+      ],
+      "correction_explanation": "The vulnerability is primarily about improper access control, allowing unauthorized re-initialization."
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "secondary_categories": [],
+      "confidence": 95,
+      "mando_applicable": true,
+      "reasoning": "The issue is a classic case of access control failure, where the `init()` function can be called by anyone, leading to unauthorized changes in contract state."
+    },
+    "scsvs_classification": {
+      "primary_category": "G5",
+      "primary_category_name": "Access control",
+      "secondary_categories": [],
+      "confidence": 95,
+      "use_scsvs_instead": false,
+      "reasoning": "The MANDO category 'access_control' sufficiently covers the vulnerability. SCSVS G5 also aligns well, but MANDO is adequate for this classification.",
+      "vulnerability_type": "Unprotected function allowing unauthorized state changes"
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-03-20T15:23:59.300337",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

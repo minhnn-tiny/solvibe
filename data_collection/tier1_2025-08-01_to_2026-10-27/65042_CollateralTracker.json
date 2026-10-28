@@ -1,0 +1,205 @@
+{
+  "id": "65042",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-12-panoptic/blob/fe557748210a529ae414d7c487b6514be0d9e220/contracts/CollateralTracker.sol# L1558-L1561",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      1558,
+      1561
+    ],
+    [
+      1637,
+      1640
+    ],
+    [
+      253,
+      264
+    ],
+    [
+      839,
+      839
+    ],
+    [
+      1634,
+      1634
+    ]
+  ],
+  "filename": "65042_CollateralTracker.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 1664,
+  "vulnerability_title": "[M-15] Commission share-burn distribution is JIT-capturable when `builderCode == 0` (default)",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "There is no free lunch here: \u201cburn-based instant distribution to current shareholders\u201d is fundamentally JIT-capturable. Mitigations are about making the distribution **not** instantaneous or not purely share-price based.\n\n1. **Disallow burn-based distribution for commissions (Strongest, Simplest):**\n\n   * Treat `builderCode == 0` as \u201cprotocol receives fees\u201d rather than \u201cburn to LPs\u201d.\n   * Enforce `feeRecipient != 0` for all dispatch paths, or route `builderCode == 0` to a non-zero treasury recipient, then distribute via a separate time-weighted mechanism.\n2. **Stream/Vest distributions instead of instantaneous uplift:**\n\n   * Accumulate commissions in a buffer and drip them into `totalAssets()` over a window (e.g., X blocks).\n   * This makes same-block JIT capture unprofitable because the \u201cuplift\u201d is smeared over time.\n3. **Cooldown / Time-weighting (Partial mitigation):**\n\n   * A 1-block withdrawal cooldown reduces risk-free atomic sandwiches but does not remove the economic issue (attackers can hold across blocks).\n   * If implemented, it must also cover transfers (otherwise deposit\u2192transfer\u2192withdraw bypass exists).",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "**Setup instructions:**\n\n1. Create the PoC file at `test/foundry/poc/CollateralTrackerCommissionBurnJITPoC.t.sol`\n2. Apply the diff below (or copy the full file content)\n3. Run the tests via `forge test --match-path test/foundry/poc/CollateralTrackerCommissionBurnJITPoC.t.sol -vvv`\n\n> *Note:* This PoC uses a minimal mock `PanopticPool` solely to satisfy `onlyPanopticPool` and to simulate the liquidation-style `delegate()` \u2192 `settleBurn()` \u2192 `revoke()` sequence that the real `PanopticPool` uses during `dispatchFrom` liquidations/forced exercises. A full `dispatchFrom` end-to-end liquidation PoC would require spinning up real option positions + solvency/oracle plumbing (typically via a forked environment) and is orthogonal to demonstrating the JIT-capturable share-burn mechanism inside `CollateralTracker`.\n\n**PoC diff:**\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-12-panoptic-next-core/submissions/S-855)\n\n**Expected test output:**\n\nAll 10 tests pass, demonstrating:\n\n1. `test_PoC_CommissionBurn_JITCapture_WhenFeeRecipientIsZero` - JIT attacker captures >99% of commission burn distribution.\n2. `test_PoC_SettleBurn_NoRealizedPremium_NoCommissionBurn` - Confirms `settleBurn` gating on `realizedPremium != 0`.\n3. `test_PoC_ActiveCapture_SettleBurn_CommissionBurn_JITCapture` - Active attacker-initiated burn capture.\n4. `test_PoC_FeeSelfRebating_PreDepositReducesEffectiveFee` - Fee payer can recapture >99% of their own fee.\n5. `test_PoC_FeeSelfRebating_CostDecreases_WithShareFraction` - Effective fee decreases as the fee payer\u2019s share fraction increases.\n6. `test_PoC_FlashLoan_ActiveCapture_IsAtomic_WhenLiquidityAllows` - Atomic flash loan attack variant.\n7. `test_PoC_LiquidationStyle_DelegateRevoke_PhantomBurnIsRestored_WhenNoRealShares` - Phantom burn is restored on revoke (no persistent supply decrease).\n8. `test_PoC_LiquidationStyle_DelegateRevoke_RealBurnPersists_WhenVictimHasRealShares` - Persistent supply decrease requires burning real shares.\n9. `test_PoC_UpliftMayBeNonWithdrawable_WhenAssetsInAMMHigh` - Shows `maxWithdraw/maxRedeem` are capped by `s_depositedAssets` (not `totalAssets()`).\n10. `test_PoC_RiskEngine_builderCode0_feeRecipient0` - Confirms `builderCode == 0` \u2192 `feeRecipient == address(0)`.\n\n**Panoptic marked as informative.**\n\n---",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "settleMint",
+        "start_line": 1531,
+        "end_line": 1584,
+        "code": "    function settleMint(\n        address optionOwner,\n        int128 longAmount,\n        int128 shortAmount,\n        int128 ammDeltaAmount,\n        RiskParameters riskParameters\n    ) external onlyPanopticPool returns (uint32, int128) {\n        (\n            uint32 utilization,\n            int128 tokenPaid,\n            uint256 _totalAssets,\n            uint256 _totalSupply\n        ) = _updateBalancesAndSettle(\n                optionOwner,\n                true, // isCreation = true\n                longAmount,\n                shortAmount,\n                ammDeltaAmount,\n                0 // realizedPremium not used\n            );\n\n        {\n            uint128 commission = uint256(int256(shortAmount) + int256(longAmount)).toUint128();\n            uint128 commissionFee = Math\n                .mulDivRoundingUp(commission, riskParameters.notionalFee(), DECIMALS)\n                .toUint128();\n            uint256 sharesToBurn = Math.mulDivRoundingUp(commissionFee, _totalSupply, _totalAssets);\n            if (riskParameters.feeRecipient() == 0) {\n                _burn(optionOwner, sharesToBurn);\n                emit CommissionPaid(optionOwner, address(0), commissionFee, 0);\n            } else {\n                unchecked {\n                    _transferFrom(\n                        optionOwner,\n                        address(riskEngine()),\n                        (sharesToBurn * riskParameters.protocolSplit()) / DECIMALS\n                    );\n                    _transferFrom(\n                        optionOwner,\n                        address(uint160(riskParameters.feeRecipient())),\n                        (sharesToBurn * riskParameters.builderSplit()) / DECIMALS\n                    );\n                    emit CommissionPaid(\n                        optionOwner,\n                        address(uint160(riskParameters.feeRecipient())),\n                        uint128((commissionFee * riskParameters.protocolSplit()) / DECIMALS),\n                        uint128((commissionFee * riskParameters.protocolSplit()) / DECIMALS)\n                    );\n                }\n            }\n        }\n\n        return (utilization, tokenPaid);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1558,
+            1561
+          ]
+        ]
+      },
+      {
+        "function_name": "settleBurn",
+        "start_line": 1595,
+        "end_line": 1663,
+        "code": "    function settleBurn(\n        address optionOwner,\n        int128 longAmount,\n        int128 shortAmount,\n        int128 ammDeltaAmount,\n        int128 realizedPremium,\n        RiskParameters riskParameters\n    ) external onlyPanopticPool returns (int128) {\n        (, int128 tokenPaid, uint256 _totalAssets, uint256 _totalSupply) = _updateBalancesAndSettle(\n            optionOwner,\n            false, // isCreation = false\n            longAmount,\n            shortAmount,\n            ammDeltaAmount,\n            realizedPremium\n        );\n\n        if (realizedPremium != 0) {\n            uint128 commissionFee;\n            // compute the minimum of the notionalFee and the premiumFee\n            {\n                uint128 commissionP;\n                unchecked {\n                    commissionP = realizedPremium > 0\n                        ? uint128(realizedPremium)\n                        : uint128(-realizedPremium);\n                }\n                uint128 commissionFeeP = Math\n                    .mulDivRoundingUp(commissionP, riskParameters.premiumFee(), DECIMALS)\n                    .toUint128();\n                uint128 commissionN = uint256(int256(shortAmount) + int256(longAmount)).toUint128();\n                uint128 commissionFeeN;\n                unchecked {\n                    commissionFeeN = Math\n                        .mulDivRoundingUp(commissionN, 10 * riskParameters.notionalFee(), DECIMALS)\n                        .toUint128();\n                }\n                commissionFee = Math.min(commissionFeeP, commissionFeeN).toUint128();\n            }\n\n            uint256 sharesToBurn = Math.mulDivRoundingUp(commissionFee, _totalSupply, _totalAssets);\n\n            if (riskParameters.feeRecipient() == 0) {\n                _burn(optionOwner, sharesToBurn);\n                emit CommissionPaid(optionOwner, address(0), commissionFee, 0);\n            } else {\n                unchecked {\n                    _transferFrom(\n                        optionOwner,\n                        address(riskEngine()),\n                        (sharesToBurn * riskParameters.protocolSplit()) / DECIMALS\n                    );\n                    _transferFrom(\n                        optionOwner,\n                        address(uint160(riskParameters.feeRecipient())),\n                        (sharesToBurn * riskParameters.builderSplit()) / DECIMALS\n                    );\n                    emit CommissionPaid(\n                        optionOwner,\n                        address(uint160(riskParameters.feeRecipient())),\n                        uint128((commissionFee * riskParameters.protocolSplit()) / DECIMALS),\n                        uint128((commissionFee * riskParameters.protocolSplit()) / DECIMALS)\n                    );\n                }\n            }\n        }\n\n        return tokenPaid;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1637,
+            1640
+          ],
+          [
+            1634,
+            1634
+          ]
+        ]
+      },
+      {
+        "function_name": "redeem",
+        "start_line": 817,
+        "end_line": 858,
+        "code": "    function redeem(\n        uint256 shares,\n        address receiver,\n        address owner\n    ) external returns (uint256 assets) {\n        _accrueInterest(owner, IS_NOT_DEPOSIT);\n        if (shares > maxRedeem(owner)) revert Errors.ExceedsMaximumRedemption();\n\n        // check/update allowance for approved redeem\n        if (msg.sender != owner) {\n            uint256 allowed = allowance[owner][msg.sender];\n\n            if (allowed != type(uint256).max) allowance[owner][msg.sender] = allowed - shares; // Saves gas for unlimited approvals.\n        }\n\n        assets = previewRedeem(shares);\n        if (assets == 0) revert Errors.BelowMinimumRedemption();\n\n        // burn collateral shares of the Panoptic Pool funds (this ERC20 token)\n        _burn(owner, shares);\n\n        // update tracked asset balance\n        // keep checked to avoid underflows\n        s_depositedAssets -= uint128(assets);\n        address _poolManager = address(poolManager());\n\n        if (_poolManager == address(0)) {\n            // transfer assets (underlying token funds) from the PanopticPool to the LP\n            SafeTransferLib.safeTransferFrom(\n                underlyingToken(),\n                address(panopticPool()),\n                receiver,\n                assets\n            );\n        } else {\n            // transfer assets from the PanopticPool to the LP\n            unchecked {\n                _settleCurrencyDelta(receiver, -int256(assets));\n            }\n        }\n        emit Withdraw(msg.sender, receiver, owner, assets, shares);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            839,
+            839
+          ]
+        ]
+      },
+      {
+        "code": "    ///      A user's current debt = originalDebt * (currentBorrowIndex / userBorrowIndexSnapshot)\n    MarketState internal s_marketState;\n\n    /// @notice Tracks each user's borrowing state and last interaction checkpoint\n    /// @dev Packed layout:\n    ///      - Left slot (128 bits): Net borrows = netShorts - netLongs\n    ///        Represents the user's net borrowed amount in tokens\n    ///        Can be negative, in which case they purchased more options than they sold\n    ///      - Right slot (128 bits): User's borrow index snapshot\n    ///        The global borrow index value when this user last accrued interest\n    /// @dev Interest calculation: interestOwed = netBorrows * (currentIndex - userIndex) / userIndex\n    mapping(address account => LeftRightSigned interestState) internal s_interestState;\n\n    /*//////////////////////////////////////////////////////////////\n                            RISK PARAMETERS\n    //////////////////////////////////////////////////////////////*/\n\n    /// @notice The commission fee, in basis points, collected from PLPs at option mint.\n    /// @dev In Panoptic, options never expire, commissions are only paid when a new position is minted.\n    /// @dev We believe that this will eliminate the impact of the commission fee on the user's decision-making process when closing a position.\n    uint256 immutable COMMISSION_FEE;\n\n    /*//////////////////////////////////////////////////////////////\n                            ACCESS CONTROL\n    //////////////////////////////////////////////////////////////*/\n\n    /// @notice Reverts if the associated Panoptic Pool is not the caller.\n    modifier onlyPanopticPool() {\n        _onlyPanopticPool();\n        _;\n    }\n\n    function _onlyPanopticPool() internal view {\n        if (msg.sender != address(panopticPool())) revert Errors.NotPanopticPool();\n    }\n\n    /*//////////////////////////////////////////////////////////////\n                  INITIALIZATION & PARAMETER SETTINGS\n    //////////////////////////////////////////////////////////////*/\n\n    /// @notice Set immutable parameters for the Collateral Tracker.\n    /// @param _commissionFee The commission fee, in basis points, collected from PLPs at option mint",
+        "start_line": 253,
+        "end_line": 264,
+        "context_start_line": 238,
+        "context_end_line": 279,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:59.269873",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of JIT liquidity capture due to share burning when `builderCode == 0`, which is reflected in the code.",
+      "content_reasoning": "The code snippets contain the functions `settleMint` and `settleBurn` where the vulnerability occurs, specifically when `feeRecipient == 0` leading to share burning.",
+      "functions_found": [
+        "settleMint",
+        "settleBurn",
+        "redeem"
+      ],
+      "variables_found": [
+        "feeRecipient",
+        "sharesToBurn",
+        "totalSupply",
+        "totalAssets"
+      ],
+      "patterns_found": [
+        "JIT liquidity capture",
+        "share burning"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged to reflect the MEV and liquidity capture issues.",
+      "suggested_tag": "front_running",
+      "alternative_tags": [
+        "MEV",
+        "liquidity_capture"
+      ],
+      "correction_explanation": "The vulnerability is primarily about MEV and JIT liquidity capture, which aligns with front-running issues."
+    },
+    "mando_classification": {
+      "primary_category": "front_running",
+      "secondary_categories": [],
+      "confidence": 95,
+      "mando_applicable": true,
+      "reasoning": "The issue is a classic example of MEV and front-running, where attackers can manipulate transaction ordering to capture value."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "C8"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability involves business logic flaws in the distribution mechanism that allow MEV capture, and it affects liquidity pools.",
+      "vulnerability_type": "JIT liquidity capture due to flawed share burning logic"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves changing the commission distribution mechanism to avoid JIT capture by routing fees to a treasury and distributing them over time.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "settleMint",
+          "fixed_function_code": "function settleMint(\n    address optionOwner,\n    int128 longAmount,\n    int128 shortAmount,\n    int128 ammDeltaAmount,\n    RiskParameters riskParameters\n) external onlyPanopticPool returns (uint32, int128) {\n    (\n        uint32 utilization,\n        int128 tokenPaid,\n        uint256 _totalAssets,\n        uint256 _totalSupply\n    ) = _updateBalancesAndSettle(\n            optionOwner,\n            true, // isCreation = true\n            longAmount,\n            shortAmount,\n            ammDeltaAmount,\n            0 // realizedPremium not used\n        );\n\n    uint128 commission = uint256(int256(shortAmount) + int256(longAmount)).toUint128();\n    uint128 commissionFee = Math\n        .mulDivRoundingUp(commission, riskParameters.notionalFee(), DECIMALS)\n        .toUint128();\n\n    // Route fees to a treasury instead of burning shares\n    address treasury = address(uint160(riskParameters.feeRecipient()));\n    if (treasury == address(0)) {\n        treasury = address(this); // Default to contract address if no fee recipient\n    }\n    _transferFrom(optionOwner, treasury, commissionFee);\n\n    emit CommissionPaid(optionOwner, treasury, commissionFee, 0);\n\n    return (utilization, tokenPaid);\n}",
+          "reasoning": "This fix routes the commission fees to a treasury address instead of burning shares, preventing JIT capture by delaying the distribution of value to liquidity providers."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "settleBurn",
+          "fixed_function_code": "function settleBurn(\n    address optionOwner,\n    int128 longAmount,\n    int128 shortAmount,\n    int128 ammDeltaAmount,\n    int128 realizedPremium,\n    RiskParameters riskParameters\n) external onlyPanopticPool returns (int128) {\n    (, int128 tokenPaid, uint256 _totalAssets, uint256 _totalSupply) = _updateBalancesAndSettle(\n        optionOwner,\n        false, // isCreation = false\n        longAmount,\n        shortAmount,\n        ammDeltaAmount,\n        realizedPremium\n    );\n\n    if (realizedPremium != 0) {\n        uint128 commissionFee;\n        {\n            uint128 commissionP = realizedPremium > 0\n                ? uint128(realizedPremium)\n                : uint128(-realizedPremium);\n            uint128 commissionFeeP = Math\n                .mulDivRoundingUp(commissionP, riskParameters.premiumFee(), DECIMALS)\n                .toUint128();\n            uint128 commissionN = uint256(int256(shortAmount) + int256(longAmount)).toUint128();\n            uint128 commissionFeeN = Math\n                .mulDivRoundingUp(commissionN, 10 * riskParameters.notionalFee(), DECIMALS)\n                .toUint128();\n            commissionFee = Math.min(commissionFeeP, commissionFeeN).toUint128();\n        }\n\n        // Route fees to a treasury instead of burning shares\n        address treasury = address(uint160(riskParameters.feeRecipient()));\n        if (treasury == address(0)) {\n            treasury = address(this); // Default to contract address if no fee recipient\n        }\n        _transferFrom(optionOwner, treasury, commissionFee);\n\n        emit CommissionPaid(optionOwner, treasury, commissionFee, 0);\n    }\n\n    return tokenPaid;\n}",
+          "reasoning": "Similar to settleMint, this function now routes commission fees to a treasury address, preventing immediate value capture by opportunistic traders."
+        }
+      ],
+      "key_changes": [
+        "Changed commission distribution from burning shares to routing to a treasury.",
+        "Ensured a default treasury address is used if no fee recipient is specified.",
+        "Removed direct share burning logic to prevent JIT capture."
+      ],
+      "security_improvements": [
+        "Prevents JIT capture by delaying value distribution.",
+        "Ensures fees are collected in a controlled manner.",
+        "Reduces the risk of MEV exploitation."
+      ],
+      "additional_recommendations": "Consider implementing a time-weighted distribution mechanism for accumulated fees to further mitigate risks.",
+      "confidence": 95,
+      "fix_code": "function settleMint(\n    address optionOwner,\n    int128 longAmount,\n    int128 shortAmount,\n    int128 ammDeltaAmount,\n    RiskParameters riskParameters\n) external onlyPanopticPool returns (uint32, int128) {\n    (\n        uint32 utilization,\n        int128 tokenPaid,\n        uint256 _totalAssets,\n        uint256 _totalSupply\n    ) = _updateBalancesAndSettle(\n            optionOwner,\n            true, // isCreation = true\n            longAmount,\n            shortAmount,\n            ammDeltaAmount,\n            0 // realizedPremium not used\n        );\n\n    uint128 commission = uint256(int256(shortAmount) + int256(longAmount)).toUint128();\n    uint128 commissionFee = Math\n        .mulDivRoundingUp(commission, riskParameters.notionalFee(), DECIMALS)\n        .toUint128();\n\n    // Route fees to a treasury instead of burning shares\n    address treasury = address(uint160(riskParameters.feeRecipient()));\n    if (treasury == address(0)) {\n        treasury = address(this); // Default to contract address if no fee recipient\n    }\n    _transferFrom(optionOwner, treasury, commissionFee);\n\n    emit CommissionPaid(optionOwner, treasury, commissionFee, 0);\n\n    return (utilization, tokenPaid);\n}\n\nfunction settleBurn(\n    address optionOwner,\n    int128 longAmount,\n    int128 shortAmount,\n    int128 ammDeltaAmount,\n    int128 realizedPremium,\n    RiskParameters riskParameters\n) external onlyPanopticPool returns (int128) {\n    (, int128 tokenPaid, uint256 _totalAssets, uint256 _totalSupply) = _updateBalancesAndSettle(\n        optionOwner,\n        false, // isCreation = false\n        longAmount,\n        shortAmount,\n        ammDeltaAmount,\n        realizedPremium\n    );\n\n    if (realizedPremium != 0) {\n        uint128 commissionFee;\n        {\n            uint128 commissionP = realizedPremium > 0\n                ? uint128(realizedPremium)\n                : uint128(-realizedPremium);\n            uint128 commissionFeeP = Math\n                .mulDivRoundingUp(commissionP, riskParameters.premiumFee(), DECIMALS)\n                .toUint128();\n            uint128 commissionN = uint256(int256(shortAmount) + int256(longAmount)).toUint128();\n            uint128 commissionFeeN = Math\n                .mulDivRoundingUp(commissionN, 10 * riskParameters.notionalFee(), DECIMALS)\n                .toUint128();\n            commissionFee = Math.min(commissionFeeP, commissionFeeN).toUint128();\n        }\n\n        // Route fees to a treasury instead of burning shares\n        address treasury = address(uint160(riskParameters.feeRecipient()));\n        if (treasury == address(0)) {\n            treasury = address(this); // Default to contract address if no fee recipient\n        }\n        _transferFrom(optionOwner, treasury, commissionFee);\n\n        emit CommissionPaid(optionOwner, treasury, commissionFee, 0);\n    }\n\n    return tokenPaid;\n}",
+      "expected_fixed_blocks": 4,
+      "returned_fixed_blocks": 2,
+      "block_count_match": false,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:39:34.707337"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:39:34.707362",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

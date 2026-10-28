@@ -1,0 +1,146 @@
+{
+  "id": "64146",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-11-megapot/blob/f0a7297d59c376e38b287b2c56740617dbbfbdc7/contracts/Jackpot.sol# L1682",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      1682,
+      1682
+    ]
+  ],
+  "filename": "64146_Jackpot.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 1728,
+  "vulnerability_title": "[M-04] `lpEarnings` generated in emergency mode become stuck on the contract",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Add a dedicated function that allows withdrawing the stuck funds while the protocol is in emergency mode.\n\nExpand for detailed Proof of Concept",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "```\n\nimport { ethers } from \"hardhat\";\nimport DeployHelper from \"@utils/deploys\";\n\nimport { getWaffleExpect, getAccounts } from \"@utils/test/index\";\nimport { ether, usdc } from \"@utils/common\";\nimport { Account } from \"@utils/test\";\n\nimport { PRECISE_UNIT } from \"@utils/constants\";\n\nimport {\n  GuaranteedMinimumPayoutCalculator,\n  Jackpot,\n  JackpotBridgeManager,\n  JackpotLPManager,\n  JackpotTicketNFT,\n  MockDepository,\n  ReentrantUSDCMock,\n  ScaledEntropyProviderMock,\n} from \"@utils/contracts\";\nimport {\n  Address,\n  JackpotSystemFixture,\n  RelayTxData,\n  Ticket,\n} from \"@utils/types\";\nimport { deployJackpotSystem } from \"@utils/test/jackpotFixture\";\nimport {\n  calculatePackedTicket,\n  calculateTicketId,\n  generateClaimTicketSignature,\n  generateClaimWinningsSignature,\n} from \"@utils/protocolUtils\";\nimport { ADDRESS_ZERO, ONE_DAY_IN_SECONDS } from \"@utils/constants\";\nimport {\n  takeSnapshot,\n  SnapshotRestorer,\n  time,\n} from \"@nomicfoundation/hardhat-toolbox/network-helpers\";\n\nconst expect = getWaffleExpect();\n\ndescribe(\"C4\", () => {\n  let owner: Account;\n  let user: Account;\n  let buyerOne: Account;\n  let buyerTwo: Account;\n  let referrerOne: Account;\n  let referrerTwo: Account;\n  let referrerThree: Account;\n  let solver: Account;\n\n  let jackpotSystem: JackpotSystemFixture;\n  let jackpot: Jackpot;\n  let jackpotNFT: JackpotTicketNFT;\n  let jackpotLPManager: JackpotLPManager;\n  let payoutCalculator: GuaranteedMinimumPayoutCalculator;\n  let usdcMock: ReentrantUSDCMock;\n  let entropyProvider: ScaledEntropyProviderMock;\n  let snapshot: SnapshotRestorer;\n  let jackpotBridgeManager: JackpotBridgeManager;\n  let mockDepository: MockDepository;\n\n  const drawingDurationInSeconds: bigint = ONE_DAY_IN_SECONDS;\n  const entropyFee: bigint = ether(0.00005);\n  const entropyBaseGasLimit: bigint = BigInt(1000000);\n  const entropyVariableGasLimit: bigint = BigInt(250000);\n\n  beforeEach(async () => {\n    [\n      owner,\n      user,\n      buyerOne,\n      buyerTwo,\n      referrerOne,\n      referrerTwo,\n      referrerThree,\n      solver,\n    ] = await getAccounts();\n\n    jackpotSystem = await deployJackpotSystem();\n    jackpot = jackpotSystem.jackpot;\n    jackpotNFT = jackpotSystem.jackpotNFT;\n    jackpotLPManager = jackpotSystem.jackpotLPManager;\n    payoutCalculator = jackpotSystem.payoutCalculator;\n    usdcMock = jackpotSystem.usdcMock;\n    entropyProvider = jackpotSystem.entropyProvider;\n\n    await jackpot\n      .connect(owner.wallet)\n      .initialize(\n        usdcMock.getAddress(),\n        await jackpotLPManager.getAddress(),\n        await jackpotNFT.getAddress(),\n        entropyProvider.getAddress(),\n        await payoutCalculator.getAddress(),\n      );\n\n    await jackpot.connect(owner.wallet).initializeLPDeposits(usdc(10000000));\n\n    await usdcMock\n      .connect(owner.wallet)\n      .approve(jackpot.getAddress(), usdc(1000000));\n    await jackpot.connect(owner.wallet).lpDeposit(usdc(1000000));\n\n    await jackpot\n      .connect(owner.wallet)\n      .initializeJackpot(\n        BigInt(await time.latest()) +\n          BigInt(jackpotSystem.deploymentParams.drawingDurationInSeconds),\n      );\n\n    jackpotBridgeManager =\n      await jackpotSystem.deployer.deployJackpotBridgeManager(\n        await jackpot.getAddress(),\n        await jackpotNFT.getAddress(),\n        await usdcMock.getAddress(),\n        \"MegapotBridgeManager\",\n        \"1.0.0\",\n      );\n\n    mockDepository = await jackpotSystem.deployer.deployMockDepository(\n      await usdcMock.getAddress(),\n    );\n\n    snapshot = await takeSnapshot();\n  });\n\n  beforeEach(async () => {\n    await snapshot.restore();\n  });\n\n  describe(\"POC\", async () => {\n    let subjectRandomNumbers: bigint[][];\n    let subjectCaller: Account;\n\n    let isJackpotRun: boolean = true;\n\n    beforeEach(async () => {\n      await usdcMock.connect(owner.wallet).transfer(buyerOne.address, usdc(1));\n      await usdcMock.connect(buyerOne.wallet).approve(jackpot.getAddress(), usdc(1));\n      await jackpot.connect(buyerOne.wallet).buyTickets(\n        [\n          {\n            normals: [BigInt(1), BigInt(2), BigInt(3), BigInt(4), BigInt(5)],\n            bonusball: BigInt(6)\n          } as Ticket,\n        ],\n        buyerOne.address,\n        [],\n        [],\n        ethers.encodeBytes32String(\"test\")\n      );\n\n      if (isJackpotRun) {\n        await time.increase(drawingDurationInSeconds);\n\n        const drawingState = await jackpot.getDrawingState(1);\n        await jackpot.runJackpot({ value: entropyFee + ((entropyBaseGasLimit + entropyVariableGasLimit * drawingState.bonusballMax) * BigInt(1e10)) });\n      }\n\n      subjectRandomNumbers = [[BigInt(1), BigInt(2), BigInt(3), BigInt(4), BigInt(5)], [BigInt(6)]];\n      subjectCaller = buyerOne;\n    });\n\n    async function subject(): Promise<any> {\n      return await entropyProvider.connect(subjectCaller.wallet).randomnessCallback(subjectRandomNumbers);\n    }\n\n    it(\"POC\", async () => {\n      await subject();\n\n      const expectedTicketIdOne = calculateTicketId(1, 1, calculatePackedTicket({\n        normals: [BigInt(1), BigInt(2), BigInt(3), BigInt(4), BigInt(5)],\n        bonusball: BigInt(6)\n      } as Ticket, BigInt(30)));\n\n      await jackpot.connect(owner.wallet).enableEmergencyMode();\n      await jackpot.connect(buyerOne.wallet).claimWinnings([expectedTicketIdOne]);\n      const currentDrawingId = await jackpot.currentDrawingId();\n      const drawingStateAfter = await jackpot.getDrawingState(currentDrawingId);\n      console.log(\"LP EARNINGS: \", drawingStateAfter.lpEarnings);\n      expect(drawingStateAfter.lpEarnings).to.be.gt(0);\n    });\n  });\n});\n```\n\n---",
+    "poc_code_blocks": [
+      "import { ethers } from \"hardhat\";\nimport DeployHelper from \"@utils/deploys\";\n\nimport { getWaffleExpect, getAccounts } from \"@utils/test/index\";\nimport { ether, usdc } from \"@utils/common\";\nimport { Account } from \"@utils/test\";\n\nimport { PRECISE_UNIT } from \"@utils/constants\";\n\nimport {\n  GuaranteedMinimumPayoutCalculator,\n  Jackpot,\n  JackpotBridgeManager,\n  JackpotLPManager,\n  JackpotTicketNFT,\n  MockDepository,\n  ReentrantUSDCMock,\n  ScaledEntropyProviderMock,\n} from \"@utils/contracts\";\nimport {\n  Address,\n  JackpotSystemFixture,\n  RelayTxData,\n  Ticket,\n} from \"@utils/types\";\nimport { deployJackpotSystem } from \"@utils/test/jackpotFixture\";\nimport {\n  calculatePackedTicket,\n  calculateTicketId,\n  generateClaimTicketSignature,\n  generateClaimWinningsSignature,\n} from \"@utils/protocolUtils\";\nimport { ADDRESS_ZERO, ONE_DAY_IN_SECONDS } from \"@utils/constants\";\nimport {\n  takeSnapshot,\n  SnapshotRestorer,\n  time,\n} from \"@nomicfoundation/hardhat-toolbox/network-helpers\";\n\nconst expect = getWaffleExpect();\n\ndescribe(\"C4\", () => {\n  let owner: Account;\n  let user: Account;\n  let buyerOne: Account;\n  let buyerTwo: Account;\n  let referrerOne: Account;\n  let referrerTwo: Account;\n  let referrerThree: Account;\n  let solver: Account;\n\n  let jackpotSystem: JackpotSystemFixture;\n  let jackpot: Jackpot;\n  let jackpotNFT: JackpotTicketNFT;\n  let jackpotLPManager: JackpotLPManager;\n  let payoutCalculator: GuaranteedMinimumPayoutCalculator;\n  let usdcMock: ReentrantUSDCMock;\n  let entropyProvider: ScaledEntropyProviderMock;\n  let snapshot: SnapshotRestorer;\n  let jackpotBridgeManager: JackpotBridgeManager;\n  let mockDepository: MockDepository;\n\n  const drawingDurationInSeconds: bigint = ONE_DAY_IN_SECONDS;\n  const entropyFee: bigint = ether(0.00005);\n  const entropyBaseGasLimit: bigint = BigInt(1000000);\n  const entropyVariableGasLimit: bigint = BigInt(250000);\n\n  beforeEach(async () => {\n    [\n      owner,\n      user,\n      buyerOne,\n      buyerTwo,\n      referrerOne,\n      referrerTwo,\n      referrerThree,\n      solver,\n    ] = await getAccounts();\n\n    jackpotSystem = await deployJackpotSystem();\n    jackpot = jackpotSystem.jackpot;\n    jackpotNFT = jackpotSystem.jackpotNFT;\n    jackpotLPManager = jackpotSystem.jackpotLPManager;\n    payoutCalculator = jackpotSystem.payoutCalculator;\n    usdcMock = jackpotSystem.usdcMock;\n    entropyProvider = jackpotSystem.entropyProvider;\n\n    await jackpot\n      .connect(owner.wallet)\n      .initialize(\n        usdcMock.getAddress(),\n        await jackpotLPManager.getAddress(),\n        await jackpotNFT.getAddress(),\n        entropyProvider.getAddress(),\n        await payoutCalculator.getAddress(),\n      );\n\n    await jackpot.connect(owner.wallet).initializeLPDeposits(usdc(10000000));\n\n    await usdcMock\n      .connect(owner.wallet)\n      .approve(jackpot.getAddress(), usdc(1000000));\n    await jackpot.connect(owner.wallet).lpDeposit(usdc(1000000));\n\n    await jackpot\n      .connect(owner.wallet)\n      .initializeJackpot(\n        BigInt(await time.latest()) +\n          BigInt(jackpotSystem.deploymentParams.drawingDurationInSeconds),\n      );\n\n    jackpotBridgeManager =\n      await jackpotSystem.deployer.deployJackpotBridgeManager(\n        await jackpot.getAddress(),\n        await jackpotNFT.getAddress(),\n        await usdcMock.getAddress(),\n        \"MegapotBridgeManager\",\n        \"1.0.0\",\n      );\n\n    mockDepository = await jackpotSystem.deployer.deployMockDepository(\n      await usdcMock.getAddress(),\n    );\n\n    snapshot = await takeSnapshot();\n  });\n\n  beforeEach(async () => {\n    await snapshot.restore();\n  });\n\n  describe(\"POC\", async () => {\n    let subjectRandomNumbers: bigint[][];\n    let subjectCaller: Account;\n\n    let isJackpotRun: boolean = true;\n\n    beforeEach(async () => {\n      await usdcMock.connect(owner.wallet).transfer(buyerOne.address, usdc(1));\n      await usdcMock.connect(buyerOne.wallet).approve(jackpot.getAddress(), usdc(1));\n      await jackpot.connect(buyerOne.wallet).buyTickets(\n        [\n          {\n            normals: [BigInt(1), BigInt(2), BigInt(3), BigInt(4), BigInt(5)],\n            bonusball: BigInt(6)\n          } as Ticket,\n        ],\n        buyerOne.address,\n        [],\n        [],\n        ethers.encodeBytes32String(\"test\")\n      );\n\n      if (isJackpotRun) {\n        await time.increase(drawingDurationInSeconds);\n\n        const drawingState = await jackpot.getDrawingState(1);\n        await jackpot.runJackpot({ value: entropyFee + ((entropyBaseGasLimit + entropyVariableGasLimit * drawingState.bonusballMax) * BigInt(1e10)) });\n      }\n\n      subjectRandomNumbers = [[BigInt(1), BigInt(2), BigInt(3), BigInt(4), BigInt(5)], [BigInt(6)]];\n      subjectCaller = buyerOne;\n    });\n\n    async function subject(): Promise<any> {\n      return await entropyProvider.connect(subjectCaller.wallet).randomnessCallback(subjectRandomNumbers);\n    }\n\n    it(\"POC\", async () => {\n      await subject();\n\n      const expectedTicketIdOne = calculateTicketId(1, 1, calculatePackedTicket({\n        normals: [BigInt(1), BigInt(2), BigInt(3), BigInt(4), BigInt(5)],\n        bonusball: BigInt(6)\n      } as Ticket, BigInt(30)));\n\n      await jackpot.connect(owner.wallet).enableEmergencyMode();\n      await jackpot.connect(buyerOne.wallet).claimWinnings([expectedTicketIdOne]);\n      const currentDrawingId = await jackpot.currentDrawingId();\n      const drawingStateAfter = await jackpot.getDrawingState(currentDrawingId);\n      console.log(\"LP EARNINGS: \", drawingStateAfter.lpEarnings);\n      expect(drawingStateAfter.lpEarnings).to.be.gt(0);\n    });\n  });\n});"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_payReferrersWinnings",
+        "start_line": 1670,
+        "end_line": 1698,
+        "code": "\n    function _payReferrersWinnings(\n        bytes32 _referralSchemeId,\n        uint256 _winningAmount,\n        uint256 _referralWinShare\n    )\n        internal\n        returns (uint256)\n    {\n        uint256 referrerShare = _winningAmount * _referralWinShare / PRECISE_UNIT;\n        // If referrer scheme is empty then the referrer share goes to LPs so we just add the amount to lpEarnings\n        // in order to make sure our system accounts for it\n        if (_referralSchemeId == bytes32(0)) {\n            drawingState[currentDrawingId].lpEarnings += referrerShare;\n            emit LpEarningsUpdated(currentDrawingId, referrerShare);\n            return referrerShare;\n        }\n\n        ReferralScheme memory referralScheme = referralSchemes[_referralSchemeId];\n\n        for (uint256 i = 0; i < referralScheme.referrers.length; i++) {\n            // This is safe because we validate the referrers in _validateAndTrackReferrals and this function is only called after that\n            address referrer = referralScheme.referrers[i];\n            uint256 referrerFee = referrerShare * referralScheme.referralSplit[i] / PRECISE_UNIT;\n            referralFees[referrer] += referrerFee;\n            emit ReferralFeeCollected(referrer, referrerFee);\n        }\n        return referrerShare;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1682,
+            1682
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T17:55:34.895263",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of `lpEarnings` becoming stuck during emergency mode, which is reflected in the code.",
+      "content_reasoning": "The content mentions relevant functions and variables such as `claimWinnings`, `lpEarnings`, and `runJackpot`, which are present in the extracted code.",
+      "functions_found": [
+        "_payReferrersWinnings",
+        "claimWinnings",
+        "runJackpot"
+      ],
+      "variables_found": [
+        "lpEarnings",
+        "currentDrawingId"
+      ],
+      "patterns_found": [
+        "funds stuck in protocol",
+        "emergency mode handling"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 85,
+      "reasoning": "There is no existing tag, and a relevant tag is missing that would categorize the issue appropriately.",
+      "suggested_tag": "funds_stuck",
+      "alternative_tags": [
+        "emergency_mode_issue"
+      ],
+      "correction_explanation": "A tag indicating the issue of funds being stuck during emergency mode is necessary for better categorization."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": true,
+      "reasoning": "The issue relates to funds becoming inaccessible, which aligns with denial of service as it prevents users from accessing their funds."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G8"
+      ],
+      "confidence": 85,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue is primarily related to the business logic of the contract, specifically how it handles funds during emergency mode, which is not adequately captured by MANDO.",
+      "vulnerability_type": "Funds become stuck in the protocol during emergency mode."
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Added a function to withdraw stuck lpEarnings during emergency mode.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "_payReferrersWinnings",
+          "fixed_function_code": "function _payReferrersWinnings(\n        bytes32 _referralSchemeId,\n        uint256 _winningAmount,\n        uint256 _referralWinShare\n    )\n        internal\n        returns (uint256)\n    {\n        uint256 referrerShare = _winningAmount * _referralWinShare / PRECISE_UNIT;\n        // If referrer scheme is empty then the referrer share goes to LPs so we just add the amount to lpEarnings\n        // in order to make sure our system accounts for it\n        if (_referralSchemeId == bytes32(0)) {\n            drawingState[currentDrawingId].lpEarnings += referrerShare;\n            emit LpEarningsUpdated(currentDrawingId, referrerShare);\n            return referrerShare;\n        }\n\n        ReferralScheme memory referralScheme = referralSchemes[_referralSchemeId];\n\n        for (uint256 i = 0; i < referralScheme.referrers.length; i++) {\n            // This is safe because we validate the referrers in _validateAndTrackReferrals and this function is only called after that\n            address referrer = referralScheme.referrers[i];\n            uint256 referrerFee = referrerShare * referralScheme.referralSplit[i] / PRECISE_UNIT;\n            referralFees[referrer] += referrerFee;\n            emit ReferralFeeCollected(referrer, referrerFee);\n        }\n        return referrerShare;\n    }",
+          "reasoning": "This function remains unchanged as it correctly updates lpEarnings. The new withdrawal function will handle stuck funds."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "withdrawStuckLpEarnings",
+          "fixed_function_code": "function withdrawStuckLpEarnings() external onlyOwner {\n        require(emergencyMode, \"Not in emergency mode\");\n        uint256 stuckEarnings = drawingState[currentDrawingId].lpEarnings;\n        require(stuckEarnings > 0, \"No stuck earnings to withdraw\");\n\n        // Transfer stuck earnings to the owner\n        drawingState[currentDrawingId].lpEarnings = 0;\n        payable(owner()).transfer(stuckEarnings);\n        emit LpEarningsWithdrawn(owner(), stuckEarnings);\n    }",
+          "reasoning": "This function allows the contract owner to withdraw lpEarnings that are stuck during emergency mode, preventing funds from being permanently locked."
+        }
+      ],
+      "key_changes": [
+        "Added a new function to withdraw stuck lpEarnings during emergency mode.",
+        "Implemented checks to ensure only the owner can withdraw stuck funds.",
+        "Reset lpEarnings to zero after withdrawal to prevent double withdrawal."
+      ],
+      "security_improvements": [
+        "Introduced access control to the withdrawal function to prevent unauthorized access.",
+        "Added require statements to ensure that the contract is in emergency mode and that there are stuck earnings before allowing withdrawal."
+      ],
+      "additional_recommendations": "Consider implementing a mechanism to exit emergency mode safely if conditions allow, to enhance user trust and fund accessibility.",
+      "confidence": 90,
+      "fix_code": "function _payReferrersWinnings(\n        bytes32 _referralSchemeId,\n        uint256 _winningAmount,\n        uint256 _referralWinShare\n    )\n        internal\n        returns (uint256)\n    {\n        uint256 referrerShare = _winningAmount * _referralWinShare / PRECISE_UNIT;\n        // If referrer scheme is empty then the referrer share goes to LPs so we just add the amount to lpEarnings\n        // in order to make sure our system accounts for it\n        if (_referralSchemeId == bytes32(0)) {\n            drawingState[currentDrawingId].lpEarnings += referrerShare;\n            emit LpEarningsUpdated(currentDrawingId, referrerShare);\n            return referrerShare;\n        }\n\n        ReferralScheme memory referralScheme = referralSchemes[_referralSchemeId];\n\n        for (uint256 i = 0; i < referralScheme.referrers.length; i++) {\n            // This is safe because we validate the referrers in _validateAndTrackReferrals and this function is only called after that\n            address referrer = referralScheme.referrers[i];\n            uint256 referrerFee = referrerShare * referralScheme.referralSplit[i] / PRECISE_UNIT;\n            referralFees[referrer] += referrerFee;\n            emit ReferralFeeCollected(referrer, referrerFee);\n        }\n        return referrerShare;\n    }\n\nfunction withdrawStuckLpEarnings() external onlyOwner {\n        require(emergencyMode, \"Not in emergency mode\");\n        uint256 stuckEarnings = drawingState[currentDrawingId].lpEarnings;\n        require(stuckEarnings > 0, \"No stuck earnings to withdraw\");\n\n        // Transfer stuck earnings to the owner\n        drawingState[currentDrawingId].lpEarnings = 0;\n        payable(owner()).transfer(stuckEarnings);\n        emit LpEarningsWithdrawn(owner(), stuckEarnings);\n    }",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 2,
+      "block_count_match": false,
+      "generated_by": "openai",
+      "generation_date": "2026-04-16T18:01:16.367285"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-16T18:01:16.367305",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

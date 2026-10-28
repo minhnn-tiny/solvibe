@@ -1,0 +1,224 @@
+{
+  "id": "61788",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/AladdinDAO/fx-protocol-contracts/blob/56a47eab8d10334e479df83a2b13a8b68ce390e9/contracts/core/PoolManager.sol#L307-L334",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      307,
+      334
+    ],
+    [
+      307,
+      334
+    ],
+    [
+      191,
+      245
+    ],
+    [
+      233,
+      233
+    ],
+    [
+      198,
+      198
+    ],
+    [
+      191,
+      191
+    ],
+    [
+      73,
+      188
+    ],
+    [
+      102,
+      102
+    ],
+    [
+      65,
+      85
+    ],
+    [
+      229,
+      232
+    ]
+  ],
+  "filename": "61788_PoolManager.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 715,
+  "vulnerability_title": "Attacker can Lock User Funds through Redeem Function",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "redeem",
+        "start_line": 307,
+        "end_line": 334,
+        "code": "  function redeem(\n    address pool,\n    uint256 debts,\n    uint256 minColls\n  ) external onlyRegisteredPool(pool) nonReentrant whenNotPaused returns (uint256 colls) {\n    if (debts > IERC20(fxUSD).balanceOf(_msgSender())) {\n      revert ErrorRedeemExceedBalance();\n    }\n\n    uint256 rawColls = IPool(pool).redeem(debts);\n\n    address collateralToken = IPool(pool).collateralToken();\n    uint256 scalingFactor = _getTokenScalingFactor(collateralToken);\n    colls = _scaleDown(rawColls, scalingFactor);\n\n    _changePoolCollateral(pool, -int256(colls), -int256(rawColls));\n    _changePoolDebts(pool, -int256(debts));\n\n    uint256 protocolFees = (colls * getRedeemFeeRatio()) / FEE_PRECISION;\n    _accumulatePoolMiscFee(pool, protocolFees);\n    colls -= protocolFees;\n    if (colls < minColls) revert ErrorInsufficientRedeemedCollateral();\n\n    _transferOut(collateralToken, colls, _msgSender());\n    IFxUSDRegeneracy(fxUSD).burn(_msgSender(), debts);\n\n    emit Redeem(pool, colls, debts, protocolFees);\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            307,
+            334
+          ],
+          [
+            307,
+            334
+          ]
+        ]
+      },
+      {
+        "function_name": "initialize",
+        "start_line": 183,
+        "end_line": 204,
+        "code": "\n  function initialize(\n    address admin,\n    uint256 _expenseRatio,\n    uint256 _harvesterRatio,\n    uint256 _flashLoanFeeRatio,\n    address _treasury,\n    address _revenuePool,\n    address _reservePool\n  ) external initializer {\n    __Context_init();\n    __AccessControl_init();\n    __ERC165_init();\n\n    _grantRole(DEFAULT_ADMIN_ROLE, admin);\n\n    __ProtocolFees_init(_expenseRatio, _harvesterRatio, _flashLoanFeeRatio, _treasury, _revenuePool, _reservePool);\n    __FlashLoans_init();\n\n    // default 10000 fxUSD\n    _updateThreshold(10000 ether);\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            191,
+            245
+          ],
+          [
+            198,
+            198
+          ],
+          [
+            191,
+            191
+          ]
+        ]
+      },
+      {
+        "function_name": "getPoolInfo",
+        "start_line": 232,
+        "end_line": 252,
+        "code": "  function getPoolInfo(\n    address pool\n  )\n    external\n    view\n    returns (\n      uint256 collateralCapacity,\n      uint256 collateralBalance,\n      uint256 rawCollateral,\n      uint256 debtCapacity,\n      uint256 debtBalance\n    )\n  {\n    bytes32 data = poolInfo[pool].collateralData;\n    collateralCapacity = data.decodeUint(COLLATERAL_CAPACITY_OFFSET, COLLATERAL_DATA_BITS);\n    collateralBalance = data.decodeUint(COLLATERAL_BALANCE_OFFSET, COLLATERAL_DATA_BITS);\n    rawCollateral = data.decodeUint(RAW_COLLATERAL_BALANCE_OFFSET, RAW_COLLATERAL_DATA_BITS);\n    data = poolInfo[pool].debtData;\n    debtCapacity = data.decodeUint(DEBT_CAPACITY_OFFSET, DEBT_DATA_BITS);\n    debtBalance = data.decodeUint(DEBT_BALANCE_OFFSET, DEBT_DATA_BITS);\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            233,
+            233
+          ]
+        ]
+      },
+      {
+        "code": "\n  /// @dev The precision for token rate.\n  int256 internal constant PRECISION_I256 = 1e18;\n\n  uint256 private constant COLLATERAL_CAPACITY_OFFSET = 0;\n  uint256 private constant COLLATERAL_BALANCE_OFFSET = 85;\n  uint256 private constant RAW_COLLATERAL_BALANCE_OFFSET = 170;\n  uint256 private constant COLLATERAL_DATA_BITS = 85;\n  uint256 private constant RAW_COLLATERAL_DATA_BITS = 86;\n\n  uint256 private constant DEBT_CAPACITY_OFFSET = 0;\n  uint256 private constant DEBT_BALANCE_OFFSET = 96;\n  uint256 private constant DEBT_DATA_BITS = 96;\n\n  /***********************\n   * Immutable Variables *\n   ***********************/\n\n  /// @inheritdoc IPoolManager\n  address public immutable fxUSD;\n\n  /// @inheritdoc IPoolManager\n  address public immutable fxBASE;\n\n  /// @inheritdoc IPoolManager\n  address public immutable pegKeeper;\n\n  /***********\n   * Structs *\n   ***********/\n\n  /// @dev The struct for pool information.\n  /// @param collateralData The data for collateral.\n  ///   ```text\n  ///   * Field                     Bits    Index       Comments\n  ///   * collateral capacity       85      0           The maximum allowed amount of collateral tokens.\n  ///   * collateral balance        85      85          The amount of collateral tokens deposited.\n  ///   * raw collateral balance    86      170         The amount of raw collateral tokens (without token rate) managed in pool.\n  ///   ```\n  /// @param debtData The data for debt.\n  ///   ```text\n  ///   * Field             Bits    Index       Comments\n  ///   * debt capacity     96      0           The maximum allowed amount of debt tokens.\n  ///   * debt balance      96      96          The amount of debt tokens borrowed.\n  ///   * reserved          64      192         Reserved data.\n  ///   ```\n  struct PoolStruct {\n    bytes32 collateralData;\n    bytes32 debtData;\n  }\n\n  /// @dev The struct for token rate information.\n  /// @param scalar The token scalar to reach 18 decimals.\n  /// @param rateProvider The address of token rate provider.\n  struct TokenRate {\n    uint96 scalar;\n    address rateProvider;\n  }\n\n  /// @dev Memory variables for liquidate or rebalance.\n  /// @param stablePrice The USD price of stable token (with scalar).\n  /// @param scalingFactor The scaling factor for collateral token.\n  /// @param collateralToken The address of collateral token.\n  /// @param rawColls The amount of raw collateral tokens liquidated or rebalanced, including bonus.\n  /// @param bonusRawColls The amount of raw collateral tokens used as bonus.\n  /// @param rawDebts The amount of raw debt tokens liquidated or rebalanced.\n  struct LiquidateOrRebalanceMemoryVar {\n    uint256 stablePrice;\n    uint256 scalingFactor;\n    address collateralToken;\n    uint256 rawColls;\n    uint256 bonusRawColls;\n    uint256 rawDebts;\n  }\n\n  /*********************\n   * Storage Variables *\n   *********************/\n\n  /// @dev The list of registered pools.\n  EnumerableSet.AddressSet private pools;\n\n  /// @notice Mapping to pool address to pool struct.\n  mapping(address => PoolStruct) private poolInfo;\n\n  /// @notice Mapping from pool address to rewards splitter.\n  mapping(address => address) public rewardSplitter;\n\n  /// @notice Mapping from token address to token rate struct.\n  mapping(address => TokenRate) public tokenRates;\n\n  /// @notice The threshold for permissioned liquidate or rebalance.\n  uint256 public permissionedLiquidationThreshold;\n\n  /*************\n   * Modifiers *\n   *************/\n\n  modifier onlyRegisteredPool(address pool) {\n    if (!pools.contains(pool)) revert ErrorPoolNotRegistered();\n    _;\n  }\n\n  modifier onlyFxUSDSave() {\n    if (_msgSender() != fxBASE) {\n      // allow permissonless rebalance or liquidate when insufficient fxUSD/USDC in fxBASE.\n      uint256 totalYieldToken = IFxUSDBasePool(fxBASE).totalYieldToken();\n      uint256 totalStableToken = IFxUSDBasePool(fxBASE).totalStableToken();\n      uint256 price = IFxUSDBasePool(fxBASE).getStableTokenPriceWithScale();\n      if (totalYieldToken + (totalStableToken * price) / PRECISION >= permissionedLiquidationThreshold) {\n        revert ErrorCallerNotFxUSDSave();\n      }\n    }\n    _;\n  }\n\n  /***************\n   * Constructor *\n   ***************/\n\n  constructor(address _fxUSD, address _fxBASE, address _pegKeeper) {\n    fxUSD = _fxUSD;\n    fxBASE = _fxBASE;\n    pegKeeper = _pegKeeper;\n  }\n\n  function initialize(\n    address admin,\n    uint256 _expenseRatio,\n    uint256 _harvesterRatio,\n    uint256 _flashLoanFeeRatio,\n    address _treasury,\n    address _revenuePool,\n    address _reservePool\n  ) external initializer {\n    __Context_init();\n    __AccessControl_init();\n    __ERC165_init();\n\n    _grantRole(DEFAULT_ADMIN_ROLE, admin);\n\n    __ProtocolFees_init(_expenseRatio, _harvesterRatio, _flashLoanFeeRatio, _treasury, _revenuePool, _reservePool);\n    __FlashLoans_init();\n\n    // default 10000 fxUSD\n    _updateThreshold(10000 ether);",
+        "start_line": 73,
+        "end_line": 188,
+        "context_start_line": 58,
+        "context_end_line": 203,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "   ***********/\n\n  /// @dev The struct for pool information.\n  /// @param collateralData The data for collateral.\n  ///   ```text\n  ///   * Field                     Bits    Index       Comments\n  ///   * collateral capacity       85      0           The maximum allowed amount of collateral tokens.\n  ///   * collateral balance        85      85          The amount of collateral tokens deposited.\n  ///   * raw collateral balance    86      170         The amount of raw collateral tokens (without token rate) managed in pool.\n  ///   ```\n  /// @param debtData The data for debt.\n  ///   ```text\n  ///   * Field             Bits    Index       Comments\n  ///   * debt capacity     96      0           The maximum allowed amount of debt tokens.\n  ///   * debt balance      96      96          The amount of debt tokens borrowed.\n  ///   * reserved          64      192         Reserved data.\n  ///   ```\n  struct PoolStruct {\n    bytes32 collateralData;\n    bytes32 debtData;\n  }\n\n  /// @dev The struct for token rate information.\n  /// @param scalar The token scalar to reach 18 decimals.\n  /// @param rateProvider The address of token rate provider.\n  struct TokenRate {\n    uint96 scalar;\n    address rateProvider;\n  }\n\n  /// @dev Memory variables for liquidate or rebalance.",
+        "start_line": 102,
+        "end_line": 102,
+        "context_start_line": 87,
+        "context_end_line": 117,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "  /// @dev The role for emergency operations.\n  bytes32 public constant EMERGENCY_ROLE = keccak256(\"EMERGENCY_ROLE\");\n\n  /// @dev The role for harvester\n  bytes32 public constant HARVESTER_ROLE = keccak256(\"HARVESTER_ROLE\");\n\n  /// @dev The precision for token rate.\n  uint256 internal constant PRECISION = 1e18;\n\n  /// @dev The precision for token rate.\n  int256 internal constant PRECISION_I256 = 1e18;\n\n  uint256 private constant COLLATERAL_CAPACITY_OFFSET = 0;\n  uint256 private constant COLLATERAL_BALANCE_OFFSET = 85;\n  uint256 private constant RAW_COLLATERAL_BALANCE_OFFSET = 170;\n  uint256 private constant COLLATERAL_DATA_BITS = 85;\n  uint256 private constant RAW_COLLATERAL_DATA_BITS = 86;\n\n  uint256 private constant DEBT_CAPACITY_OFFSET = 0;\n  uint256 private constant DEBT_BALANCE_OFFSET = 96;\n  uint256 private constant DEBT_DATA_BITS = 96;\n\n  /***********************\n   * Immutable Variables *\n   ***********************/\n\n  /// @inheritdoc IPoolManager\n  address public immutable fxUSD;\n\n  /// @inheritdoc IPoolManager\n  address public immutable fxBASE;\n\n  /// @inheritdoc IPoolManager\n  address public immutable pegKeeper;\n\n  /***********\n   * Structs *\n   ***********/\n\n  /// @dev The struct for pool information.\n  /// @param collateralData The data for collateral.\n  ///   ```text\n  ///   * Field                     Bits    Index       Comments\n  ///   * collateral capacity       85      0           The maximum allowed amount of collateral tokens.\n  ///   * collateral balance        85      85          The amount of collateral tokens deposited.\n  ///   * raw collateral balance    86      170         The amount of raw collateral tokens (without token rate) managed in pool.\n  ///   ```\n  /// @param debtData The data for debt.\n  ///   ```text\n  ///   * Field             Bits    Index       Comments\n  ///   * debt capacity     96      0           The maximum allowed amount of debt tokens.",
+        "start_line": 65,
+        "end_line": 85,
+        "context_start_line": 50,
+        "context_end_line": 100,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "    poolInfo[pool].collateralData = data.insertUint(\n      rawCollaterals,\n      RAW_COLLATERAL_BALANCE_OFFSET,\n      RAW_COLLATERAL_DATA_BITS\n    );\n  }\n\n  /*************************\n   * Public View Functions *\n   *************************/\n\n  /// @notice Return the pool information.\n  /// @param pool The address of pool to query.\n  /// @return collateralCapacity The maximum allowed amount of collateral tokens.\n  /// @return collateralBalance The amount of collateral tokens deposited.\n  /// @return rawCollateral The amount of raw collateral tokens deposited.\n  /// @return debtCapacity The maximum allowed amount of debt tokens.\n  /// @return debtBalance The amount of debt tokens borrowed.\n  function getPoolInfo(\n    address pool\n  )\n    external\n    view\n    returns (\n      uint256 collateralCapacity,\n      uint256 collateralBalance,\n      uint256 rawCollateral,\n      uint256 debtCapacity,\n      uint256 debtBalance\n    )\n  {\n    bytes32 data = poolInfo[pool].collateralData;\n    collateralCapacity = data.decodeUint(COLLATERAL_CAPACITY_OFFSET, COLLATERAL_DATA_BITS);\n    collateralBalance = data.decodeUint(COLLATERAL_BALANCE_OFFSET, COLLATERAL_DATA_BITS);",
+        "start_line": 229,
+        "end_line": 232,
+        "context_start_line": 214,
+        "context_end_line": 247,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:01:01.988136",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability related to the redeem function and the issues with the recursive function leading to stack overflow.",
+      "content_reasoning": "The content mentions specific functions and variables that exist in the code, such as the redeem function and the lack of minimum rawDebt checks.",
+      "functions_found": [
+        "redeem",
+        "getRootNodeAndCompress",
+        "operate"
+      ],
+      "variables_found": [
+        "fxUSD",
+        "poolInfo"
+      ],
+      "patterns_found": [
+        "missing checks",
+        "recursive function leading to stack overflow"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 85,
+      "reasoning": "The report lacks a tag that reflects the nature of the vulnerability, which is related to denial of service and improper checks.",
+      "suggested_tag": "Denial of Service",
+      "alternative_tags": [
+        "Reentrancy",
+        "Access Control"
+      ],
+      "correction_explanation": "A tag indicating Denial of Service is appropriate due to the potential for locking user funds and causing resource exhaustion."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [
+        "arithmetic"
+      ],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability primarily relates to denial of service due to the ability to lock user funds through the redeem function and the recursive function causing stack overflow."
+    },
+    "scsvs_classification": {
+      "primary_category": "G8",
+      "primary_category_name": "Denial of service",
+      "secondary_categories": [
+        "G4"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "SCSVS provides a more granular classification, and G8 accurately captures the denial of service aspect of the vulnerability, while G4 relates to the business logic flaws.",
+      "vulnerability_type": "Denial of service due to improper checks and recursive function leading to stack overflow."
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-04-24T19:03:05.794585",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

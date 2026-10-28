@@ -1,0 +1,88 @@
+{
+  "id": "codespect-2026-02-04-dutch-M-05",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/dutch-protocol/Protocol-Contracts/tree/cec8b243aa645fdbe80e05e613eca69542b62a2e/src/AuctionAssist.sol#L272",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      272,
+      272
+    ]
+  ],
+  "filename": "codespect-2026-02-04-dutch-M-05_AuctionAssist.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 658,
+  "vulnerability_title": "The contribute(...) function may be DoS",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "contribute",
+        "start_line": 247,
+        "end_line": 301,
+        "code": "    function contribute(address collection_)\n        external\n        payable\n        nonReentrant\n        whenNotPaused\n    {\n        // 1. Validate contribution amount is non-zero.\n        if (msg.value == 0) {\n            revert InvalidContributionAmount();\n        }\n\n        // 2. Get base price (target price) from DutchVault.\n        uint256 basePrice_ = IDutchVault(_dutchVault).getBasePrice(collection_);\n\n        // 3. Validate collection is configured.\n        if (basePrice_ == 0) {\n            revert CollectionNotConfigured();\n        }\n\n        // 4. Calculate percentage in basis points (10000 = 100%).\n        uint256 percentageBPS_ = (msg.value * 10000) / basePrice_;\n\n        // 5. Track contributor if first time.\n        if (!_hasContributed[collection_][msg.sender]) {\n            // Check max contributors limit.\n            if (_collectionContributors[collection_].length >= MAX_CONTRIBUTORS)\n            {\n                revert MaxContributorsExceeded();\n            }\n            _collectionContributors[collection_].push(msg.sender);\n            _hasContributed[collection_][msg.sender] = true;\n            \n            // Track collection for this user.\n            _userCollections[msg.sender].push(collection_);\n        }\n\n        // 6. Update contribution record for user.\n        ContributionRecord storage record_ =\n            _contributions[msg.sender][collection_];\n        record_.amount += msg.value;\n        record_.percentageBPS += percentageBPS_;\n\n        // 7. Update total contributions for collection.\n        _totalContributions[collection_] += msg.value;\n\n        // 8. Forward ETH to DutchVault.\n        IDutchVault(_dutchVault).receiveContribution{value: msg.value}(\n            collection_, msg.sender\n        );\n\n        // 9. Emit event.\n        emit ContributionReceived(\n            msg.sender, collection_, msg.value, percentageBPS_\n        );\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            272,
+            272
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:46:02.003821",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 93,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "contribute accepts any non-zero msg.value and adds each new address to _collectionContributors until MAX_CONTRIBUTORS (100) is reached, and the file has no way to remove addresses. An attacker using 100 addresses with 1 wei each can block all new contributors.",
+      "functions_found": [
+        "contribute"
+      ],
+      "variables_found": [
+        "_collectionContributors",
+        "MAX_CONTRIBUTORS",
+        "_contributions",
+        "_hasContributed"
+      ],
+      "patterns_found": [
+        "fixed contributor limit with no minimum contribution and no removal"
+      ],
+      "issues": [
+        "withdrawContribution is mentioned only in the fix review and does not exist in this audited version."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "mando_applicable": true
+    },
+    "scsvs_classification": {
+      "primary_category": "G8",
+      "primary_category_name": "Denial of service",
+      "vulnerability_type": "contributor limit filled with dust contributions"
+    },
+    "fix_code_source": "none"
+  }
+}

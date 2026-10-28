@@ -1,0 +1,151 @@
+{
+  "id": "61796",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/AladdinDAO/fx-protocol-contracts/blob/56a47eab8d10334e479df83a2b13a8b68ce390e9/contracts/price-oracle/ETHPriceOracle.sol#L61-L74",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      61,
+      74
+    ],
+    [
+      61,
+      74
+    ],
+    [
+      85,
+      99
+    ],
+    [
+      58,
+      72
+    ]
+  ],
+  "filename": "61796_ETHPriceOracle.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 142,
+  "vulnerability_title": "Minimum Price Deviation Is Calculated Incorrectly in Price Oracles",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "getPrice",
+        "start_line": 61,
+        "end_line": 74,
+        "code": "  function getPrice() public view override returns (uint256 anchorPrice, uint256 minPrice, uint256 maxPrice) {\n    (anchorPrice, minPrice, maxPrice) = _getETHUSDSpotPrice();\n\n    uint256 cachedMaxPriceDeviation = maxPriceDeviation; // gas saving\n    // use anchor price when the price deviation between anchor price and min price exceed threshold\n    if ((anchorPrice - minPrice) * PRECISION > cachedMaxPriceDeviation * minPrice) {\n      minPrice = anchorPrice;\n    }\n\n    // use anchor price when the price deviation between anchor price and max price exceed threshold\n    if ((maxPrice - anchorPrice) * PRECISION > cachedMaxPriceDeviation * anchorPrice) {\n      maxPrice = anchorPrice;\n    }\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            61,
+            74
+          ],
+          [
+            61,
+            74
+          ]
+        ]
+      },
+      {
+        "function_name": "getLiquidatePrice",
+        "start_line": 83,
+        "end_line": 85,
+        "code": "  function getLiquidatePrice() external view returns (uint256) {\n    return getExchangePrice();\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            85,
+            99
+          ]
+        ]
+      },
+      {
+        "code": "   *************************/\n\n  /// @notice Return the ETH/USD spot price.\n  /// @return chainlinkPrice The spot price from Chainlink price feed.\n  /// @return minPrice The minimum spot price among all available sources.\n  /// @return maxPrice The maximum spot price among all available sources.\n  function getETHUSDSpotPrice() external view returns (uint256 chainlinkPrice, uint256 minPrice, uint256 maxPrice) {\n    (chainlinkPrice, minPrice, maxPrice) = _getETHUSDSpotPrice();\n  }\n\n  /// @notice Return the ETH/USD spot prices.\n  /// @return prices The list of spot price among all available sources, multiplied by 1e18.\n  function getETHUSDSpotPrices() external view returns (uint256[] memory prices) {\n    prices = _getSpotPriceByEncoding(onchainSpotEncodings_ETHUSD);\n  }\n\n  /// @inheritdoc IPriceOracle\n  /// @dev The price is valid iff |maxPrice-minPrice|/minPrice < maxPriceDeviation\n  function getPrice() public view override returns (uint256 anchorPrice, uint256 minPrice, uint256 maxPrice) {\n    (anchorPrice, minPrice, maxPrice) = _getETHUSDSpotPrice();\n\n    uint256 cachedMaxPriceDeviation = maxPriceDeviation; // gas saving\n    // use anchor price when the price deviation between anchor price and min price exceed threshold\n    if ((anchorPrice - minPrice) * PRECISION > cachedMaxPriceDeviation * minPrice) {\n      minPrice = anchorPrice;\n    }\n\n    // use anchor price when the price deviation between anchor price and max price exceed threshold\n    if ((maxPrice - anchorPrice) * PRECISION > cachedMaxPriceDeviation * anchorPrice) {\n      maxPrice = anchorPrice;\n    }\n  }\n\n  /// @inheritdoc IPriceOracle\n  function getExchangePrice() public view returns (uint256) {\n    (, uint256 price, ) = getPrice();\n    return price;\n  }\n\n  /// @inheritdoc IPriceOracle\n  function getLiquidatePrice() external view returns (uint256) {\n    return getExchangePrice();\n  }\n\n  /// @inheritdoc IPriceOracle",
+        "start_line": 58,
+        "end_line": 72,
+        "context_start_line": 43,
+        "context_end_line": 87,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:01:12.292154",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the incorrect calculation of minimum price deviation in the getPrice() function.",
+      "content_reasoning": "The content mentions the relevant functions and variables that exist in the code, specifically the getPrice() function and its logic.",
+      "functions_found": [
+        "getPrice",
+        "getETHUSDSpotPrice",
+        "getExchangePrice",
+        "getLiquidatePrice"
+      ],
+      "variables_found": [
+        "anchorPrice",
+        "minPrice",
+        "maxPrice",
+        "maxPriceDeviation"
+      ],
+      "patterns_found": [
+        "incorrect price deviation calculation"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 85,
+      "reasoning": "The report lacks a tag that reflects the nature of the vulnerability, which is related to price calculation errors in oracles.",
+      "suggested_tag": "oracle_price_calculation",
+      "alternative_tags": [
+        "price_oracle",
+        "calculation_error"
+      ],
+      "correction_explanation": "A tag related to oracle price calculation should be added to accurately represent the vulnerability."
+    },
+    "mando_classification": {
+      "primary_category": "arithmetic",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability involves incorrect mathematical operations related to price deviation calculations."
+    },
+    "scsvs_classification": {
+      "primary_category": "G7",
+      "primary_category_name": "Arithmetic",
+      "secondary_categories": [
+        "C3"
+      ],
+      "confidence": 85,
+      "use_scsvs_instead": true,
+      "reasoning": "SCSVS provides a more granular classification, particularly with the inclusion of components like oracles, which are relevant to this vulnerability.",
+      "vulnerability_type": "Incorrect price deviation calculation in oracles"
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-04-25T08:34:51.674781",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

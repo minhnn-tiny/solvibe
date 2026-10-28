@@ -1,0 +1,110 @@
+{
+  "id": "64853",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/launchpad/uniswap/GTELaunchpadV2Pair.sol# L187-L188",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      187,
+      188
+    ]
+  ],
+  "filename": "64853_GTELaunchpadV2Pair.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 325,
+  "vulnerability_title": "[H-05] `GTELaunchpadV2Pair` permits minting LP tokens for free when there are non-zero accumulated launch pad fees",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Subtract off the accumulated launch pad fees when calculating the amount transferred in by the minter:\n```\n\n--- a/contracts/launchpad/uniswap/GTELaunchpadV2Pair.sol\n+++ b/contracts/launchpad/uniswap/GTELaunchpadV2Pair.sol\n@@ -184,8 +184,8 @@ contract GTELaunchpadV2Pair is IUniswapV2Pair, IGTELaunchpadV2Pair, UniswapV2ERC\n         (uint112 _reserve0, uint112 _reserve1,) = getReserves(); // gas savings\n         uint256 balance0 = IERC20(token0).balanceOf(address(this));\n         uint256 balance1 = IERC20(token1).balanceOf(address(this));\n-        uint256 amount0 = balance0.sub(_reserve0);\n-        uint256 amount1 = balance1.sub(_reserve1);\n+        uint256 amount0 = balance0.sub(_reserve0).sub(accruedLaunchpadFee0);\n+        uint256 amount1 = balance1.sub(_reserve1).sub(accruedLaunchpadFee1);\n```\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-3)\n\n---",
+    "fix_code_blocks": [
+      "--- a/contracts/launchpad/uniswap/GTELaunchpadV2Pair.sol\n+++ b/contracts/launchpad/uniswap/GTELaunchpadV2Pair.sol\n@@ -184,8 +184,8 @@ contract GTELaunchpadV2Pair is IUniswapV2Pair, IGTELaunchpadV2Pair, UniswapV2ERC\n         (uint112 _reserve0, uint112 _reserve1,) = getReserves(); // gas savings\n         uint256 balance0 = IERC20(token0).balanceOf(address(this));\n         uint256 balance1 = IERC20(token1).balanceOf(address(this));\n-        uint256 amount0 = balance0.sub(_reserve0);\n-        uint256 amount1 = balance1.sub(_reserve1);\n+        uint256 amount0 = balance0.sub(_reserve0).sub(accruedLaunchpadFee0);\n+        uint256 amount1 = balance1.sub(_reserve1).sub(accruedLaunchpadFee1);"
+    ]
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "mint",
+        "start_line": 183,
+        "end_line": 204,
+        "code": "    function mint(address to) external lock returns (uint256 liquidity) {\n        (uint112 _reserve0, uint112 _reserve1,) = getReserves(); // gas savings\n        uint256 balance0 = IERC20(token0).balanceOf(address(this));\n        uint256 balance1 = IERC20(token1).balanceOf(address(this));\n        uint256 amount0 = balance0.sub(_reserve0);\n        uint256 amount1 = balance1.sub(_reserve1);\n\n        bool feeOn = _mintFee(_reserve0, _reserve1);\n        uint256 _totalSupply = totalSupply; // gas savings, must be defined here since totalSupply can update in _mintFee\n        if (_totalSupply == 0) {\n            liquidity = Math.sqrt(amount0.mul(amount1)).sub(MINIMUM_LIQUIDITY);\n            _mint(address(0), MINIMUM_LIQUIDITY); // permanently lock the first MINIMUM_LIQUIDITY tokens\n        } else {\n            liquidity = Math.min(amount0.mul(_totalSupply) / _reserve0, amount1.mul(_totalSupply) / _reserve1);\n        }\n        if (liquidity == 0) revert(\"UniswapV2: INSUFFICIENT_LIQUIDITY_MINTED\");\n        _mint(to, liquidity);\n\n        _update(balance0, balance1, _reserve0, _reserve1, uint112(0), uint112(0));\n        if (feeOn) kLast = uint256(reserve0).mul(reserve1); // reserve0 and reserve1 are up-to-date\n        emit Mint(msg.sender, amount0, amount1);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            187,
+            188
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:05.443642",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of minting LP tokens for free due to incorrect calculation of amounts considering accumulated fees.",
+      "content_reasoning": "The content mentions the `mint` function and variables like `amount0`, `amount1`, `_reserve0`, and `_reserve1`, which are present in the code. The vulnerable pattern of calculating amounts without considering accumulated fees is present.",
+      "functions_found": [
+        "mint"
+      ],
+      "variables_found": [
+        "amount0",
+        "amount1",
+        "_reserve0",
+        "_reserve1"
+      ],
+      "patterns_found": [
+        "incorrect amount calculation"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "No tag is present, but a tag related to business logic or liquidity pool issues would be appropriate.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "liquidity_pool"
+      ],
+      "correction_explanation": "The issue is primarily related to business logic errors in the calculation of token amounts for minting."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 70,
+      "mando_applicable": false,
+      "reasoning": "The issue does not fit well into any of the MANDO categories, as it is primarily a business logic error related to liquidity pool operations."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "C8"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is a business logic error in the calculation of token amounts for minting, which directly affects the liquidity pool operations.",
+      "vulnerability_type": "Incorrect calculation of token amounts for minting due to not accounting for accumulated fees."
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-03-20T15:28:41.117308",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

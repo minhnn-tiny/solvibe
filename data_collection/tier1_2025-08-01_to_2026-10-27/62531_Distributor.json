@@ -1,0 +1,189 @@
+{
+  "id": "62531",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-morpheus/blob/d275e9035b7e703efe26cdee6543e78f452774bb/contracts/capital-protocol/Distributor.sol# L135-L141",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      135,
+      141
+    ],
+    [
+      226,
+      237
+    ],
+    [
+      285,
+      328
+    ]
+  ],
+  "filename": "62531_Distributor.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 514,
+  "vulnerability_title": "[M-03] Protocol doesn\u2019t properly handle Aave Pool changes",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Set immutable `poolAddressProvider` instead and query it everytime `aavePool` functions need to be accessed. Approve the queried address to spend the needed amount of tokens for each transaction.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "We add the test below to Distributor.test.ts\n```\n\n  describe('Bug - setAavePool approval issue', () => {\n    const maxUint256 = 2n**256n - 1n;\n    beforeEach(async () => {\n      await chainLinkDataConsumerMock.setAnswer(dp1Info.chainLinkPath, wei(1));\n      await distributor.addDepositPool(\n        dp1Info.rewardPoolId,\n        dp1Info.depositPool,\n        dp1Info.depositToken,\n        dp1Info.chainLinkPath,\n        dp1Info.strategy,\n      );\n      await dp1Info.depositToken.mint(BOB, wei(1000));\n      await dp1Info.depositToken.connect(BOB).approve(dp1Info.depositPool, wei(1000));\n      await distributor.setRewardPoolLastCalculatedTimestamp(publicRewardPoolId, 1);\n    });\n\n    it('should fail supply after changing aavePool due to missing approvals', async () => {\n      // Initial supply works with original aavePool\n      await dp1Info.depositPool.connect(BOB).supply(publicRewardPoolId, wei(100));\n      let dp1 = await distributor.depositPools(publicRewardPoolId, dp1Info.depositPool);\n      expect(dp1.deposited).to.eq(wei(100));\n      expect(await dp1Info.aToken.balanceOf(distributor)).to.eq(wei(100));\n\n      // Change aavePool\n      const newAavePool = await deployAavePoolMock(aavePoolDataProviderMock);\n      await distributor.setAavePool(newAavePool);\n\n      // Attempt to supply again, should fail due to missing approval\n      await expect(\n        dp1Info.depositPool.connect(BOB).supply(publicRewardPoolId, wei(50))\n      ).to.be.revertedWith('ERC20: insufficient allowance');\n\n      // Verify no new deposits\n      dp1 = await distributor.depositPools(publicRewardPoolId, dp1Info.depositPool);\n      expect(dp1.deposited).to.eq(wei(100));\n      expect(await dp1Info.aToken.balanceOf(distributor)).to.eq(wei(100));\n\n      // Attempt to withdraw, should also fail\n      await expect(\n        dp1Info.depositPool.connect(BOB).withdraw(publicRewardPoolId, wei(50))\n      ).to.be.revertedWith('ERC20: insufficient allowance');\n    });\n\n    it('should show old pool still has approvals while new pool has none', async () => {\n      // Check that original Aave pool has approvals\n      const originalAllowance = await dp1Info.depositToken.allowance(distributor, aavePoolMock);\n      expect(originalAllowance).to.eq(maxUint256);\n\n      // Update to new Aave pool\n      const newAavePool = await deployAavePoolMock(aavePoolDataProviderMock);\n      await distributor.setAavePool(newAavePool);\n\n      // New pool has no approvals\n      const newAllowance = await dp1Info.depositToken.allowance(distributor, newAavePool);\n      expect(newAllowance).to.eq(0);\n\n      // Old pool still has approvals (potential security concern)\n      const oldAllowance = await dp1Info.depositToken.allowance(distributor, aavePoolMock);\n      expect(oldAllowance).to.eq(maxUint256);\n    });\n  });\n```\n\n---",
+    "poc_code_blocks": [
+      "describe('Bug - setAavePool approval issue', () => {\n    const maxUint256 = 2n**256n - 1n;\n    beforeEach(async () => {\n      await chainLinkDataConsumerMock.setAnswer(dp1Info.chainLinkPath, wei(1));\n      await distributor.addDepositPool(\n        dp1Info.rewardPoolId,\n        dp1Info.depositPool,\n        dp1Info.depositToken,\n        dp1Info.chainLinkPath,\n        dp1Info.strategy,\n      );\n      await dp1Info.depositToken.mint(BOB, wei(1000));\n      await dp1Info.depositToken.connect(BOB).approve(dp1Info.depositPool, wei(1000));\n      await distributor.setRewardPoolLastCalculatedTimestamp(publicRewardPoolId, 1);\n    });\n\n    it('should fail supply after changing aavePool due to missing approvals', async () => {\n      // Initial supply works with original aavePool\n      await dp1Info.depositPool.connect(BOB).supply(publicRewardPoolId, wei(100));\n      let dp1 = await distributor.depositPools(publicRewardPoolId, dp1Info.depositPool);\n      expect(dp1.deposited).to.eq(wei(100));\n      expect(await dp1Info.aToken.balanceOf(distributor)).to.eq(wei(100));\n\n      // Change aavePool\n      const newAavePool = await deployAavePoolMock(aavePoolDataProviderMock);\n      await distributor.setAavePool(newAavePool);\n\n      // Attempt to supply again, should fail due to missing approval\n      await expect(\n        dp1Info.depositPool.connect(BOB).supply(publicRewardPoolId, wei(50))\n      ).to.be.revertedWith('ERC20: insufficient allowance');\n\n      // Verify no new deposits\n      dp1 = await distributor.depositPools(publicRewardPoolId, dp1Info.depositPool);\n      expect(dp1.deposited).to.eq(wei(100));\n      expect(await dp1Info.aToken.balanceOf(distributor)).to.eq(wei(100));\n\n      // Attempt to withdraw, should also fail\n      await expect(\n        dp1Info.depositPool.connect(BOB).withdraw(publicRewardPoolId, wei(50))\n      ).to.be.revertedWith('ERC20: insufficient allowance');\n    });\n\n    it('should show old pool still has approvals while new pool has none', async () => {\n      // Check that original Aave pool has approvals\n      const originalAllowance = await dp1Info.depositToken.allowance(distributor, aavePoolMock);\n      expect(originalAllowance).to.eq(maxUint256);\n\n      // Update to new Aave pool\n      const newAavePool = await deployAavePoolMock(aavePoolDataProviderMock);\n      await distributor.setAavePool(newAavePool);\n\n      // New pool has no approvals\n      const newAllowance = await dp1Info.depositToken.allowance(distributor, newAavePool);\n      expect(newAllowance).to.eq(0);\n\n      // Old pool still has approvals (potential security concern)\n      const oldAllowance = await dp1Info.depositToken.allowance(distributor, aavePoolMock);\n      expect(oldAllowance).to.eq(maxUint256);\n    });\n  });"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "setAavePool",
+        "start_line": 135,
+        "end_line": 141,
+        "code": "    function setAavePool(address value_) public onlyOwner {\n        require(value_ != address(0), \"DR: invalid Aave pool address\");\n\n        aavePool = value_;\n\n        emit AavePoolSet(value_);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            135,
+            141
+          ]
+        ]
+      },
+      {
+        "function_name": "addDepositPool",
+        "start_line": 191,
+        "end_line": 248,
+        "code": "\n    function addDepositPool(\n        uint256 rewardPoolIndex_,\n        address depositPoolAddress_,\n        address token_,\n        string memory chainLinkPath_,\n        Strategy strategy_\n    ) external onlyOwner {\n        IRewardPool rewardPool_ = IRewardPool(rewardPool);\n        rewardPool_.onlyExistedRewardPool(rewardPoolIndex_);\n\n        require(\n            IERC165(depositPoolAddress_).supportsInterface(type(IDepositPool).interfaceId),\n            \"DR: the deposit pool address is invalid\"\n        );\n\n        // Validate that pool is public in other cases.\n        if (strategy_ == Strategy.NO_YIELD) {\n            // Validate that pool is private.\n            rewardPool_.onlyNotPublicRewardPool(rewardPoolIndex_);\n            // Validate that deposit pool is not added for this `rewardPoolIndex_`.\n            require(\n                depositPoolAddresses[rewardPoolIndex_].length == 0,\n                \"DR: the deposit pool for this index already added\"\n            );\n\n            // Skip `token_` and `chainLinkPath_` when `Strategy.NO_YIELD`.\n            token_ = address(0);\n            chainLinkPath_ = \"\";\n        } else {\n            require(!isDepositTokenAdded[token_], \"DR: the deposit token already added\");\n\n            rewardPool_.onlyPublicRewardPool(rewardPoolIndex_);\n        }\n\n        // Set `aToken_` when `Strategy.AAVE`. Add allowance for Aave to transfer `token_` from the current\n        // contract.\n        address aToken_ = address(0);\n        if (strategy_ == Strategy.AAVE) {\n            (aToken_, , ) = AaveIPoolDataProvider(aavePoolDataProvider).getReserveTokensAddresses(token_);\n\n            IERC20(token_).safeApprove(aavePool, type(uint256).max);\n            IERC20(aToken_).approve(aavePool, type(uint256).max);\n        }\n\n        DepositPool memory depositPool_ = DepositPool(token_, chainLinkPath_, 0, 0, 0, strategy_, aToken_, true);\n\n        depositPoolAddresses[rewardPoolIndex_].push(depositPoolAddress_);\n        depositPools[rewardPoolIndex_][depositPoolAddress_] = depositPool_;\n        isDepositTokenAdded[token_] = true;\n\n        // Update prices for all `depositPools` by `rewardPoolIndex_`\n        if (strategy_ != Strategy.NO_YIELD) {\n            updateDepositTokensPrices(rewardPoolIndex_);\n        }\n\n        emit DepositPoolAdded(rewardPoolIndex_, depositPool_);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            226,
+            237
+          ]
+        ]
+      },
+      {
+        "function_name": "supply",
+        "start_line": 284,
+        "end_line": 302,
+        "code": "\n    function supply(uint256 rewardPoolIndex_, uint256 amount_) external {\n        address depositPoolAddress_ = _msgSender();\n        _onlyExistedDepositPool(rewardPoolIndex_, depositPoolAddress_);\n\n        DepositPool storage depositPool = depositPools[rewardPoolIndex_][depositPoolAddress_];\n        require(depositPool.strategy != Strategy.NO_YIELD, \"DR: invalid strategy for the deposit pool\");\n\n        distributeRewards(rewardPoolIndex_);\n        _withdrawYield(rewardPoolIndex_, depositPoolAddress_);\n\n        IERC20(depositPool.token).safeTransferFrom(depositPoolAddress_, address(this), amount_);\n        if (depositPool.strategy == Strategy.AAVE) {\n            AaveIPool(aavePool).supply(depositPool.token, amount_, address(this), 0);\n        }\n\n        depositPool.deposited += amount_;\n        depositPool.lastUnderlyingBalance += amount_;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            285,
+            328
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:04:06.924055",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issues with the `setAavePool` function, including the lack of dynamic querying and the missing approval revocation.",
+      "content_reasoning": "The content references the relevant functions and variables, specifically `setAavePool`, `aavePool`, and the approval process, which are all present in the extracted code.",
+      "functions_found": [
+        "setAavePool",
+        "addDepositPool",
+        "supply"
+      ],
+      "variables_found": [
+        "aavePool",
+        "token_"
+      ],
+      "patterns_found": [
+        "missing approval revocation",
+        "dynamic querying not implemented"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 85,
+      "reasoning": "The report lacks a tag, which is necessary for categorization. The issues described are significant and should be tagged appropriately.",
+      "suggested_tag": "Denial of Service",
+      "alternative_tags": [
+        "Access Control",
+        "Business Logic"
+      ],
+      "correction_explanation": "The issues primarily lead to potential denial of service due to the inability to use the new Aave pool after setting it, which warrants a specific tag."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability directly relates to denial of service due to the inability to access the new Aave pool after it is set, which aligns with MANDO's denial_of_service category."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G5"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The issues stem from flaws in the business logic of handling Aave pool changes and approvals, making SCSVS a more suitable classification framework.",
+      "vulnerability_type": "Improper handling of external contract interactions leading to potential denial of service."
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Set an immutable poolAddressProvider and query it dynamically for the current Aave pool address, ensuring proper approval and revocation of old pools.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "setAavePool",
+          "fixed_function_code": "function setAavePool() public onlyOwner { \n        address currentPool = AaveIPoolAddressProvider(poolAddressProvider).getPool(); \n        require(currentPool != address(0), \"DR: invalid Aave pool address\"); \n        require(currentPool != aavePool, \"DR: new pool must be different\"); \n        // Revoke approval for the old pool \n        IERC20(token).safeApprove(aavePool, 0); \n        // Set new pool address \n        aavePool = currentPool; \n        // Approve new pool \n        IERC20(token).safeApprove(aavePool, type(uint256).max); \n        emit AavePoolSet(currentPool); \n    }",
+          "reasoning": "This function now queries the current Aave pool address dynamically, ensuring that the protocol always interacts with the correct pool and revokes the old pool's approval to prevent misuse."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "addDepositPool",
+          "fixed_function_code": "function addDepositPool( \n        uint256 rewardPoolIndex_, \n        address depositPoolAddress_, \n        address token_, \n        string memory chainLinkPath_, \n        Strategy strategy_ \n    ) external onlyOwner { \n        IRewardPool rewardPool_ = IRewardPool(rewardPool); \n        rewardPool_.onlyExistedRewardPool(rewardPoolIndex_); \n        require( \n            IERC165(depositPoolAddress_).supportsInterface(type(IDepositPool).interfaceId), \n            \"DR: the deposit pool address is invalid\" \n        ); \n        // Validate that pool is public in other cases. \n        if (strategy_ == Strategy.NO_YIELD) { \n            rewardPool_.onlyNotPublicRewardPool(rewardPoolIndex_); \n            require( \n                depositPoolAddresses[rewardPoolIndex_].length == 0, \n                \"DR: the deposit pool for this index already added\" \n            ); \n            token_ = address(0); \n            chainLinkPath_ = \"\"; \n        } else { \n            require(!isDepositTokenAdded[token_], \"DR: the deposit token already added\"); \n            rewardPool_.onlyPublicRewardPool(rewardPoolIndex_); \n        } \n        // Set `aToken_` when `Strategy.AAVE`. Add allowance for Aave to transfer `token_` from the current contract. \n        address aToken_ = address(0); \n        if (strategy_ == Strategy.AAVE) { \n            (aToken_, , ) = AaveIPoolDataProvider(aavePoolDataProvider).getReserveTokensAddresses(token_); \n            // Approve the current Aave pool \n            IERC20(token_).safeApprove(aavePool, type(uint256).max); \n            IERC20(aToken_).approve(aavePool, type(uint256).max); \n        } \n        DepositPool memory depositPool_ = DepositPool(token_, chainLinkPath_, 0, 0, 0, strategy_, aToken_, true); \n        depositPoolAddresses[rewardPoolIndex_].push(depositPoolAddress_); \n        depositPools[rewardPoolIndex_][depositPoolAddress_] = depositPool_; \n        isDepositTokenAdded[token_] = true; \n        if (strategy_ != Strategy.NO_YIELD) { \n            updateDepositTokensPrices(rewardPoolIndex_); \n        } \n        emit DepositPoolAdded(rewardPoolIndex_, depositPool_); \n    }",
+          "reasoning": "This function now ensures that the Aave pool is correctly approved for token transfers, preventing any potential denial of service by ensuring that the correct pool is always used."
+        },
+        {
+          "snippet_index": 3,
+          "function_name": "supply",
+          "fixed_function_code": "function supply(uint256 rewardPoolIndex_, uint256 amount_) external { \n        address depositPoolAddress_ = _msgSender(); \n        _onlyExistedDepositPool(rewardPoolIndex_, depositPoolAddress_); \n        DepositPool storage depositPool = depositPools[rewardPoolIndex_][depositPoolAddress_]; \n        require(depositPool.strategy != Strategy.NO_YIELD, \"DR: invalid strategy for the deposit pool\"); \n        distributeRewards(rewardPoolIndex_); \n        _withdrawYield(rewardPoolIndex_, depositPoolAddress_); \n        IERC20(depositPool.token).safeTransferFrom(depositPoolAddress_, address(this), amount_); \n        if (depositPool.strategy == Strategy.AAVE) { \n            AaveIPool(aavePool).supply(depositPool.token, amount_, address(this), 0); \n        } \n        depositPool.deposited += amount_; \n        depositPool.lastUnderlyingBalance += amount_; \n    }",
+          "reasoning": "This function remains largely unchanged but ensures that the correct Aave pool is used for deposits, maintaining the integrity of the deposit process."
+        }
+      ],
+      "key_changes": [
+        "Dynamic querying of the Aave pool address to prevent downtime.",
+        "Revocation of old pool approvals to prevent misuse.",
+        "Approval of the new pool for token transfers to ensure functionality."
+      ],
+      "security_improvements": [
+        "Reduced risk of denial of service by ensuring the current pool is always used.",
+        "Enhanced control over token approvals to prevent unauthorized access."
+      ],
+      "additional_recommendations": "Consider implementing a mechanism to pause operations in case of critical failures or upgrades.",
+      "confidence": 95,
+      "fix_code": "function setAavePool() public onlyOwner { \n        address currentPool = AaveIPoolAddressProvider(poolAddressProvider).getPool(); \n        require(currentPool != address(0), \"DR: invalid Aave pool address\"); \n        require(currentPool != aavePool, \"DR: new pool must be different\"); \n        // Revoke approval for the old pool \n        IERC20(token).safeApprove(aavePool, 0); \n        // Set new pool address \n        aavePool = currentPool; \n        // Approve new pool \n        IERC20(token).safeApprove(aavePool, type(uint256).max); \n        emit AavePoolSet(currentPool); \n    }\n\nfunction addDepositPool( \n        uint256 rewardPoolIndex_, \n        address depositPoolAddress_, \n        address token_, \n        string memory chainLinkPath_, \n        Strategy strategy_ \n    ) external onlyOwner { \n        IRewardPool rewardPool_ = IRewardPool(rewardPool); \n        rewardPool_.onlyExistedRewardPool(rewardPoolIndex_); \n        require( \n            IERC165(depositPoolAddress_).supportsInterface(type(IDepositPool).interfaceId), \n            \"DR: the deposit pool address is invalid\" \n        ); \n        // Validate that pool is public in other cases. \n        if (strategy_ == Strategy.NO_YIELD) { \n            rewardPool_.onlyNotPublicRewardPool(rewardPoolIndex_); \n            require( \n                depositPoolAddresses[rewardPoolIndex_].length == 0, \n                \"DR: the deposit pool for this index already added\" \n            ); \n            token_ = address(0); \n            chainLinkPath_ = \"\"; \n        } else { \n            require(!isDepositTokenAdded[token_], \"DR: the deposit token already added\"); \n            rewardPool_.onlyPublicRewardPool(rewardPoolIndex_); \n        } \n        // Set `aToken_` when `Strategy.AAVE`. Add allowance for Aave to transfer `token_` from the current contract. \n        address aToken_ = address(0); \n        if (strategy_ == Strategy.AAVE) { \n            (aToken_, , ) = AaveIPoolDataProvider(aavePoolDataProvider).getReserveTokensAddresses(token_); \n            // Approve the current Aave pool \n            IERC20(token_).safeApprove(aavePool, type(uint256).max); \n            IERC20(aToken_).approve(aavePool, type(uint256).max); \n        } \n        DepositPool memory depositPool_ = DepositPool(token_, chainLinkPath_, 0, 0, 0, strategy_, aToken_, true); \n        depositPoolAddresses[rewardPoolIndex_].push(depositPoolAddress_); \n        depositPools[rewardPoolIndex_][depositPoolAddress_] = depositPool_; \n        isDepositTokenAdded[token_] = true; \n        if (strategy_ != Strategy.NO_YIELD) { \n            updateDepositTokensPrices(rewardPoolIndex_); \n        } \n        emit DepositPoolAdded(rewardPoolIndex_, depositPool_); \n    }\n\nfunction supply(uint256 rewardPoolIndex_, uint256 amount_) external { \n        address depositPoolAddress_ = _msgSender(); \n        _onlyExistedDepositPool(rewardPoolIndex_, depositPoolAddress_); \n        DepositPool storage depositPool = depositPools[rewardPoolIndex_][depositPoolAddress_]; \n        require(depositPool.strategy != Strategy.NO_YIELD, \"DR: invalid strategy for the deposit pool\"); \n        distributeRewards(rewardPoolIndex_); \n        _withdrawYield(rewardPoolIndex_, depositPoolAddress_); \n        IERC20(depositPool.token).safeTransferFrom(depositPoolAddress_, address(this), amount_); \n        if (depositPool.strategy == Strategy.AAVE) { \n            AaveIPool(aavePool).supply(depositPool.token, amount_, address(this), 0); \n        } \n        depositPool.deposited += amount_; \n        depositPool.lastUnderlyingBalance += amount_; \n    }",
+      "expected_fixed_blocks": 3,
+      "returned_fixed_blocks": 3,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-04-25T01:25:20.896981"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-25T01:25:20.897004",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

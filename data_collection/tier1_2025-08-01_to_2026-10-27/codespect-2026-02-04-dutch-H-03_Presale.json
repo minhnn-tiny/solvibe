@@ -1,0 +1,88 @@
+{
+  "id": "codespect-2026-02-04-dutch-H-03",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/dutch-protocol/Protocol-Contracts/tree/cec8b243aa645fdbe80e05e613eca69542b62a2e/src/Presale.sol#L585",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      585,
+      585
+    ]
+  ],
+  "filename": "codespect-2026-02-04-dutch-H-03_Presale.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 672,
+  "vulnerability_title": "DOS in _createVestingStreams(...) due to unbounded loop",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_createVestingStreams",
+        "start_line": 585,
+        "end_line": 660,
+        "code": "    function _createVestingStreams() internal {\n        uint256 contributorCount = contributors.length;\n        if (contributorCount == 0) {\n            emit VestingStreamsCreated(0);\n            return;\n        }\n\n        // Get total token amount that was minted (should already be in this contract)\n        uint256 totalTokens = IERC20(address(dutchToken)).balanceOf(address(this));\n        if (totalTokens == 0) {\n            revert Presale__InvalidAmount();\n        }\n\n        // Approve Sablier V2 contract to spend all tokens for stream creation\n        IERC20(address(dutchToken)).approve(address(sablierV2), totalTokens);\n\n        // Vesting parameters\n        LockupLinear.Durations memory durations = LockupLinear.Durations({\n            cliff: uint40(VESTING_CLIFF),  // 6 months cliff\n            total: uint40(VESTING_CLIFF + VESTING_DURATION)  // 18 months total (6 cliff + 12 vesting)\n        });\n\n        uint256 streamsCreated;\n        uint256 totalAllocated;\n        \n        // Loop through each contributor and create individual vesting streams\n        for (uint256 i = 0; i < contributorCount; i++) {\n            address contributor = contributors[i];\n            uint256 userContribution = contributions[contributor];\n            \n            // Calculate user's token allocation based on their ETH contribution ratio\n            uint256 userTokenAllocation = (totalTokens * userContribution) / totalFundedAmount;\n            \n            // Skip if user has no allocation (shouldn't happen, but safety check)\n            if (userTokenAllocation == 0) continue;\n            \n            // Add remainder to last contributor to handle rounding dust\n            if (i == contributorCount - 1) {\n                userTokenAllocation = totalTokens - totalAllocated;\n            } else {\n                totalAllocated += userTokenAllocation;\n            }\n            \n            // Set unlock amounts (0 at start since we have a cliff, userTokenAllocation at cliff)\n            LockupLinear.UnlockAmounts memory unlockAmounts = LockupLinear.UnlockAmounts({\n                start: 0,\n                cliff: uint128(userTokenAllocation)\n            });\n\n            // Create stream parameters\n            Lockup.CreateWithDurations memory params = Lockup.CreateWithDurations({\n                sender: address(this),\n                recipient: contributor,\n                depositAmount: uint128(userTokenAllocation),\n                token: IERC20(address(dutchToken)),\n                cancelable: false,  // Non-cancelable streams\n                transferable: true, // Allow recipients to transfer their stream NFTs\n                shape: \"\"  // No custom shape metadata\n            });\n\n            try sablierV2.createWithDurationsLL(params, unlockAmounts, durations) returns (uint256 streamId) {\n                // Store the stream ID for this user\n                vestingStreamIds[contributor] = streamId;\n                streamsCreated++;\n                \n                // Emit event for successful stream creation\n                emit TokensClaimed(contributor, userTokenAllocation);\n            } catch {\n                // Emit error event but don't revert - allow other streams to be created\n                emit StreamCreationFailed(contributor, userTokenAllocation);\n                continue;\n            }\n        }\n\n        emit VestingStreamsCreated(streamsCreated);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            585,
+            585
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:45:22.634872",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 93,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "_createVestingStreams loops over every address in contributors and calls sablierV2.createWithDurationsLL once per address, and depositEth adds new contributors with no upper limit. Many small contributions can push this loop past the block gas limit.",
+      "functions_found": [
+        "_createVestingStreams",
+        "depositEth",
+        "performUpkeep"
+      ],
+      "variables_found": [
+        "contributors",
+        "MIN_CONTRIBUTION"
+      ],
+      "patterns_found": [
+        "unbounded loop with one external call per contributor"
+      ],
+      "issues": [
+        "The finding's snippet shows _createVestingStreams(uint256 totalTokens), while this file has _createVestingStreams() reading the token balance inside; the loop is the same."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "mando_applicable": true
+    },
+    "scsvs_classification": {
+      "primary_category": "G8",
+      "primary_category_name": "Denial of service",
+      "vulnerability_type": "unbounded loop exceeds the block gas limit"
+    },
+    "fix_code_source": "none"
+  }
+}

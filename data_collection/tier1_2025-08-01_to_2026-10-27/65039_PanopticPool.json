@@ -1,0 +1,185 @@
+{
+  "id": "65039",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-12-panoptic/blob/main/contracts/PanopticPool.sol# L1671-L1703",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      1671,
+      1703
+    ],
+    [
+      1598,
+      1664
+    ],
+    [
+      1369,
+      1382
+    ]
+  ],
+  "filename": "65039_PanopticPool.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 2156,
+  "vulnerability_title": "[M-12] Self-settlement via `dispatchFrom` bypasses refund mechanism allowing underfunded debt settlement",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Update `_settlePremium` and `_forceExercise` to handle self settlement cases so that when `account == msg.sender`, settlement cannot proceed if the account\u2019s real balance is insufficient to cover the required burn amount.\n\n**[Panoptic mitigated](https://github.com/code-423n4/2026-02-panoptic-next-core-mitigation?tab=readme-ov-file# mitigation-of-high--medium-severity-issues):**\n\n> Refactored part of the `delegate`/`revoke` workflow.\n\n**Status:** Mitigation confirmed. Full details in reports from [Valves](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-4), [edoscoba](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-19), and [Nyx](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-46).\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_settlePremium",
+        "start_line": 1671,
+        "end_line": 1703,
+        "code": "    function _settlePremium(\n        address owner,\n        TokenId tokenId,\n        int24 twapTick,\n        int24 currentTick\n    ) internal {\n        CollateralTracker ct0 = collateralToken0();\n        CollateralTracker ct1 = collateralToken1();\n\n        // The protocol delegates some virtual shares to ensure the premia can be settled.\n        ct0.delegate(owner);\n        ct1.delegate(owner);\n\n        (RiskParameters riskParameters, ) = getRiskParameters(0);\n        uint128 positionSize = s_positionBalance[owner][tokenId].positionSize();\n        if (positionSize == 0) revert Errors.PositionNotOwned();\n\n        _settleOptions(owner, tokenId, positionSize, riskParameters, currentTick);\n\n        LeftRightSigned refundAmounts = riskEngine().getRefundAmounts(\n            owner,\n            LeftRightSigned.wrap(0),\n            twapTick,\n            ct0,\n            ct1\n        );\n        // allow the caller to settle tokens owed to the protocol by the settlee in exchange for the surplus token\n        ct0.refund(owner, msg.sender, refundAmounts.rightSlot());\n        ct1.refund(owner, msg.sender, refundAmounts.leftSlot());\n\n        ct0.revoke(owner);\n        ct1.revoke(owner);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1671,
+            1703
+          ]
+        ]
+      },
+      {
+        "function_name": "_forceExercise",
+        "start_line": 1598,
+        "end_line": 1664,
+        "code": "    function _forceExercise(\n        address account,\n        TokenId tokenId,\n        int24 twapTick,\n        int24 currentTick\n    ) internal {\n        CollateralTracker ct0 = collateralToken0();\n        CollateralTracker ct1 = collateralToken1();\n\n        uint128 positionSize;\n\n        LeftRightSigned exerciseFees;\n        {\n            PositionBalance positionBalance = s_positionBalance[account][tokenId];\n\n            positionSize = positionBalance.positionSize();\n\n            if (positionSize == 0) revert Errors.PositionNotOwned();\n\n            // Compute the exerciseFee, this will decrease the further away the price is from the exercised position\n            // Include any deltas in long legs between the current and oracle tick in the exercise fee\n            exerciseFees = riskEngine().exerciseCost(\n                currentTick,\n                twapTick,\n                tokenId,\n                positionBalance\n            );\n        }\n\n        // The protocol delegates some virtual shares to ensure the burn can be settled.\n        ct0.delegate(account);\n        ct1.delegate(account);\n        {\n            int24[2] memory tickLimits;\n            tickLimits[0] = MIN_SWAP_TICK;\n            tickLimits[1] = MAX_SWAP_TICK;\n            (RiskParameters riskParameters, ) = getRiskParameters(0);\n\n            // Exercise the option\n            // Turn off ITM swapping to prevent swap at potentially unfavorable price\n            _burnOptions(\n                tokenId,\n                positionSize,\n                tickLimits,\n                account,\n                COMMIT_LONG_SETTLED,\n                riskParameters\n            );\n        }\n        // redistribute token composition of refund amounts if user doesn't have enough of one token to pay\n        LeftRightSigned refundAmounts = riskEngine().getRefundAmounts(\n            account,\n            exerciseFees,\n            twapTick,\n            ct0,\n            ct1\n        );\n\n        // settle difference between delegated amounts (from the protocol) and exercise fees/substituted tokens\n        ct0.refund(account, msg.sender, refundAmounts.rightSlot());\n        ct1.refund(account, msg.sender, refundAmounts.leftSlot());\n        // revoke the virtual shares that were delegated after settling the difference with the exercisor\n        ct0.revoke(account);\n        ct1.revoke(account);\n\n        emit ForcedExercised(msg.sender, account, tokenId, exerciseFees);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1598,
+            1664
+          ]
+        ]
+      },
+      {
+        "function_name": "dispatchFrom",
+        "start_line": 1360,
+        "end_line": 1476,
+        "code": "    function dispatchFrom(\n        TokenId[] calldata positionIdListFrom,\n        address account,\n        TokenId[] calldata positionIdListTo,\n        TokenId[] calldata positionIdListToFinal,\n        LeftRightUnsigned usePremiaAsCollateral\n    ) external payable {\n        // Assert the account we are liquidating is actually insolvent\n        int24 twapTick = getTWAP();\n        int24 currentTick = getCurrentTick();\n\n        TokenId tokenId;\n\n        uint256 solvent;\n        uint256 numberOfTicks;\n        {\n            _validatePositionList(account, positionIdListTo);\n\n            // Enforce maximum delta between TWAP and currentTick to prevent extreme price manipulation\n            int24 spotTick;\n            int24 latestTick;\n            (spotTick, , latestTick, ) = riskEngine().getOracleTicks(currentTick, s_oraclePack);\n\n            unchecked {\n                (RiskParameters riskParameters, ) = getRiskParameters(0);\n                int256 MAX_TWAP_DELTA_LIQUIDATION = int256(\n                    uint256(riskParameters.tickDeltaLiquidation())\n                );\n                if (Math.abs(currentTick - twapTick) > MAX_TWAP_DELTA_LIQUIDATION)\n                    revert Errors.StaleOracle();\n            }\n\n            // Ensure the account is insolvent at twapTick (in place of medianTick), currentTick, spotTick, and latestTick\n            int24[] memory atTicks = new int24[](4);\n            atTicks[0] = spotTick;\n            atTicks[1] = twapTick;\n            atTicks[2] = latestTick;\n            atTicks[3] = currentTick;\n\n            solvent = _checkSolvencyAtTicks(\n                account,\n                0,\n                positionIdListTo,\n                currentTick,\n                atTicks,\n                COMPUTE_PREMIA_AS_COLLATERAL,\n                NO_BUFFER\n            );\n            numberOfTicks = atTicks.length;\n        }\n        {\n            uint256 toLength = positionIdListTo.length;\n            uint256 finalLength = positionIdListToFinal.length;\n            // if account is solvent at all ticks, this is a force exercise or a settlePremium.\n            if (solvent == numberOfTicks) {\n                unchecked {\n                    tokenId = positionIdListTo[toLength - 1];\n                    if (toLength == finalLength) {\n                        // same length, that's a settle\n                        {\n                            bytes32 toHash = EfficientHash.efficientKeccak256(\n                                abi.encodePacked(positionIdListTo)\n                            );\n                            bytes32 finalHash = EfficientHash.efficientKeccak256(\n                                abi.encodePacked(positionIdListToFinal)\n                            );\n                            if (toHash != finalHash) {\n                                revert Errors.InputListFail();\n                            }\n                        }\n                        _settlePremium(account, tokenId, twapTick, currentTick);\n                    } else if (toLength == (finalLength + 1)) {\n                        // final is one element shorter, that's a force exercise\n                        if (tokenId.countLongs() == 0 || tokenId.validateIsExercisable() == 0)\n                            revert Errors.NoLegsExercisable();\n                        _forceExercise(account, tokenId, twapTick, currentTick);\n                    } else if (finalLength == 0) {\n                        // if final length was zero, this was intended to be liquidation, but revert because not margin called and solvent at some of the tested ticks\n                        revert Errors.NotMarginCalled();\n                    } else {\n                        // otherwise, wrong input lists\n                        revert Errors.InputListFail();\n                    }\n                    // ensure the callee is still solvent after the operation\n                    bool premiaAsCollateral = usePremiaAsCollateral.rightSlot() > 0;\n                    _validateSolvency(\n                        account,\n                        positionIdListToFinal,\n                        NO_BUFFER,\n                        premiaAsCollateral,\n                        0\n                    );\n                }\n            } else if (solvent == 0) {\n                // if account is insolvent at all ticks, this is a liquidation\n\n                // if the positions lengths are the same, this was intended as a settlePremia, but revert because account is insolvent\n                if (toLength == finalLength) revert Errors.AccountInsolvent(solvent, 4);\n\n                if (positionIdListToFinal.length != 0) revert Errors.InputListFail();\n                // if the final position list has a non-zero length, this can't be a complete liquidation, revert\n                _liquidate(account, positionIdListTo, twapTick, currentTick);\n            } else {\n                // otherwise, revert because the account is not fully margin called\n                revert Errors.NotMarginCalled();\n            }\n        }\n\n        // ensure the caller is still solvent after the operation\n        _validateSolvency(\n            msg.sender,\n            positionIdListFrom,\n            NO_BUFFER,\n            usePremiaAsCollateral.leftSlot() > 0,\n            0\n        );\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1369,
+            1382
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:56.021866",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of self-settlement bypassing the refund mechanism due to the assumption that the caller is a third party.",
+      "content_reasoning": "The functions `_settlePremium` and `_forceExercise` are present in the code and exhibit the described vulnerability of allowing self-settlement without sufficient funds.",
+      "functions_found": [
+        "_settlePremium",
+        "_forceExercise",
+        "dispatchFrom"
+      ],
+      "variables_found": [
+        "owner",
+        "account",
+        "refundAmounts"
+      ],
+      "patterns_found": [
+        "self-settlement",
+        "phantom shares",
+        "refund mechanism"
+      ],
+      "issues": [
+        "Self-settlement bypasses refund mechanism"
+      ]
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged to reflect the vulnerability type.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "access_control"
+      ],
+      "correction_explanation": "The issue is primarily related to business logic flaws in handling self-settlement cases."
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability involves improper handling of permissions and assumptions about the caller's role, fitting the access_control category."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G5"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue is a business logic flaw where the contract does not correctly handle cases where the caller and account are the same, leading to incorrect settlement behavior.",
+      "vulnerability_type": "Self-settlement bypassing refund mechanism due to flawed business logic"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves checking if the caller is the same as the account and ensuring that the account has sufficient real balance before proceeding with settlement or exercise.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "_settlePremium",
+          "fixed_function_code": "function _settlePremium(\n    address owner,\n    TokenId tokenId,\n    int24 twapTick,\n    int24 currentTick\n) internal {\n    CollateralTracker ct0 = collateralToken0();\n    CollateralTracker ct1 = collateralToken1();\n\n    // Check if the caller is the same as the owner\n    if (owner == msg.sender) {\n        // Ensure the owner has enough real balance to cover the settlement\n        require(ct0.realBalance(owner) >= refundAmounts.rightSlot(), \"Insufficient balance for settlement\");\n        require(ct1.realBalance(owner) >= refundAmounts.leftSlot(), \"Insufficient balance for settlement\");\n    }\n\n    // The protocol delegates some virtual shares to ensure the premia can be settled.\n    ct0.delegate(owner);\n    ct1.delegate(owner);\n\n    (RiskParameters riskParameters, ) = getRiskParameters(0);\n    uint128 positionSize = s_positionBalance[owner][tokenId].positionSize();\n    if (positionSize == 0) revert Errors.PositionNotOwned();\n\n    _settleOptions(owner, tokenId, positionSize, riskParameters, currentTick);\n\n    LeftRightSigned refundAmounts = riskEngine().getRefundAmounts(\n        owner,\n        LeftRightSigned.wrap(0),\n        twapTick,\n        ct0,\n        ct1\n    );\n    // allow the caller to settle tokens owed to the protocol by the settlee in exchange for the surplus token\n    ct0.refund(owner, msg.sender, refundAmounts.rightSlot());\n    ct1.refund(owner, msg.sender, refundAmounts.leftSlot());\n\n    ct0.revoke(owner);\n    ct1.revoke(owner);\n}",
+          "reasoning": "This fix ensures that if the caller is the same as the owner, the owner's real balance is checked to ensure it is sufficient to cover the settlement, preventing underfunded settlements."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "_forceExercise",
+          "fixed_function_code": "function _forceExercise(\n    address account,\n    TokenId tokenId,\n    int24 twapTick,\n    int24 currentTick\n) internal {\n    CollateralTracker ct0 = collateralToken0();\n    CollateralTracker ct1 = collateralToken1();\n\n    uint128 positionSize;\n\n    LeftRightSigned exerciseFees;\n    {\n        PositionBalance positionBalance = s_positionBalance[account][tokenId];\n\n        positionSize = positionBalance.positionSize();\n\n        if (positionSize == 0) revert Errors.PositionNotOwned();\n\n        // Compute the exerciseFee, this will decrease the further away the price is from the exercised position\n        // Include any deltas in long legs between the current and oracle tick in the exercise fee\n        exerciseFees = riskEngine().exerciseCost(\n            currentTick,\n            twapTick,\n            tokenId,\n            positionBalance\n        );\n    }\n\n    // Check if the caller is the same as the account\n    if (account == msg.sender) {\n        // Ensure the account has enough real balance to cover the exercise\n        require(ct0.realBalance(account) >= refundAmounts.rightSlot(), \"Insufficient balance for exercise\");\n        require(ct1.realBalance(account) >= refundAmounts.leftSlot(), \"Insufficient balance for exercise\");\n    }\n\n    // The protocol delegates some virtual shares to ensure the burn can be settled.\n    ct0.delegate(account);\n    ct1.delegate(account);\n    {\n        int24[2] memory tickLimits;\n        tickLimits[0] = MIN_SWAP_TICK;\n        tickLimits[1] = MAX_SWAP_TICK;\n        (RiskParameters riskParameters, ) = getRiskParameters(0);\n\n        // Exercise the option\n        // Turn off ITM swapping to prevent swap at potentially unfavorable price\n        _burnOptions(\n            tokenId,\n            positionSize,\n            tickLimits,\n            account,\n            COMMIT_LONG_SETTLED,\n            riskParameters\n        );\n    }\n    // redistribute token composition of refund amounts if user doesn't have enough of one token to pay\n    LeftRightSigned refundAmounts = riskEngine().getRefundAmounts(\n        account,\n        exerciseFees,\n        twapTick,\n        ct0,\n        ct1\n    );\n\n    // settle difference between delegated amounts (from the protocol) and exercise fees/substituted tokens\n    ct0.refund(account, msg.sender, refundAmounts.rightSlot());\n    ct1.refund(account, msg.sender, refundAmounts.leftSlot());\n    // revoke the virtual shares that were delegated after settling the difference with the exercisor\n    ct0.revoke(account);\n    ct1.revoke(account);\n\n    emit ForcedExercised(msg.sender, account, tokenId, exerciseFees);\n}",
+          "reasoning": "This fix ensures that if the caller is the same as the account, the account's real balance is checked to ensure it is sufficient to cover the exercise, preventing underfunded exercises."
+        }
+      ],
+      "key_changes": [
+        "Added checks for real balance sufficiency when caller is the same as the account.",
+        "Ensured that settlement and exercise cannot proceed if the account's real balance is insufficient.",
+        "Preserved the original logic flow while adding necessary security checks."
+      ],
+      "security_improvements": [
+        "Prevents self-settlement and self-exercise with insufficient funds.",
+        "Ensures that the protocol's refund mechanism cannot be bypassed by the account owner.",
+        "Enhances the integrity of the settlement and exercise processes."
+      ],
+      "additional_recommendations": "Regularly audit the contract to ensure no new vulnerabilities are introduced and consider implementing automated tests to verify balance sufficiency checks.",
+      "confidence": 95,
+      "fix_code": "function _settlePremium(\n    address owner,\n    TokenId tokenId,\n    int24 twapTick,\n    int24 currentTick\n) internal {\n    CollateralTracker ct0 = collateralToken0();\n    CollateralTracker ct1 = collateralToken1();\n\n    // Check if the caller is the same as the owner\n    if (owner == msg.sender) {\n        // Ensure the owner has enough real balance to cover the settlement\n        require(ct0.realBalance(owner) >= refundAmounts.rightSlot(), \"Insufficient balance for settlement\");\n        require(ct1.realBalance(owner) >= refundAmounts.leftSlot(), \"Insufficient balance for settlement\");\n    }\n\n    // The protocol delegates some virtual shares to ensure the premia can be settled.\n    ct0.delegate(owner);\n    ct1.delegate(owner);\n\n    (RiskParameters riskParameters, ) = getRiskParameters(0);\n    uint128 positionSize = s_positionBalance[owner][tokenId].positionSize();\n    if (positionSize == 0) revert Errors.PositionNotOwned();\n\n    _settleOptions(owner, tokenId, positionSize, riskParameters, currentTick);\n\n    LeftRightSigned refundAmounts = riskEngine().getRefundAmounts(\n        owner,\n        LeftRightSigned.wrap(0),\n        twapTick,\n        ct0,\n        ct1\n    );\n    // allow the caller to settle tokens owed to the protocol by the settlee in exchange for the surplus token\n    ct0.refund(owner, msg.sender, refundAmounts.rightSlot());\n    ct1.refund(owner, msg.sender, refundAmounts.leftSlot());\n\n    ct0.revoke(owner);\n    ct1.revoke(owner);\n}\n\nfunction _forceExercise(\n    address account,\n    TokenId tokenId,\n    int24 twapTick,\n    int24 currentTick\n) internal {\n    CollateralTracker ct0 = collateralToken0();\n    CollateralTracker ct1 = collateralToken1();\n\n    uint128 positionSize;\n\n    LeftRightSigned exerciseFees;\n    {\n        PositionBalance positionBalance = s_positionBalance[account][tokenId];\n\n        positionSize = positionBalance.positionSize();\n\n        if (positionSize == 0) revert Errors.PositionNotOwned();\n\n        // Compute the exerciseFee, this will decrease the further away the price is from the exercised position\n        // Include any deltas in long legs between the current and oracle tick in the exercise fee\n        exerciseFees = riskEngine().exerciseCost(\n            currentTick,\n            twapTick,\n            tokenId,\n            positionBalance\n        );\n    }\n\n    // Check if the caller is the same as the account\n    if (account == msg.sender) {\n        // Ensure the account has enough real balance to cover the exercise\n        require(ct0.realBalance(account) >= refundAmounts.rightSlot(), \"Insufficient balance for exercise\");\n        require(ct1.realBalance(account) >= refundAmounts.leftSlot(), \"Insufficient balance for exercise\");\n    }\n\n    // The protocol delegates some virtual shares to ensure the burn can be settled.\n    ct0.delegate(account);\n    ct1.delegate(account);\n    {\n        int24[2] memory tickLimits;\n        tickLimits[0] = MIN_SWAP_TICK;\n        tickLimits[1] = MAX_SWAP_TICK;\n        (RiskParameters riskParameters, ) = getRiskParameters(0);\n\n        // Exercise the option\n        // Turn off ITM swapping to prevent swap at potentially unfavorable price\n        _burnOptions(\n            tokenId,\n            positionSize,\n            tickLimits,\n            account,\n            COMMIT_LONG_SETTLED,\n            riskParameters\n        );\n    }\n    // redistribute token composition of refund amounts if user doesn't have enough of one token to pay\n    LeftRightSigned refundAmounts = riskEngine().getRefundAmounts(\n        account,\n        exerciseFees,\n        twapTick,\n        ct0,\n        ct1\n    );\n\n    // settle difference between delegated amounts (from the protocol) and exercise fees/substituted tokens\n    ct0.refund(account, msg.sender, refundAmounts.rightSlot());\n    ct1.refund(account, msg.sender, refundAmounts.leftSlot());\n    // revoke the virtual shares that were delegated after settling the difference with the exercisor\n    ct0.revoke(account);\n    ct1.revoke(account);\n\n    emit ForcedExercised(msg.sender, account, tokenId, exerciseFees);\n}",
+      "expected_fixed_blocks": 3,
+      "returned_fixed_blocks": 2,
+      "block_count_match": false,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:38:59.985765"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:38:59.985787",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

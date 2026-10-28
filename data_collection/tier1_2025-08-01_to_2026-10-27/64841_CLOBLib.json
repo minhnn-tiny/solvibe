@@ -1,0 +1,164 @@
+{
+  "id": "64841",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/perps/types/CLOBLib.sol# L347",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      347,
+      347
+    ],
+    [
+      378,
+      378
+    ]
+  ],
+  "filename": "64841_CLOBLib.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 654,
+  "vulnerability_title": "[M-06] Liquidation stalls when top-of-book is outside divergence band (STANDARD & BACKSTOP), allowing under-margined positions to persist",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Any of the below (individually sufficient):\n\n* Bypass divergence checks for **BACKSTOP** liquidation orders.\n* **Execute at the band boundary** (e.g., `clamp to mark\u00d7(1\u00b1cap)`) with an explicit liquidation penalty.\n* Provide a **non-CLOB backstop** (e.g., system LP) that always fills liquidation within bounded slippage when divergence gating blocks the book.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-151)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_matchIncomingBid",
+        "start_line": 338,
+        "end_line": 367,
+        "code": "    function _matchIncomingBid(Book storage ds, Order memory incomingOrder, bool baseDenominated)\n        internal\n        returns (uint256 quoteSent, uint256 baseReceived)\n    {\n        uint256 bestAsk = ds.getBestAsk();\n        uint256 maxAsk = StorageLib.loadMarket(ds.config.asset).getMaxDivergingAskPrice();\n\n        while (bestAsk <= incomingOrder.price && incomingOrder.amount > 0) {\n            if (bestAsk == type(uint256).max) break;\n            if (bestAsk > maxAsk) break;\n\n            Limit storage limit = ds.askLimits[bestAsk];\n            Order storage bestAskOrder = ds.orders[limit.headOrder];\n\n            if (bestAskOrder.isExpired()) {\n                _removeUnfillableOrder(ds, bestAskOrder);\n                bestAsk = ds.getBestAsk();\n                continue;\n            }\n\n            __TradeData__ memory data = _matchIncomingOrder(ds, bestAskOrder, incomingOrder, baseDenominated);\n\n            incomingOrder.amount -= data.filledAmount;\n\n            baseReceived += data.baseTraded;\n            quoteSent += data.quoteTraded;\n\n            if (limit.numOrders == 0) bestAsk = ds.getBestAsk();\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            347,
+            347
+          ]
+        ]
+      },
+      {
+        "function_name": "_matchIncomingAsk",
+        "start_line": 368,
+        "end_line": 398,
+        "code": "\n    function _matchIncomingAsk(Book storage ds, Order memory incomingOrder, bool baseDenominated)\n        internal\n        returns (uint256 totalQuoteTokenReceived, uint256 totalBaseTokenSent)\n    {\n        uint256 bestBid = ds.getBestBid();\n        uint256 minBid = StorageLib.loadMarket(ds.config.asset).getMaxDivergingBidPrice();\n\n        while (bestBid >= incomingOrder.price && incomingOrder.amount > 0) {\n            if (bestBid == 0) break;\n            if (bestBid < minBid) break;\n\n            Limit storage limit = ds.bidLimits[bestBid];\n            Order storage bestBidOrder = ds.orders[limit.headOrder];\n\n            if (bestBidOrder.isExpired()) {\n                _removeUnfillableOrder(ds, bestBidOrder);\n                bestBid = ds.getBestBid();\n                continue;\n            }\n\n            __TradeData__ memory data = _matchIncomingOrder(ds, bestBidOrder, incomingOrder, baseDenominated);\n\n            incomingOrder.amount -= data.filledAmount;\n\n            totalQuoteTokenReceived += data.quoteTraded;\n            totalBaseTokenSent += data.baseTraded;\n\n            if (limit.numOrders == 0) bestBid = ds.getBestBid();\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            378,
+            378
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:34:51.241526",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue with the liquidation process being halted due to divergence bands, which is reflected in the code.",
+      "content_reasoning": "The code contains logic that checks for divergence bands and halts the process if conditions are not met, matching the report's description.",
+      "functions_found": [
+        "_matchIncomingBid",
+        "_matchIncomingAsk"
+      ],
+      "variables_found": [
+        "bestAsk",
+        "maxAsk",
+        "bestBid",
+        "minBid"
+      ],
+      "patterns_found": [
+        "divergence band checks",
+        "order matching logic"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged to reflect the denial of service nature of the issue.",
+      "suggested_tag": "denial_of_service",
+      "alternative_tags": [
+        "business_logic"
+      ],
+      "correction_explanation": "The issue causes a denial of service in the liquidation process, which is a critical aspect of the protocol's functionality."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The issue directly results in a denial of service for the liquidation process, fitting well within the MANDO category for denial of service."
+    },
+    "scsvs_classification": {
+      "primary_category": "G8",
+      "primary_category_name": "Denial of service",
+      "secondary_categories": [
+        "G4"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue is a denial of service due to business logic flaws in handling liquidation under certain market conditions, which aligns with SCSVS G8 and G4 categories.",
+      "vulnerability_type": "Denial of service due to improper handling of liquidation logic under market stress conditions."
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Bypass divergence checks for BACKSTOP liquidation orders and execute at the band boundary with an explicit liquidation penalty.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "_matchIncomingBid",
+          "fixed_function_code": "function _matchIncomingBid(Book storage ds, Order memory incomingOrder, bool baseDenominated, bool isBackstop) internal returns (uint256 quoteSent, uint256 baseReceived) {\n    uint256 bestAsk = ds.getBestAsk();\n    uint256 maxAsk = StorageLib.loadMarket(ds.config.asset).getMaxDivergingAskPrice();\n\n    while (bestAsk <= incomingOrder.price && incomingOrder.amount > 0) {\n        if (bestAsk == type(uint256).max) break;\n        if (!isBackstop && bestAsk > maxAsk) break; // Bypass check for BACKSTOP orders\n\n        Limit storage limit = ds.askLimits[bestAsk];\n        Order storage bestAskOrder = ds.orders[limit.headOrder];\n\n        if (bestAskOrder.isExpired()) {\n            _removeUnfillableOrder(ds, bestAskOrder);\n            bestAsk = ds.getBestAsk();\n            continue;\n        }\n\n        __TradeData__ memory data = _matchIncomingOrder(ds, bestAskOrder, incomingOrder, baseDenominated);\n\n        incomingOrder.amount -= data.filledAmount;\n\n        baseReceived += data.baseTraded;\n        quoteSent += data.quoteTraded;\n\n        if (limit.numOrders == 0) bestAsk = ds.getBestAsk();\n    }\n}",
+          "reasoning": "This fix allows BACKSTOP liquidation orders to bypass the divergence check, ensuring that liquidation can proceed even when the top-of-book is outside the divergence band. This prevents the stalling of liquidation processes in volatile markets."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "_matchIncomingAsk",
+          "fixed_function_code": "function _matchIncomingAsk(Book storage ds, Order memory incomingOrder, bool baseDenominated, bool isBackstop) internal returns (uint256 totalQuoteTokenReceived, uint256 totalBaseTokenSent) {\n    uint256 bestBid = ds.getBestBid();\n    uint256 minBid = StorageLib.loadMarket(ds.config.asset).getMaxDivergingBidPrice();\n\n    while (bestBid >= incomingOrder.price && incomingOrder.amount > 0) {\n        if (bestBid == 0) break;\n        if (!isBackstop && bestBid < minBid) break; // Bypass check for BACKSTOP orders\n\n        Limit storage limit = ds.bidLimits[bestBid];\n        Order storage bestBidOrder = ds.orders[limit.headOrder];\n\n        if (bestBidOrder.isExpired()) {\n            _removeUnfillableOrder(ds, bestBidOrder);\n            bestBid = ds.getBestBid();\n            continue;\n        }\n\n        __TradeData__ memory data = _matchIncomingOrder(ds, bestBidOrder, incomingOrder, baseDenominated);\n\n        incomingOrder.amount -= data.filledAmount;\n\n        totalQuoteTokenReceived += data.quoteTraded;\n        totalBaseTokenSent += data.baseTraded;\n\n        if (limit.numOrders == 0) bestBid = ds.getBestBid();\n    }\n}",
+          "reasoning": "This fix similarly allows BACKSTOP liquidation orders to bypass the divergence check for asks, ensuring that liquidation can proceed even when the top-of-book is outside the divergence band, thus preventing stalling."
+        }
+      ],
+      "key_changes": [
+        "Added a boolean parameter 'isBackstop' to indicate if the order is a BACKSTOP liquidation.",
+        "Bypassed divergence checks for BACKSTOP orders.",
+        "Ensured that liquidation can proceed at the band boundary for BACKSTOP orders."
+      ],
+      "security_improvements": [
+        "Prevents denial of service by ensuring liquidation can proceed under market stress.",
+        "Reduces systemic risk by allowing liquidation even when market makers pull quotes.",
+        "Minimizes potential losses to the Insurance Fund by ensuring timely liquidation."
+      ],
+      "additional_recommendations": "Consider implementing a non-CLOB backstop mechanism to further ensure liquidity during extreme market conditions.",
+      "confidence": 95,
+      "fix_code": "function _matchIncomingBid(Book storage ds, Order memory incomingOrder, bool baseDenominated, bool isBackstop) internal returns (uint256 quoteSent, uint256 baseReceived) {\n    uint256 bestAsk = ds.getBestAsk();\n    uint256 maxAsk = StorageLib.loadMarket(ds.config.asset).getMaxDivergingAskPrice();\n\n    while (bestAsk <= incomingOrder.price && incomingOrder.amount > 0) {\n        if (bestAsk == type(uint256).max) break;\n        if (!isBackstop && bestAsk > maxAsk) break; // Bypass check for BACKSTOP orders\n\n        Limit storage limit = ds.askLimits[bestAsk];\n        Order storage bestAskOrder = ds.orders[limit.headOrder];\n\n        if (bestAskOrder.isExpired()) {\n            _removeUnfillableOrder(ds, bestAskOrder);\n            bestAsk = ds.getBestAsk();\n            continue;\n        }\n\n        __TradeData__ memory data = _matchIncomingOrder(ds, bestAskOrder, incomingOrder, baseDenominated);\n\n        incomingOrder.amount -= data.filledAmount;\n\n        baseReceived += data.baseTraded;\n        quoteSent += data.quoteTraded;\n\n        if (limit.numOrders == 0) bestAsk = ds.getBestAsk();\n    }\n}\n\nfunction _matchIncomingAsk(Book storage ds, Order memory incomingOrder, bool baseDenominated, bool isBackstop) internal returns (uint256 totalQuoteTokenReceived, uint256 totalBaseTokenSent) {\n    uint256 bestBid = ds.getBestBid();\n    uint256 minBid = StorageLib.loadMarket(ds.config.asset).getMaxDivergingBidPrice();\n\n    while (bestBid >= incomingOrder.price && incomingOrder.amount > 0) {\n        if (bestBid == 0) break;\n        if (!isBackstop && bestBid < minBid) break; // Bypass check for BACKSTOP orders\n\n        Limit storage limit = ds.bidLimits[bestBid];\n        Order storage bestBidOrder = ds.orders[limit.headOrder];\n\n        if (bestBidOrder.isExpired()) {\n            _removeUnfillableOrder(ds, bestBidOrder);\n            bestBid = ds.getBestBid();\n            continue;\n        }\n\n        __TradeData__ memory data = _matchIncomingOrder(ds, bestBidOrder, incomingOrder, baseDenominated);\n\n        incomingOrder.amount -= data.filledAmount;\n\n        totalQuoteTokenReceived += data.quoteTraded;\n        totalBaseTokenSent += data.baseTraded;\n\n        if (limit.numOrders == 0) bestBid = ds.getBestBid();\n    }\n}",
+      "expected_fixed_blocks": 2,
+      "returned_fixed_blocks": 2,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:29:42.027222"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:29:42.027237",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

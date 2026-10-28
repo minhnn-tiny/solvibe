@@ -1,0 +1,170 @@
+{
+  "id": "64866",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/launchpad/Launchpad.sol# L272-L305",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      272,
+      305
+    ],
+    [
+      98,
+      105
+    ],
+    [
+      202,
+      210
+    ]
+  ],
+  "filename": "64866_Launchpad.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 617,
+  "vulnerability_title": "[M-23] Rounding down in Quote calculation allows underpriced LaunchToken purchases by Malicious user, compounding protocol loss over multiple buys.",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "This can be mitigated by using a higher minimumBase amount, however, this is not a complete solution as the attacker can still buy with a calculated base amount such that the quote returned is rounded down. only much larger buys wont be feasible as numerator will be much larger compared to the denominator hence the rounding down effect will be less pronounced.\n\nA better solution would be to implement a mechanism to handle the rounding error, such as a precision factor or fixed point arithmetic library that can handle decimals more accurately.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-77)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "buy",
+        "start_line": 272,
+        "end_line": 305,
+        "code": "    function buy(BuyData calldata buyData)\n        external\n        nonReentrant\n        onlyBondingActive(buyData.token)\n        onlySenderOrOperator(buyData.account, SpotOperatorRoles.LAUNCHPAD_FILL)\n        returns (uint256 amountOutBaseActual, uint256 amountInQuote)\n    {\n        IUniswapV2Pair pair = _assertValidRecipient(buyData.recipient, buyData.token);\n        LaunchData memory data = _launches[buyData.token];\n\n        (amountOutBaseActual, data.active) = _checkGraduation(buyData.token, data, buyData.amountOutBase);\n\n        amountInQuote = data.curve.buy(buyData.token, amountOutBaseActual);\n\n        if (data.active && amountInQuote == 0) revert DustAttackInvalid();\n        if (amountInQuote > buyData.maxAmountInQuote) revert SlippageToleranceExceeded();\n\n        buyData.token.safeTransfer(buyData.recipient, amountOutBaseActual);\n        address(data.quote).safeTransferFrom(buyData.account, address(this), amountInQuote);\n\n        _emitSwapEvent({\n            account: buyData.account,\n            token: buyData.token,\n            baseAmount: amountOutBaseActual,\n            quoteAmount: amountInQuote,\n            isBuy: true,\n            curve: data.curve\n        });\n\n        // If graduated, handle AMM setup and remaining swap\n        if (!data.active) {\n            (amountOutBaseActual, amountInQuote) = _graduate(buyData, pair, data, amountOutBaseActual, amountInQuote);\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            272,
+            305
+          ]
+        ]
+      },
+      {
+        "function_name": "launches",
+        "start_line": 200,
+        "end_line": 203,
+        "code": "\n    function launches(address launchToken) public view returns (LaunchData memory) {\n        return _launches[launchToken];\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            202,
+            210
+          ]
+        ]
+      },
+      {
+        "code": "    /// @dev sig: 0x4233ebcb\n    error DustAttackInvalid();\n    /// @dev sig: 0x1d33d88c\n    error InvalidQuoteAsset();\n    /// @dev sig: 0x6f156a5e\n    error UninitializedCurve();\n    /// @dev sig: 0xa3265e40\n    error UninitializedQuote();\n    /// @dev sig: 0x9b480a76\n    error InvalidQuoteScaling();\n    /// @dev sig: 0xad73b7b2\n    error UnsupportedRewardToken();\n    /// @dev sig: 0x6728a9f6\n    error SlippageToleranceExceeded();\n    /// @dev sig: 0xb12d13eb\n    error ETHTransferFailed();\n    /// @dev sig: 0xa1d718af\n    error InsufficientBaseSold();\n\n    /*\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\n                                STATE\n    \u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580*/\n\n    /// @dev The abi version of this impl so the indexer can handle event-changing upgrades\n    uint256 public constant ABI_VERSION = 1;\n    uint256 public constant TOTAL_SUPPLY = 1 ether * 1e9;\n    uint256 public constant BONDING_SUPPLY = 800_000_000 ether;\n\n    address public immutable gteRouter;\n    IOperatorPanel public immutable operator;\n    IDistributor public immutable distributor;\n    IUniswapV2RouterMinimal public immutable uniV2Router;\n    IUniswapV2FactoryMinimal internal immutable uniV2Factory;\n\n    // @todo make proxy addr immutable with deterministic addr\n    LaunchpadLPVault public launchpadLPVault;\n\n    /// @dev This is just the quote ERC20 cast as LaunchToken so we dont have to import ERC20",
+        "start_line": 98,
+        "end_line": 105,
+        "context_start_line": 83,
+        "context_end_line": 120,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:20.529828",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of integer division leading to rounding errors in the `_getQuoteAmount` function.",
+      "content_reasoning": "The content mentions the `_getQuoteAmount` function and the issue of integer division, which is present in the extracted code.",
+      "functions_found": [
+        "_getQuoteAmount",
+        "buy",
+        "launches"
+      ],
+      "variables_found": [
+        "baseAmount",
+        "quoteReserve",
+        "baseReserve",
+        "amountOutBaseActual",
+        "amountInQuote"
+      ],
+      "patterns_found": [
+        "integer division",
+        "rounding down"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged to reflect the arithmetic precision issue.",
+      "suggested_tag": "arithmetic",
+      "alternative_tags": [
+        "precision_issue"
+      ],
+      "correction_explanation": "The issue is primarily related to arithmetic precision due to integer division."
+    },
+    "mando_classification": {
+      "primary_category": "arithmetic",
+      "secondary_categories": [],
+      "confidence": 100,
+      "mando_applicable": true,
+      "reasoning": "The issue is directly related to arithmetic precision, which fits under the MANDO category of arithmetic."
+    },
+    "scsvs_classification": {
+      "primary_category": "G7",
+      "primary_category_name": "Arithmetic",
+      "secondary_categories": [],
+      "confidence": 100,
+      "use_scsvs_instead": false,
+      "reasoning": "The issue is a classic case of arithmetic precision error due to integer division, which is well-covered by both MANDO and SCSVS under arithmetic.",
+      "vulnerability_type": "Rounding error due to integer division leading to underpriced token purchases."
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves using fixed-point arithmetic to handle rounding errors in the quote calculation, ensuring accurate pricing.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "buy",
+          "fixed_function_code": "function buy(BuyData calldata buyData)\n        external\n        nonReentrant\n        onlyBondingActive(buyData.token)\n        onlySenderOrOperator(buyData.account, SpotOperatorRoles.LAUNCHPAD_FILL)\n        returns (uint256 amountOutBaseActual, uint256 amountInQuote)\n    {\n        IUniswapV2Pair pair = _assertValidRecipient(buyData.recipient, buyData.token);\n        LaunchData memory data = _launches[buyData.token];\n\n        (amountOutBaseActual, data.active) = _checkGraduation(buyData.token, data, buyData.amountOutBase);\n\n        // Use fixed-point arithmetic for accurate quote calculation\n        uint256 precisionFactor = 1e18;\n        amountInQuote = (data.curve.buy(buyData.token, amountOutBaseActual) * precisionFactor + precisionFactor - 1) / precisionFactor;\n\n        if (data.active && amountInQuote == 0) revert DustAttackInvalid();\n        if (amountInQuote > buyData.maxAmountInQuote) revert SlippageToleranceExceeded();\n\n        buyData.token.safeTransfer(buyData.recipient, amountOutBaseActual);\n        address(data.quote).safeTransferFrom(buyData.account, address(this), amountInQuote);\n\n        _emitSwapEvent({\n            account: buyData.account,\n            token: buyData.token,\n            baseAmount: amountOutBaseActual,\n            quoteAmount: amountInQuote,\n            isBuy: true,\n            curve: data.curve\n        });\n\n        // If graduated, handle AMM setup and remaining swap\n        if (!data.active) {\n            (amountOutBaseActual, amountInQuote) = _graduate(buyData, pair, data, amountOutBaseActual, amountInQuote);\n        }\n    }",
+          "reasoning": "The function now uses fixed-point arithmetic to calculate the quote amount, reducing the impact of rounding errors. This ensures that the quote amount is calculated more accurately, preventing underpricing of token purchases."
+        }
+      ],
+      "key_changes": [
+        "Implemented fixed-point arithmetic for quote calculation",
+        "Introduced a precision factor to handle rounding errors",
+        "Ensured compatibility with existing function signatures"
+      ],
+      "security_improvements": [
+        "Improved accuracy of financial calculations",
+        "Reduced potential for exploitation through rounding errors"
+      ],
+      "additional_recommendations": "Consider auditing other financial calculations in the contract for similar rounding issues.",
+      "confidence": 95,
+      "fix_code": "function buy(BuyData calldata buyData)\n        external\n        nonReentrant\n        onlyBondingActive(buyData.token)\n        onlySenderOrOperator(buyData.account, SpotOperatorRoles.LAUNCHPAD_FILL)\n        returns (uint256 amountOutBaseActual, uint256 amountInQuote)\n    {\n        IUniswapV2Pair pair = _assertValidRecipient(buyData.recipient, buyData.token);\n        LaunchData memory data = _launches[buyData.token];\n\n        (amountOutBaseActual, data.active) = _checkGraduation(buyData.token, data, buyData.amountOutBase);\n\n        // Use fixed-point arithmetic for accurate quote calculation\n        uint256 precisionFactor = 1e18;\n        amountInQuote = (data.curve.buy(buyData.token, amountOutBaseActual) * precisionFactor + precisionFactor - 1) / precisionFactor;\n\n        if (data.active && amountInQuote == 0) revert DustAttackInvalid();\n        if (amountInQuote > buyData.maxAmountInQuote) revert SlippageToleranceExceeded();\n\n        buyData.token.safeTransfer(buyData.recipient, amountOutBaseActual);\n        address(data.quote).safeTransferFrom(buyData.account, address(this), amountInQuote);\n\n        _emitSwapEvent({\n            account: buyData.account,\n            token: buyData.token,\n            baseAmount: amountOutBaseActual,\n            quoteAmount: amountInQuote,\n            isBuy: true,\n            curve: data.curve\n        });\n\n        // If graduated, handle AMM setup and remaining swap\n        if (!data.active) {\n            (amountOutBaseActual, amountInQuote) = _graduate(buyData, pair, data, amountOutBaseActual, amountInQuote);\n        }\n    }",
+      "expected_fixed_blocks": 3,
+      "returned_fixed_blocks": 1,
+      "block_count_match": false,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:20:59.201590"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:20:59.201608",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

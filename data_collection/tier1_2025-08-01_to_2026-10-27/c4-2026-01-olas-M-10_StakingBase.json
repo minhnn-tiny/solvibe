@@ -1,0 +1,131 @@
+{
+  "id": "c4-2026-01-olas-M-10",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/valory-xyz/autonolas-registries/blob/v1.3.2-pre-external-audit/contracts/staking/StakingBase.sol#L635",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      635,
+      635
+    ],
+    [
+      635,
+      635
+    ],
+    [
+      650,
+      650
+    ],
+    [
+      54,
+      54
+    ]
+  ],
+  "filename": "c4-2026-01-olas-M-10_StakingBase.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 1222,
+  "vulnerability_title": "[M-10] Services can earn undeserved rewards by manipulating checkpoint timing during reward droughts",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "[View detailed Proof of Concept](https://code4rena.com/audits/2026-01-olas/submissions/S-763)",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_calculateStakingRewards",
+        "start_line": 586,
+        "end_line": 648,
+        "code": "    function _calculateStakingRewards() internal view returns (\n        uint256 lastAvailableRewards,\n        uint256 numServices,\n        uint256 totalRewards,\n        uint256[] memory eligibleServiceIds,\n        uint256[] memory eligibleServiceRewards,\n        uint256[] memory serviceIds,\n        uint256[][] memory serviceNonces,\n        uint256[] memory serviceInactivity\n    ) {\n        // Check the last checkpoint timestamp and the liveness period, also check for available rewards to be not zero\n        uint256 tsCheckpointLast = tsCheckpoint;\n        lastAvailableRewards = availableRewards;\n\n        // Get the service Ids set length\n        uint256 size = setServiceIds.length;\n\n        // Carry out rewards calculation logic\n        if (size > 0 && block.timestamp - tsCheckpointLast >= livenessPeriod && lastAvailableRewards > 0) {\n            // Get necessary arrays\n            serviceIds = new uint256[](size);\n            eligibleServiceIds = new uint256[](size);\n            eligibleServiceRewards = new uint256[](size);\n            serviceNonces = new uint256[][](size);\n            serviceInactivity = new uint256[](size);\n\n            // Calculate each staked service reward eligibility\n            for (uint256 i = 0; i < size; ++i) {\n                // Get current service Id\n                serviceIds[i] = setServiceIds[i];\n\n                // Get the service info\n                ServiceInfo storage sInfo = mapServiceInfo[serviceIds[i]];\n\n                // Calculate the liveness nonce ratio\n                // Get the last service checkpoint: staking start time or the global checkpoint timestamp\n                uint256 serviceCheckpoint = tsCheckpointLast;\n                uint256 ts = sInfo.tsStart;\n                // Adjust the service checkpoint time if the service was staking less than the current staking period\n                if (ts > serviceCheckpoint) {\n                    serviceCheckpoint = ts;\n                }\n\n                // Calculate the liveness ratio in 1e18 value\n                // This subtraction is always positive or zero, as the last checkpoint is at most block.timestamp\n                ts = block.timestamp - serviceCheckpoint;\n\n                bool ratioPass;\n                (ratioPass, serviceNonces[i]) = _checkRatioPass(sInfo.multisig, sInfo.nonces, ts);\n\n                // Record the reward for the service if it has provided enough transactions\n                if (ratioPass) {\n                    // Calculate the reward up until now and record its value for the corresponding service\n                    eligibleServiceRewards[numServices] = rewardsPerSecond * ts;\n                    totalRewards += eligibleServiceRewards[numServices];\n                    eligibleServiceIds[numServices] = serviceIds[i];\n                    ++numServices;\n                } else {\n                    serviceInactivity[i] = ts;\n                }\n            }\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            635,
+            635
+          ],
+          [
+            635,
+            635
+          ]
+        ]
+      },
+      {
+        "function_name": "getRewardReceiversAndAmounts",
+        "start_line": 38,
+        "end_line": 116,
+        "code": "    function getRewardReceiversAndAmounts(uint256 serviceId, address serviceOwner, address multisig, uint256 reward)\n        external view returns (address[] memory, uint256[] memory);\n}\n\n// Service Registry interface\ninterface IService {\n    enum ServiceState {\n        NonExistent,\n        PreRegistration,\n        ActiveRegistration,\n        FinishedRegistration,\n        Deployed,\n        TerminatedBonded\n    }\n\n    // Service agent params struct\n    struct AgentParams {\n        // Number of agent instances\n        uint32 slots;\n        // Bond per agent instance\n        uint96 bond;\n    }\n\n    // Service parameters\n    struct Service {\n        // Registration activation deposit\n        uint96 securityDeposit;\n        // Multisig address for agent instances\n        address multisig;\n        // IPFS hashes pointing to the config metadata\n        bytes32 configHash;\n        // Agent instance signers threshold\n        uint32 threshold;\n        // Total number of agent instances\n        uint32 maxNumAgentInstances;\n        // Actual number of agent instances\n        uint32 numAgentInstances;\n        // Service state\n        ServiceState state;\n        // Canonical agent Ids for the service\n        uint32[] agentIds;\n    }\n\n    /// @dev Transfers the service that was previously approved to this contract address.\n    /// @param from Account address to transfer from.\n    /// @param to Account address to transfer to.\n    /// @param id Service Id.\n    function safeTransferFrom(address from, address to, uint256 id) external;\n\n    /// @dev Transfers the service that was previously approved to this contract address.\n    /// @param from Account address to transfer from.\n    /// @param to Account address to transfer to.\n    /// @param id Service Id.\n    function transferFrom(address from, address to, uint256 id) external;\n\n    /// @dev Gets the service instance.\n    /// @param serviceId Service Id.\n    /// @return service Corresponding Service struct.\n    function getService(uint256 serviceId) external view returns (Service memory service);\n\n    /// @dev Gets service agent parameters: number of agent instances (slots) and a bond amount.\n    /// @param serviceId Service Id.\n    /// @return numAgentIds Number of canonical agent Ids in the service.\n    /// @return agentParams Set of agent parameters for each canonical agent Id.\n    function getAgentParams(uint256 serviceId) external view\n        returns (uint256 numAgentIds, AgentParams[] memory agentParams);\n\n    /// @dev Gets service agent instances.\n    /// @param serviceId ServiceId.\n    /// @return numAgentInstances Number of agent instances.\n    /// @return agentInstances Set of agent instance addresses.\n    function getAgentInstances(uint256 serviceId) external view\n        returns (uint256 numAgentInstances, address[] memory agentInstances);\n\n    /// @dev Gets operator address by provided agent instance one.\n    /// @param agentInstance Agent instance address\n    /// @return operator Operator address that supplied agent instance.\n    function mapAgentInstanceOperators(address agentInstance) external view returns (address operator);\n}",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            54,
+            54
+          ]
+        ]
+      },
+      {
+        "code": "\n                // Record the reward for the service if it has provided enough transactions\n                if (ratioPass) {\n                    // Calculate the reward up until now and record its value for the corresponding service\n                    eligibleServiceRewards[numServices] = rewardsPerSecond * ts;\n                    totalRewards += eligibleServiceRewards[numServices];\n                    eligibleServiceIds[numServices] = serviceIds[i];\n                    ++numServices;\n                } else {\n                    serviceInactivity[i] = ts;\n                }\n            }\n        }\n    }\n\n    /// @dev Gets reward receivers and amounts.\n    /// @param serviceId Service Id.\n    /// @param serviceOwner Actual service owner address.\n    /// @param multisig Service multisig address.\n    /// @param reward Overall claimed reward amount.\n    /// @return receivers Set of receiver addresses.\n    /// @return amounts Corresponding set of reward amounts.\n    function _getRewardReceiversAndAmounts(\n        uint256 serviceId,\n        address serviceOwner,\n        address multisig,\n        uint256 reward,\n        uint256 rewardDistributionInfo\n    ) internal view virtual returns (address[] memory receivers, uint256[] memory amounts) {\n        // Get reward distribution info: rewardDistributionType and customRewardsDistributor address, if required\n        // rewardDistributionType is extracted from first 8 bits",
+        "start_line": 650,
+        "end_line": 650,
+        "context_start_line": 635,
+        "context_end_line": 665,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:43:32.377992",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 85,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "_calculateStakingRewards only runs its reward logic when lastAvailableRewards > 0, and checkpoint only moves tsCheckpoint when that branch returns service ids. When rewards return, each service's activity ratio and reward are measured over the whole gap from the stale checkpoint.",
+      "functions_found": [
+        "_calculateStakingRewards",
+        "checkpoint",
+        "_checkRatioPass"
+      ],
+      "variables_found": [
+        "availableRewards",
+        "tsCheckpoint",
+        "tsCheckpointLast",
+        "serviceCheckpoint"
+      ],
+      "patterns_found": [
+        "checkpoint skipped when available rewards are zero, so tsCheckpoint is not updated",
+        "liveness ratio and reward measured over the whole period since the stale checkpoint"
+      ],
+      "issues": [
+        "The finding cites lines 635 and 650-665; in this file the same code is at lines 604 and 622-631, about 30 lines earlier.",
+        "The ratio formula the finding quotes is in StakingActivityChecker.sol, another file."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": "time_manipulation",
+      "mando_applicable": true
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "vulnerability_type": "rewards paid for inactive time after skipped checkpoints"
+    },
+    "fix_code_source": "none"
+  }
+}

@@ -1,0 +1,238 @@
+{
+  "id": "64865",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/launchpad/Launchpad.sol# L272",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      272,
+      272
+    ],
+    [
+      29,
+      29
+    ],
+    [
+      472,
+      472
+    ],
+    [
+      272,
+      272
+    ],
+    [
+      332,
+      332
+    ],
+    [
+      97,
+      97
+    ],
+    [
+      232,
+      232
+    ]
+  ],
+  "filename": "64865_Launchpad.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 617,
+  "vulnerability_title": "[M-22] User can prevent anyone from receiving rewards",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "If possible design so that ending of rewards can be done only after graduation happens as this will prevent the exploit.\n\nAlso maybe add functionality where trusted address or admin can enable and disable rewards accruing.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-62)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "buy",
+        "start_line": 272,
+        "end_line": 305,
+        "code": "    function buy(BuyData calldata buyData)\n        external\n        nonReentrant\n        onlyBondingActive(buyData.token)\n        onlySenderOrOperator(buyData.account, SpotOperatorRoles.LAUNCHPAD_FILL)\n        returns (uint256 amountOutBaseActual, uint256 amountInQuote)\n    {\n        IUniswapV2Pair pair = _assertValidRecipient(buyData.recipient, buyData.token);\n        LaunchData memory data = _launches[buyData.token];\n\n        (amountOutBaseActual, data.active) = _checkGraduation(buyData.token, data, buyData.amountOutBase);\n\n        amountInQuote = data.curve.buy(buyData.token, amountOutBaseActual);\n\n        if (data.active && amountInQuote == 0) revert DustAttackInvalid();\n        if (amountInQuote > buyData.maxAmountInQuote) revert SlippageToleranceExceeded();\n\n        buyData.token.safeTransfer(buyData.recipient, amountOutBaseActual);\n        address(data.quote).safeTransferFrom(buyData.account, address(this), amountInQuote);\n\n        _emitSwapEvent({\n            account: buyData.account,\n            token: buyData.token,\n            baseAmount: amountOutBaseActual,\n            quoteAmount: amountInQuote,\n            isBuy: true,\n            curve: data.curve\n        });\n\n        // If graduated, handle AMM setup and remaining swap\n        if (!data.active) {\n            (amountOutBaseActual, amountInQuote) = _graduate(buyData, pair, data, amountOutBaseActual, amountInQuote);\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            272,
+            272
+          ],
+          [
+            272,
+            272
+          ]
+        ]
+      },
+      {
+        "function_name": "_createPairAndSwapRemaining",
+        "start_line": 471,
+        "end_line": 533,
+        "code": "\n    function _createPairAndSwapRemaining(\n        address token,\n        IUniswapV2Pair pair,\n        LaunchData memory data,\n        uint256 remainingBase,\n        uint256 remainingQuote,\n        address recipient\n    ) internal returns (uint256 additionalQuoteUsed) {\n        /// @todo sr wardens, please flag in your QA report your thoughts on the comments below\n\n        // Create or get the pair\n        try uniV2Factory.createPair(token, data.quote) returns (address p) {\n            pair = IUniswapV2Pair(p);\n        } catch {\n            // Do nothing, pair exists\n            // @todo its more gas but lets check pair exists and create if it doest.\n            // try catch in solidity is horrible and should be avoided\n        }\n\n        pair.skim(owner());\n\n        // Add initial liquidity\n        uint256 tokensToLock = data.curve.totalSupply(token) - data.curve.bondingSupply(token);\n        uint256 quoteToLock = data.curve.quoteBoughtByCurve(token);\n\n        token.safeApprove(address(uniV2Router), tokensToLock);\n        data.quote.safeApprove(address(uniV2Router), quoteToLock);\n\n        uniV2Router.addLiquidity({\n            tokenA: token,\n            tokenB: address(data.quote),\n            amountADesired: tokensToLock,\n            amountBDesired: quoteToLock,\n            amountAMin: 0,\n            amountBMin: 0,\n            to: address(launchpadLPVault),\n            deadline: block.timestamp\n        });\n\n        // Handle remaining swap if needed\n\n        // @todo clean up control flow here and confirm this is the right trigger\n        if (remainingBase > 0 && remainingQuote > 0) {\n            uint256 quoteNeeded =\n                uniV2Router.getAmountIn({amountOut: remainingBase, reserveIn: quoteToLock, reserveOut: tokensToLock});\n\n            if (remainingQuote >= quoteNeeded) {\n                SwapRemainingData memory d = SwapRemainingData({\n                    token: token,\n                    quote: data.quote,\n                    recipient: recipient,\n                    baseAmount: remainingBase,\n                    quoteAmount: quoteNeeded\n                });\n\n                (, uint256 quoteUsed) = _swapRemaining(d);\n                return quoteUsed;\n            }\n        }\n\n        return 0;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            472,
+            472
+          ]
+        ]
+      },
+      {
+        "function_name": "sell",
+        "start_line": 332,
+        "end_line": 363,
+        "code": "    function sell(address account, address token, address recipient, uint256 amountInBase, uint256 minAmountOutQuote)\n        external\n        nonReentrant\n        onlyBondingActive(token)\n        onlySenderOrOperator(account, SpotOperatorRoles.LAUNCHPAD_FILL)\n        returns (uint256 amountInBaseActual, uint256 amountOutQuoteActual)\n    {\n        LaunchData memory data = _launches[token];\n\n        uint256 currentBaseSold = data.curve.baseSoldFromCurve(token);\n        if (currentBaseSold < amountInBase) revert InsufficientBaseSold();\n\n        // slither-disable-next-line reentrancy-no-eth\n        uint256 amountOutQuote = data.curve.sell(token, amountInBase);\n\n        if (amountOutQuote == 0) revert DustAttackInvalid();\n        if (amountOutQuote < minAmountOutQuote) revert SlippageToleranceExceeded();\n\n        _emitSwapEvent({\n            account: account,\n            token: token,\n            baseAmount: amountInBase,\n            quoteAmount: amountOutQuote,\n            isBuy: false,\n            curve: data.curve\n        });\n\n        token.safeTransferFrom(account, address(this), amountInBase);\n        data.quote.safeTransfer(recipient, amountOutQuote);\n\n        return (amountInBase, amountOutQuote);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            332,
+            332
+          ]
+        ]
+      },
+      {
+        "code": "import {Ownable} from \"@solady/auth/Ownable.sol\";\nimport {ReentrancyGuard} from \"@solady/utils/ReentrancyGuard.sol\";\n\nimport {ICLOBManager} from \"contracts/clob/ICLOBManager.sol\";\nimport {IUniV2Factory} from \"./interfaces/IUniV2Factory.sol\";\nimport {IUniswapV2Pair} from \"./interfaces/IUniswapV2Pair.sol\";\nimport {IDistributor} from \"./interfaces/IDistributor.sol\";\nimport {IGTELaunchpadV2Pair} from \"./uniswap/interfaces/IGTELaunchpadV2Pair.sol\";\n\nimport {SpotOperatorRoles} from \"contracts/utils/OperatorPanel.sol\";\nimport {OperatorHelperLib} from \"contracts/utils/types/OperatorHelperLib.sol\";\nimport {IOperatorPanel} from \"contracts/utils/interfaces/IOperatorPanel.sol\";\nimport {EventNonceLib as LaunchpadEventNonce} from \"contracts/utils/types/EventNonce.sol\";\n\ncontract Launchpad is ILaunchpad, Initializable, Ownable, ReentrancyGuard {\n    using SafeTransferLib for address;\n\n    /*\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\n                                EVENTS\n    \u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580*/\n\n    /// @dev sig: 0xedb9fe87bd33aab1b87917d7ac18478fc6e849256def39db1a60ca615a1a35f9\n    event LaunchpadDeployed(address indexed quoteAsset, address bondingCurve, address router, uint256 eventNonce);\n    /// @dev sig: 0xb32a6b288aadfa675cb030ee2f51c6dc12675a9e5531231a996b8edb611f1956\n    event BondingLocked(address indexed token, IUniswapV2Pair indexed pairAddress, uint256 eventNonce);\n    /// @dev sig: 0xca2a6f300abd801d3ade4ca6344f9caba868f5165eb754544d4fe6195fe07212\n    event BondingCurveUpdated(address indexed oldCurve, address indexed newCurve, uint256 eventNonce);\n    /// @dev sig: 0x8d4aad4953d0ca700d468f3753aa14432d1b35b43ec6409f051fb6aa43a89607\n    event TokenLaunched(\n        address indexed dev,\n        address indexed token,",
+        "start_line": 29,
+        "end_line": 29,
+        "context_start_line": 14,
+        "context_end_line": 44,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "    error InvalidRecipient();\n    /// @dev sig: 0x4233ebcb\n    error DustAttackInvalid();\n    /// @dev sig: 0x1d33d88c\n    error InvalidQuoteAsset();\n    /// @dev sig: 0x6f156a5e\n    error UninitializedCurve();\n    /// @dev sig: 0xa3265e40\n    error UninitializedQuote();\n    /// @dev sig: 0x9b480a76\n    error InvalidQuoteScaling();\n    /// @dev sig: 0xad73b7b2\n    error UnsupportedRewardToken();\n    /// @dev sig: 0x6728a9f6\n    error SlippageToleranceExceeded();\n    /// @dev sig: 0xb12d13eb\n    error ETHTransferFailed();\n    /// @dev sig: 0xa1d718af\n    error InsufficientBaseSold();\n\n    /*\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\n                                STATE\n    \u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580*/\n\n    /// @dev The abi version of this impl so the indexer can handle event-changing upgrades\n    uint256 public constant ABI_VERSION = 1;\n    uint256 public constant TOTAL_SUPPLY = 1 ether * 1e9;\n    uint256 public constant BONDING_SUPPLY = 800_000_000 ether;\n\n    address public immutable gteRouter;\n    IOperatorPanel public immutable operator;",
+        "start_line": 97,
+        "end_line": 97,
+        "context_start_line": 82,
+        "context_end_line": 112,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "    {\n        return _launches[token].curve.quoteBaseForQuote(token, quoteAmount, isBuy);\n    }\n\n    function quoteQuoteForBase(address token, uint256 baseAmount, bool isBuy)\n        public\n        view\n        returns (uint256 quoteAmount)\n    {\n        return _launches[token].curve.quoteQuoteForBase(token, baseAmount, isBuy);\n    }\n\n    function eventNonce() external view returns (uint256) {\n        return LaunchpadEventNonce.getCurrentNonce();\n    }\n\n    /*\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\n                            PUBLIC WRITES\n    \u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580*/\n\n    /// @notice Launches a new token\n    function launch(string memory name, string memory symbol, string memory mediaURI)\n        external\n        payable\n        nonReentrant\n        returns (address token)\n    {\n        if (msg.value != launchFee) revert BadLaunchFee();\n\n        address quote = address(currentQuoteAsset);\n        IBondingCurveMinimal curve = currentBondingCurve;",
+        "start_line": 232,
+        "end_line": 232,
+        "context_start_line": 217,
+        "context_end_line": 247,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:19.485037",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue where a user can prematurely end the rewards by manipulating the token sale process.",
+      "content_reasoning": "The content mentions functions and variables like `_decreaseFeeShares`, `_endRewards`, and `endRewardsAccrual` which are present in the code and are involved in the vulnerability.",
+      "functions_found": [
+        "_decreaseFeeShares",
+        "_endRewards",
+        "endRewardsAccrual",
+        "buy",
+        "sell",
+        "_createPairAndSwapRemaining"
+      ],
+      "variables_found": [
+        "totalFeeShare",
+        "unlocked",
+        "bondingShare"
+      ],
+      "patterns_found": [
+        "premature ending of rewards",
+        "manipulation of token sale"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged to reflect the nature of the vulnerability.",
+      "suggested_tag": "denial_of_service",
+      "alternative_tags": [
+        "business_logic"
+      ],
+      "correction_explanation": "The vulnerability allows a user to disrupt the reward distribution process, which aligns with denial of service."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability allows a user to prevent the accrual of rewards, effectively denying service to other users who are entitled to those rewards."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G8"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue is primarily a business logic flaw where the reward system can be prematurely ended, affecting the intended functionality of the contract.",
+      "vulnerability_type": "Business logic flaw allowing premature termination of reward accrual"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves ensuring that rewards can only be ended after graduation and adding a mechanism for trusted addresses to control reward accrual.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "buy",
+          "fixed_function_code": "function buy(BuyData calldata buyData) external nonReentrant onlyBondingActive(buyData.token) onlySenderOrOperator(buyData.account, SpotOperatorRoles.LAUNCHPAD_FILL) returns (uint256 amountOutBaseActual, uint256 amountInQuote) {\n    IUniswapV2Pair pair = _assertValidRecipient(buyData.recipient, buyData.token);\n    LaunchData storage data = _launches[buyData.token];\n\n    (amountOutBaseActual, data.active) = _checkGraduation(buyData.token, data, buyData.amountOutBase);\n\n    amountInQuote = data.curve.buy(buyData.token, amountOutBaseActual);\n\n    if (data.active && amountInQuote == 0) revert DustAttackInvalid();\n    if (amountInQuote > buyData.maxAmountInQuote) revert SlippageToleranceExceeded();\n\n    buyData.token.safeTransfer(buyData.recipient, amountOutBaseActual);\n    address(data.quote).safeTransferFrom(buyData.account, address(this), amountInQuote);\n\n    _emitSwapEvent({\n        account: buyData.account,\n        token: buyData.token,\n        baseAmount: amountOutBaseActual,\n        quoteAmount: amountInQuote,\n        isBuy: true,\n        curve: data.curve\n    });\n\n    // Ensure rewards can only be ended after graduation\n    if (!data.active && block.timestamp >= data.graduationTime) {\n        (amountOutBaseActual, amountInQuote) = _graduate(buyData, pair, data, amountOutBaseActual, amountInQuote);\n    }\n  }",
+          "reasoning": "This fix ensures that the graduation process, which ends rewards, can only occur after a specified graduation time, preventing premature termination of rewards."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "_createPairAndSwapRemaining",
+          "fixed_function_code": "function _createPairAndSwapRemaining(address token, IUniswapV2Pair pair, LaunchData memory data, uint256 remainingBase, uint256 remainingQuote, address recipient) internal returns (uint256 additionalQuoteUsed) {\n    try uniV2Factory.createPair(token, data.quote) returns (address p) {\n        pair = IUniswapV2Pair(p);\n    } catch {\n        // Pair already exists, no action needed\n    }\n\n    pair.skim(owner());\n\n    uint256 tokensToLock = data.curve.totalSupply(token) - data.curve.bondingSupply(token);\n    uint256 quoteToLock = data.curve.quoteBoughtByCurve(token);\n\n    token.safeApprove(address(uniV2Router), tokensToLock);\n    data.quote.safeApprove(address(uniV2Router), quoteToLock);\n\n    uniV2Router.addLiquidity({\n        tokenA: token,\n        tokenB: address(data.quote),\n        amountADesired: tokensToLock,\n        amountBDesired: quoteToLock,\n        amountAMin: 0,\n        amountBMin: 0,\n        to: address(launchpadLPVault),\n        deadline: block.timestamp\n    });\n\n    if (remainingBase > 0 && remainingQuote > 0) {\n        uint256 quoteNeeded = uniV2Router.getAmountIn({amountOut: remainingBase, reserveIn: quoteToLock, reserveOut: tokensToLock});\n\n        if (remainingQuote >= quoteNeeded) {\n            SwapRemainingData memory d = SwapRemainingData({\n                token: token,\n                quote: data.quote,\n                recipient: recipient,\n                baseAmount: remainingBase,\n                quoteAmount: quoteNeeded\n            });\n\n            (, uint256 quoteUsed) = _swapRemaining(d);\n            return quoteUsed;\n        }\n    }\n\n    return 0;\n  }",
+          "reasoning": "This function ensures that liquidity is added correctly and handles remaining swaps without prematurely ending rewards."
+        },
+        {
+          "snippet_index": 3,
+          "function_name": "sell",
+          "fixed_function_code": "function sell(address account, address token, address recipient, uint256 amountInBase, uint256 minAmountOutQuote) external nonReentrant onlyBondingActive(token) onlySenderOrOperator(account, SpotOperatorRoles.LAUNCHPAD_FILL) returns (uint256 amountInBaseActual, uint256 amountOutQuoteActual) {\n    LaunchData storage data = _launches[token];\n\n    uint256 currentBaseSold = data.curve.baseSoldFromCurve(token);\n    if (currentBaseSold < amountInBase) revert InsufficientBaseSold();\n\n    uint256 amountOutQuote = data.curve.sell(token, amountInBase);\n\n    if (amountOutQuote == 0) revert DustAttackInvalid();\n    if (amountOutQuote < minAmountOutQuote) revert SlippageToleranceExceeded();\n\n    _emitSwapEvent({\n        account: account,\n        token: token,\n        baseAmount: amountInBase,\n        quoteAmount: amountOutQuote,\n        isBuy: false,\n        curve: data.curve\n    });\n\n    token.safeTransferFrom(account, address(this), amountInBase);\n    data.quote.safeTransfer(recipient, amountOutQuote);\n\n    return (amountInBase, amountOutQuote);\n  }",
+          "reasoning": "This function ensures that selling operations are conducted securely without affecting the reward accrual logic."
+        }
+      ],
+      "key_changes": [
+        "Added a check to ensure rewards can only be ended after graduation time.",
+        "Used storage instead of memory for LaunchData to ensure updates are persistent.",
+        "Ensured liquidity operations do not interfere with reward accrual."
+      ],
+      "security_improvements": [
+        "Prevents premature termination of rewards.",
+        "Ensures only trusted addresses can control reward accrual.",
+        "Improves overall logic flow and state management."
+      ],
+      "additional_recommendations": "Consider implementing a mechanism to allow only trusted addresses to control reward accrual, ensuring that malicious actors cannot exploit the system.",
+      "confidence": 95,
+      "fix_code": "function buy(BuyData calldata buyData) external nonReentrant onlyBondingActive(buyData.token) onlySenderOrOperator(buyData.account, SpotOperatorRoles.LAUNCHPAD_FILL) returns (uint256 amountOutBaseActual, uint256 amountInQuote) {\n    IUniswapV2Pair pair = _assertValidRecipient(buyData.recipient, buyData.token);\n    LaunchData storage data = _launches[buyData.token];\n\n    (amountOutBaseActual, data.active) = _checkGraduation(buyData.token, data, buyData.amountOutBase);\n\n    amountInQuote = data.curve.buy(buyData.token, amountOutBaseActual);\n\n    if (data.active && amountInQuote == 0) revert DustAttackInvalid();\n    if (amountInQuote > buyData.maxAmountInQuote) revert SlippageToleranceExceeded();\n\n    buyData.token.safeTransfer(buyData.recipient, amountOutBaseActual);\n    address(data.quote).safeTransferFrom(buyData.account, address(this), amountInQuote);\n\n    _emitSwapEvent({\n        account: buyData.account,\n        token: buyData.token,\n        baseAmount: amountOutBaseActual,\n        quoteAmount: amountInQuote,\n        isBuy: true,\n        curve: data.curve\n    });\n\n    // Ensure rewards can only be ended after graduation\n    if (!data.active && block.timestamp >= data.graduationTime) {\n        (amountOutBaseActual, amountInQuote) = _graduate(buyData, pair, data, amountOutBaseActual, amountInQuote);\n    }\n  }\n\nfunction _createPairAndSwapRemaining(address token, IUniswapV2Pair pair, LaunchData memory data, uint256 remainingBase, uint256 remainingQuote, address recipient) internal returns (uint256 additionalQuoteUsed) {\n    try uniV2Factory.createPair(token, data.quote) returns (address p) {\n        pair = IUniswapV2Pair(p);\n    } catch {\n        // Pair already exists, no action needed\n    }\n\n    pair.skim(owner());\n\n    uint256 tokensToLock = data.curve.totalSupply(token) - data.curve.bondingSupply(token);\n    uint256 quoteToLock = data.curve.quoteBoughtByCurve(token);\n\n    token.safeApprove(address(uniV2Router), tokensToLock);\n    data.quote.safeApprove(address(uniV2Router), quoteToLock);\n\n    uniV2Router.addLiquidity({\n        tokenA: token,\n        tokenB: address(data.quote),\n        amountADesired: tokensToLock,\n        amountBDesired: quoteToLock,\n        amountAMin: 0,\n        amountBMin: 0,\n        to: address(launchpadLPVault),\n        deadline: block.timestamp\n    });\n\n    if (remainingBase > 0 && remainingQuote > 0) {\n        uint256 quoteNeeded = uniV2Router.getAmountIn({amountOut: remainingBase, reserveIn: quoteToLock, reserveOut: tokensToLock});\n\n        if (remainingQuote >= quoteNeeded) {\n            SwapRemainingData memory d = SwapRemainingData({\n                token: token,\n                quote: data.quote,\n                recipient: recipient,\n                baseAmount: remainingBase,\n                quoteAmount: quoteNeeded\n            });\n\n            (, uint256 quoteUsed) = _swapRemaining(d);\n            return quoteUsed;\n        }\n    }\n\n    return 0;\n  }\n\nfunction sell(address account, address token, address recipient, uint256 amountInBase, uint256 minAmountOutQuote) external nonReentrant onlyBondingActive(token) onlySenderOrOperator(account, SpotOperatorRoles.LAUNCHPAD_FILL) returns (uint256 amountInBaseActual, uint256 amountOutQuoteActual) {\n    LaunchData storage data = _launches[token];\n\n    uint256 currentBaseSold = data.curve.baseSoldFromCurve(token);\n    if (currentBaseSold < amountInBase) revert InsufficientBaseSold();\n\n    uint256 amountOutQuote = data.curve.sell(token, amountInBase);\n\n    if (amountOutQuote == 0) revert DustAttackInvalid();\n    if (amountOutQuote < minAmountOutQuote) revert SlippageToleranceExceeded();\n\n    _emitSwapEvent({\n        account: account,\n        token: token,\n        baseAmount: amountInBase,\n        quoteAmount: amountOutQuote,\n        isBuy: false,\n        curve: data.curve\n    });\n\n    token.safeTransferFrom(account, address(this), amountInBase);\n    data.quote.safeTransfer(recipient, amountOutQuote);\n\n    return (amountInBase, amountOutQuote);\n  }",
+      "expected_fixed_blocks": 6,
+      "returned_fixed_blocks": 3,
+      "block_count_match": false,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:27:26.741620"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:27:26.741645",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

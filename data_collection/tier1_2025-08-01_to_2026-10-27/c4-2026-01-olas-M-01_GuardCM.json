@@ -1,0 +1,122 @@
+{
+  "id": "c4-2026-01-olas-M-01",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/valory-xyz/autonolas-governance/blob/6ea160398200a7b1ca6bf916fc2cd91483bff707/contracts/multisigs/GuardCM.sol#L189-L239",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      189,
+      239
+    ],
+    [
+      31,
+      60
+    ],
+    [
+      189,
+      239
+    ],
+    [
+      31,
+      60
+    ]
+  ],
+  "filename": "c4-2026-01-olas-M-01_GuardCM.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 461,
+  "vulnerability_title": "[M-01] Arbitrum Retryable-Ticket Refund/Value Not Verified Enables Timelock ETH Exfiltration",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "**1) Enforce `value` constraints for `schedule` / `scheduleBatch` in `GuardCM`**\n`GuardCM._verifySchedule()` currently decodes `schedule(address target, uint256 value, bytes data, ...)` but does not validate `value`.\n\n- For any bridged call (i.e., when `mapBridgeMediatorL1BridgeParams[target].verifierL2 != address(0)`), enforce:\n\n  - `value == 0` for `schedule`, and\n  - all `values[i] == 0` for `scheduleBatch`.\n\nRationale: the guard should restrict not only _what_ is called, but also _how much ETH_ can be forwarded alongside the call. Without this, allowlisted calls can still be used to redirect timelock ETH via bridge-specific refund mechanics.\n\n**2) Validate Arbitrum retryable-ticket economic parameters in `ProcessBridgedDataArbitrum`**\n`ProcessBridgedDataArbitrum.processBridgeData()` should decode and validate the full retryable-ticket call, not only `(targetAddress, targetPayload)`.\n\nAt minimum, enforce:\n\n- `excessFeeRefundAddress` is an approved address (e.g., a DAO-controlled receiver), not attacker-controlled.\n- `callValueRefundAddress` is an approved address (same rationale).\n\nRecommended additional constraints (defense-in-depth):\n\n- Require `l2CallValue == 0` unless explicitly needed for the allowlisted action.\n- Enforce sane bounds for `maxSubmissionCost`, `gasLimit`, `maxFeePerGas` (or enforce they match predetermined values for the specific action).\n- Consider rejecting `unsafeCreateRetryableTicket` entirely unless there is a strong need.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "[View detailed Proof of Concept](https://code4rena.com/audits/2026-01-olas/submissions/S-629)",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_verifySchedule",
+        "start_line": 189,
+        "end_line": 239,
+        "code": "    function _verifySchedule(bytes memory data, bytes4 selector) internal {\n        // Copy the data without the selector\n        bytes memory payload = new bytes(data.length - SELECTOR_DATA_LENGTH);\n        for (uint256 i = 0; i < payload.length; ++i) {\n            payload[i] = data[i + 4];\n        }\n\n        // Prepare the decoding data sets\n        address[] memory targets;\n        bytes[] memory callDatas;\n        if (selector == SCHEDULE) {\n            targets = new address[](1);\n            callDatas = new bytes[](1);\n            // Decode the data in the schedule function\n            (targets[0], , callDatas[0], , , ) =\n                abi.decode(payload, (address, uint256, bytes, bytes32, bytes32, uint256));\n        } else {\n            // Decode the data in the scheduleBatch function\n            (targets, , callDatas, , , ) =\n            abi.decode(payload, (address[], uint256[], bytes[], bytes32, bytes32, uint256));\n        }\n\n        // Traverse all the schedule targets and selectors extracted from calldatas\n        for (uint i = 0; i < targets.length; ++i) {\n            // Get the verifierL2 and L2 chain Id, if any\n            BridgeParams memory bridgeParams = mapBridgeMediatorL1BridgeParams[targets[i]];\n\n            // Check if the data goes across the bridge\n            if (bridgeParams.verifierL2 != address(0)) {\n                // Process the bridge logic\n                bytes memory processData = abi.encodeCall(IBridgeVerifier.processBridgeData, (callDatas[i],\n                    bridgeParams.bridgeMediatorL2, bridgeParams.chainId));\n                (bool success, bytes memory returnData) = bridgeParams.verifierL2.delegatecall(processData);\n                // Process unsuccessful delegatecall\n                if (!success) {\n                    // Get the revert message bytes\n                    if (returnData.length > 0) {\n                        assembly {\n                            let returnDataSize := mload(returnData)\n                            revert(add(32, returnData), returnDataSize)\n                        }\n                    } else {\n                        revert DelegateCallFailed();\n                    }\n                }\n            } else {\n                // Verify the data right away as it is not the bridged one\n                _verifyData(targets[i], callDatas[i], block.chainid);\n            }\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            189,
+            239
+          ],
+          [
+            189,
+            239
+          ]
+        ]
+      },
+      {
+        "function_name": "processBridgeData",
+        "start_line": 16,
+        "end_line": 33,
+        "code": "    function processBridgeData(\n        bytes memory data,\n        address bridgeMediatorL2,\n        uint256 chainId\n    ) external;\n}\n\n// Governor proposal state\nenum ProposalState {\n    Pending,\n    Active,\n    Canceled,\n    Defeated,\n    Succeeded,\n    Queued,\n    Expired,\n    Executed\n}",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            31,
+            60
+          ],
+          [
+            31,
+            60
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:42:57.312154",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 60,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "_verifySchedule decodes schedule and scheduleBatch calldata but throws away the value field, so the guard never limits the ETH a scheduled timelock call forwards. The second gap, that the Arbitrum verifier ignores the refund addresses, is in ProcessBridgedDataArbitrum.sol, which this file only reaches through a delegatecall.",
+      "functions_found": [
+        "_verifySchedule",
+        "checkTransaction",
+        "_verifyData"
+      ],
+      "variables_found": [
+        "mapBridgeMediatorL1BridgeParams",
+        "value"
+      ],
+      "patterns_found": [
+        "timelock value decoded but never checked in schedule and scheduleBatch"
+      ],
+      "issues": [
+        "The refund address and fee checks belong to ProcessBridgedDataArbitrum.sol, which is not in this file. The ETH theft needs both gaps."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "mando_applicable": true
+    },
+    "scsvs_classification": {
+      "primary_category": "G5",
+      "primary_category_name": "Access control",
+      "vulnerability_type": "guard does not check forwarded ETH value or retryable-ticket refund addresses"
+    },
+    "fix_code_source": "none"
+  }
+}

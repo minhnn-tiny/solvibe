@@ -1,0 +1,91 @@
+{
+  "id": "c4-2026-01-olas-H-01",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/valory-xyz/autonolas-tokenomics/blob/bbec5ac12721a62672fb7a5ffba5c40f5a46d8cb/contracts/oracles/UniswapPriceOracle.sol#L55-L91",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      55,
+      91
+    ]
+  ],
+  "filename": "c4-2026-01-olas-H-01_UniswapPriceOracle.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 92,
+  "vulnerability_title": "[H-01] Broken TWAP validation allows spot-price manipulation and renders slippage checks\u00a0ineffective",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Implement a\u00a0proper Uniswap V2 TWAP oracle pattern by persisting cumulative price snapshots across blocks and\u00a0computing averages from differences between observations:\n\n- Store\u00a0price{0,1}CumulativeLast\u00a0and\u00a0timestampLast\u00a0in\u00a0contract storage\n- Update them in a state-changing function (e.g.\u00a0updateOracle())\n- Compute TWAPs using\u00a0cumulative price deltas\n- Correctly handle\u00a0UQ112x112\u00a0fixed-point math\n\nSlippage should be evaluated only after a correct TWAP is computed. This restores the intended oracle guarantees and protects against same-block and flash-loan-based price manipulation.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "token0",
+        "start_line": 5,
+        "end_line": 92,
+        "code": "    function token0() external view returns (address);\n    function getReserves() external view returns (uint112 _reserve0, uint112 _reserve1, uint32 _blockTimestampLast);\n    function price0CumulativeLast() external view returns (uint256);\n    function price1CumulativeLast() external view returns (uint256);\n}\n\n/// @title UniswapPriceOracle - a smart contract oracle wrapper for Uniswap V2 pools\n/// @dev This contract acts as an oracle wrapper for a specific Uniswap V2 pool. It allows:\n///      1) Getting the price by any caller\n///      2) Validating slippage against the oracle\ncontract UniswapPriceOracle {\n    // LP token address\n    address public immutable pair;\n    // Max allowable slippage\n    uint256 public immutable maxSlippage;\n    // LP token direction\n    uint256 public immutable direction;\n\n    constructor(address _secondToken, uint256 _maxSlippage, address _pair) {\n        pair = _pair;\n        maxSlippage = _maxSlippage;\n\n        // Get token direction\n        address token0 =  IUniswapV2(pair).token0();\n        if (token0 != _secondToken) {\n            direction = 1;\n        }\n    }\n\n    /// @dev Gets the current OLAS token price in 1e18 format.\n    function getPrice() public view returns (uint256) {\n        uint256[] memory balances = new uint256[](2);\n        (balances[0], balances[1], ) = IUniswapV2(pair).getReserves();\n        // Native token\n        uint256 balanceIn = balances[direction];\n        // OLAS\n        uint256 balanceOut = balances[(direction + 1) % 2];\n\n        return (balanceOut * 1e18) / balanceIn;\n    }\n\n    /// @dev Updates the time-weighted average price.\n    /// @notice This is a compatibility function, which always needs to return false, as TWAP is updated automatically.\n    function updatePrice() external pure returns (bool) {\n        // Nothing to update; use built-in TWAP from Uniswap V2 pool\n        return false;\n    }\n\n    /// @dev Validates the current price against a TWAP according to slippage tolerance.\n    /// @param slippage the acceptable slippage tolerance\n    function validatePrice(uint256 slippage) external view returns (bool) {\n        require(slippage <= maxSlippage, \"Slippage overflow\");\n\n        // Compute time-weighted average price\n        // Fetch the cumulative prices from the pair\n        uint256 cumulativePriceLast;\n        if (direction == 0) {\n            cumulativePriceLast = IUniswapV2(pair).price1CumulativeLast();\n        } else {\n            cumulativePriceLast = IUniswapV2(pair).price0CumulativeLast();\n        }\n\n        // Fetch the reserves and the last block timestamp\n        (, , uint256 blockTimestampLast) = IUniswapV2(pair).getReserves();\n\n        // Require at least one block since last update\n        if (block.timestamp == blockTimestampLast) {\n            return false;\n        }\n        uint256 elapsedTime = block.timestamp - blockTimestampLast;\n\n        uint256 tradePrice = getPrice();\n\n        // Calculate cumulative prices\n        uint256 cumulativePrice = cumulativePriceLast + (tradePrice * elapsedTime);\n\n        // Calculate the TWAP for OLAS in terms of native token\n        uint256 timeWeightedAverage = (cumulativePrice - cumulativePriceLast) / elapsedTime;\n\n        // Get the final derivation to compare with slippage\n        // Final derivation value must be\n        uint256 derivation = (tradePrice > timeWeightedAverage)\n            ? ((tradePrice - timeWeightedAverage) * 1e16) / timeWeightedAverage\n            : ((timeWeightedAverage - tradePrice) * 1e16) / timeWeightedAverage;\n\n        return derivation <= slippage;\n    }\n}",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            55,
+            91
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:42:09.466943",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "validatePrice adds tradePrice times elapsedTime to cumulativePriceLast, then subtracts cumulativePriceLast and divides by elapsedTime again, so the TWAP always equals the current spot price. The slippage check therefore compares the spot price with itself, as the finding says.",
+      "functions_found": [
+        "validatePrice",
+        "getPrice"
+      ],
+      "variables_found": [
+        "cumulativePriceLast",
+        "blockTimestampLast",
+        "tradePrice",
+        "elapsedTime",
+        "timeWeightedAverage"
+      ],
+      "patterns_found": [
+        "TWAP built from the current spot price, so it always equals the spot price",
+        "slippage check that compares the spot price with itself"
+      ],
+      "issues": [
+        "buyBack and convertToV3 are callers in other contracts; the broken calculation itself is in this file."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": "front_running",
+      "mando_applicable": true
+    },
+    "scsvs_classification": {
+      "primary_category": "C3",
+      "primary_category_name": "Oracle",
+      "vulnerability_type": "TWAP calculation collapses to the spot price"
+    },
+    "fix_code_source": "none"
+  }
+}

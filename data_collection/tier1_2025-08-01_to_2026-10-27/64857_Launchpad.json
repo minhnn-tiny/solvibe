@@ -1,0 +1,117 @@
+{
+  "id": "64857",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/launchpad/Launchpad.sol# L500",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      500,
+      500
+    ]
+  ],
+  "filename": "64857_Launchpad.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 617,
+  "vulnerability_title": "[H-09] DOS of Launchpad Graduation via `addLiquidity` with 1 Wei donation",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "```\n\nfunction _graduate(address token) internal {\n    // ... existing code ...\n\n    // Check if pair has one-sided reserves\n    (uint112 reserve0, uint112 reserve1,) = pair.getReserves();\n\n    if (reserve0 == 0 || reserve1 == 0) {\n        // Bypass router, use direct pair.mint()\n        token.safeTransfer(address(pair), tokensToLock);\n        data.quote.safeTransfer(address(pair), quoteToLock);\n        pair.mint(address(launchpadLPVault));\n    } else {\n        // Normal router path\n        uniV2Router.addLiquidity({...});\n    }\n}\n```\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-17)\n\n---",
+    "fix_code_blocks": [
+      "function _graduate(address token) internal {\n    // ... existing code ...\n\n    // Check if pair has one-sided reserves\n    (uint112 reserve0, uint112 reserve1,) = pair.getReserves();\n\n    if (reserve0 == 0 || reserve1 == 0) {\n        // Bypass router, use direct pair.mint()\n        token.safeTransfer(address(pair), tokensToLock);\n        data.quote.safeTransfer(address(pair), quoteToLock);\n        pair.mint(address(launchpadLPVault));\n    } else {\n        // Normal router path\n        uniV2Router.addLiquidity({...});\n    }\n}"
+    ]
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_createPairAndSwapRemaining",
+        "start_line": 471,
+        "end_line": 533,
+        "code": "\n    function _createPairAndSwapRemaining(\n        address token,\n        IUniswapV2Pair pair,\n        LaunchData memory data,\n        uint256 remainingBase,\n        uint256 remainingQuote,\n        address recipient\n    ) internal returns (uint256 additionalQuoteUsed) {\n        /// @todo sr wardens, please flag in your QA report your thoughts on the comments below\n\n        // Create or get the pair\n        try uniV2Factory.createPair(token, data.quote) returns (address p) {\n            pair = IUniswapV2Pair(p);\n        } catch {\n            // Do nothing, pair exists\n            // @todo its more gas but lets check pair exists and create if it doest.\n            // try catch in solidity is horrible and should be avoided\n        }\n\n        pair.skim(owner());\n\n        // Add initial liquidity\n        uint256 tokensToLock = data.curve.totalSupply(token) - data.curve.bondingSupply(token);\n        uint256 quoteToLock = data.curve.quoteBoughtByCurve(token);\n\n        token.safeApprove(address(uniV2Router), tokensToLock);\n        data.quote.safeApprove(address(uniV2Router), quoteToLock);\n\n        uniV2Router.addLiquidity({\n            tokenA: token,\n            tokenB: address(data.quote),\n            amountADesired: tokensToLock,\n            amountBDesired: quoteToLock,\n            amountAMin: 0,\n            amountBMin: 0,\n            to: address(launchpadLPVault),\n            deadline: block.timestamp\n        });\n\n        // Handle remaining swap if needed\n\n        // @todo clean up control flow here and confirm this is the right trigger\n        if (remainingBase > 0 && remainingQuote > 0) {\n            uint256 quoteNeeded =\n                uniV2Router.getAmountIn({amountOut: remainingBase, reserveIn: quoteToLock, reserveOut: tokensToLock});\n\n            if (remainingQuote >= quoteNeeded) {\n                SwapRemainingData memory d = SwapRemainingData({\n                    token: token,\n                    quote: data.quote,\n                    recipient: recipient,\n                    baseAmount: remainingBase,\n                    quoteAmount: quoteNeeded\n                });\n\n                (, uint256 quoteUsed) = _swapRemaining(d);\n                return quoteUsed;\n            }\n        }\n\n        return 0;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            500,
+            500
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:10.118785",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of a DOS attack via the `addLiquidity` function due to one-sided reserves caused by a small donation and `sync()` call.",
+      "content_reasoning": "The content mentions functions and variables such as `addLiquidity`, `quote()`, and `sync()` that exist in the code. The vulnerable pattern of failing due to one-sided reserves is present.",
+      "functions_found": [
+        "_createPairAndSwapRemaining",
+        "_graduate"
+      ],
+      "variables_found": [
+        "token",
+        "pair",
+        "data",
+        "tokensToLock",
+        "quoteToLock"
+      ],
+      "patterns_found": [
+        "one-sided reserves",
+        "sync() call",
+        "addLiquidity failure"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged for better classification and understanding of the issue.",
+      "suggested_tag": "denial_of_service",
+      "alternative_tags": [
+        "front_running"
+      ],
+      "correction_explanation": "The issue is primarily a denial of service attack, as it prevents the graduation process by exploiting liquidity conditions."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [
+        "front_running"
+      ],
+      "confidence": 95,
+      "mando_applicable": true,
+      "reasoning": "The issue fits well within the denial_of_service category as it involves preventing a process from completing. It also involves front-running, as the attacker must act before the legitimate transaction."
+    },
+    "scsvs_classification": {
+      "primary_category": "G8",
+      "primary_category_name": "Denial of service",
+      "secondary_categories": [
+        "G4",
+        "C8"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS classification provides a more detailed view, categorizing it under denial of service and business logic issues, with a specific focus on liquidity pools.",
+      "vulnerability_type": "Denial of service via liquidity manipulation"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-03-20T15:23:35.922117",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

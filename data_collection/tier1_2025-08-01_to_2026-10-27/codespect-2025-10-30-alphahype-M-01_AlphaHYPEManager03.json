@@ -1,0 +1,89 @@
+{
+  "id": "codespect-2025-10-30-alphahype-M-01",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/Hypurr-Fun/hfun-ahype/blob/5b8381ff277085280ed19ab069668fc8f2a47c8e/src/AlphaHYPEManager03.sol#L134-L144",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      134,
+      144
+    ]
+  ],
+  "filename": "codespect-2025-10-30-alphahype-M-01_AlphaHYPEManager03.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 412,
+  "vulnerability_title": "Stale precompile data leads to incorrect pricing and loss for withdrawers",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "getUnderlyingSupply",
+        "start_line": 131,
+        "end_line": 147,
+        "code": "\n    function getUnderlyingSupply() public view returns (uint256) {\n        // EVM balance\n        uint256 underlyingSupply = (address(this).balance) / SCALE_18_TO_8 - pendingDepositAmount - owedUnderlyingAmount - feeAmount; // EVM balance in 8 decimals\n\n        // Delegator balance\n        L1Read.DelegatorSummary memory ds = L1Read.delegatorSummary(address(this));\n        underlyingSupply += ds.delegated;\n        underlyingSupply += ds.undelegated;\n        underlyingSupply += ds.totalPendingWithdrawal;\n\n        // Spot balance\n        L1Read.SpotBalance memory sb = L1Read.spotBalance(address(this), hypeTokenIndex); // Assuming token index 1 for HYPE\n        underlyingSupply += sb.total; // Assuming HYPE has 8 decimals\n\n        return underlyingSupply;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            134,
+            144
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:45:08.908643",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 85,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "getUnderlyingSupply prices aHYPE from the contract balance plus the DelegatorSummary and spot balance precompiles, and withdraw uses it to fix the withdrawal price. processQueues sends HYPE to HyperCore, and the precompile values only change in the next block, so a withdraw in the same block uses a wrong price.",
+      "functions_found": [
+        "getUnderlyingSupply",
+        "withdraw",
+        "processQueues"
+      ],
+      "variables_found": [
+        "DelegatorSummary",
+        "sb.total",
+        "pendingDepositAmount",
+        "lastProcessedBlock"
+      ],
+      "patterns_found": [
+        "precompile balances read in the same block after funds are sent to HyperCore",
+        "withdrawal price fixed from stale balances"
+      ],
+      "issues": []
+    },
+    "mando_classification": {
+      "primary_category": null,
+      "mando_applicable": false
+    },
+    "scsvs_classification": {
+      "primary_category": "C7",
+      "primary_category_name": "Liquid staking",
+      "vulnerability_type": "stale precompile balances in the same block give a wrong withdrawal price"
+    },
+    "fix_code_source": "none"
+  }
+}

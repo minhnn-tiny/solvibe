@@ -1,0 +1,170 @@
+{
+  "id": "65015",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/Telos-Consilium/ouroboros-contracts/blob/db49243c22be12e1c0068192bd3417967fd28c8d/src/PSM.sol#L258-L277",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      258,
+      277
+    ],
+    [
+      191,
+      199
+    ],
+    [
+      401,
+      408
+    ]
+  ],
+  "filename": "65015_PSM.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 304,
+  "vulnerability_title": "[M-02] Psm._redeem() bypasses `yzUSD` pause and redeem restrictions during execution",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Apply `yzUSD` pause and redeem restriction enforcement consistently for all paths that redeem via `PSM`.\n\nConsider one of the following approaches based on the intended enforcement behavior:\n\n- Enforce checks inside `PSM._redeem()`\n    * Before burning `yzUSD`, verify `yzUSD` is not paused and the redeemer is eligible under redeem restrictions.\n    * This makes `_redeem()` self-contained and avoids future bypasses if new entry points are added.\n- Validate at entry points (align checks with the user action)\n    * In `PSM.redeem()`: validate pause/restrictions before calling `_redeem()`.\n    * In `PSM.createRedeemOrder()`: consider validating redeemability at creation time to prevent unfillable orders when vaults are paused or restricted.\n    * In `PSM.fillRedeemOrders()`: clarify whether pause and redeem restrictions should be enforced at fill time if the `yzUSD` state changes after order creation.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_fillRedeemOrder",
+        "start_line": 256,
+        "end_line": 270,
+        "code": "\n    function _fillRedeemOrder(address caller, uint256 orderId) internal {\n        Order storage order = _orders[orderId];\n        if (order.status != OrderStatus.Pending) {\n            revert OrderNotPending(orderId);\n        }\n\n        order.status = OrderStatus.Filled;\n        // slither-disable-next-line unused-return\n        _pendingOrderIds.remove(orderId);\n\n        uint256 assets = _redeem(caller, address(this), order.receiver, order.shares);\n\n        emit FilledRedeemOrder(caller, order.receiver, order.owner, orderId, assets, order.shares);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            258,
+            277
+          ]
+        ]
+      },
+      {
+        "code": "        _depositLiquidity(caller, assets);\n        for (uint256 idx = 0; idx < orderIds.length; idx++) {\n            uint256 orderId = orderIds[idx];\n            _fillRedeemOrder(caller, orderId);\n        }\n    }\n\n    /// @notice Cancel pending redeem orders by {orderIds}\n    function cancelRedeemOrders(uint256[] calldata orderIds) external nonReentrant onlyRole(ORDER_FILLER_ROLE) {\n        address caller = _msgSender();\n        for (uint256 idx = 0; idx < orderIds.length; idx++) {\n            uint256 orderId = orderIds[idx];\n            _cancelRedeemOrder(caller, orderId);\n        }\n    }\n\n    /// @notice Deposit {assets} in liquidity\n    function depositLiquidity(uint256 assets) external nonReentrant onlyRole(LIQUIDITY_MANAGER_ROLE) {\n        _depositLiquidity(_msgSender(), assets);\n    }\n\n    /// @notice Withdraw {assets} of liquidity to {receiver}\n    function withdrawLiquidity(uint256 assets, address receiver)\n        external\n        nonReentrant\n        onlyRole(LIQUIDITY_MANAGER_ROLE)\n    {\n        _withdrawLiquidity(receiver, assets);\n    }\n\n    /// @notice Set the minimum redeem order size to {newMin}\n    function setMinRedeemOrder(uint256 newMin) external onlyRole(REDEEM_MANAGER_ROLE) {\n        uint256 oldMin = minRedeemOrder;\n        minRedeemOrder = newMin;\n        emit UpdatedMinRedeemOrder(oldMin, newMin);\n    }\n\n    function _deposit(address caller, address receiver, uint256 assets) internal returns (uint256) {\n        SafeERC20.safeTransferFrom(IERC20(asset()), caller, address(this), assets);",
+        "start_line": 191,
+        "end_line": 199,
+        "context_start_line": 176,
+        "context_end_line": 214,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "",
+        "start_line": 401,
+        "end_line": 401,
+        "context_start_line": 386,
+        "context_end_line": 304,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:37.752431",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of bypassing pause and redeem restrictions in the _redeem function.",
+      "content_reasoning": "The content mentions functions and variables such as _redeem, maxRedeem, and _canRedeem, which are present in the code and relate to the described vulnerability.",
+      "functions_found": [
+        "_redeem",
+        "maxRedeem",
+        "_canRedeem"
+      ],
+      "variables_found": [
+        "order",
+        "assets1",
+        "assets0"
+      ],
+      "patterns_found": [
+        "bypassing checks",
+        "burning tokens directly"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "No existing tag is present, but a tag related to access control or authorization issues would be appropriate.",
+      "suggested_tag": "access_control",
+      "alternative_tags": [
+        "authorization"
+      ],
+      "correction_explanation": "The vulnerability involves bypassing authorization checks, which aligns with access control issues."
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "secondary_categories": [],
+      "confidence": 95,
+      "mando_applicable": true,
+      "reasoning": "The issue is primarily about bypassing authorization checks, which fits well within the access_control category of MANDO."
+    },
+    "scsvs_classification": {
+      "primary_category": "G5",
+      "primary_category_name": "Access control",
+      "secondary_categories": [],
+      "confidence": 95,
+      "use_scsvs_instead": false,
+      "reasoning": "The SCSVS G5 category directly corresponds to access control issues, which is the core of this vulnerability.",
+      "vulnerability_type": "Bypassing authorization checks for redeem operations"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Enforce yzUSD pause and redeem restrictions within the _redeem function to ensure all redemption paths are consistently checked.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "_fillRedeemOrder",
+          "fixed_function_code": "function _fillRedeemOrder(address caller, uint256 orderId) internal {\n    Order storage order = _orders[orderId];\n    if (order.status != OrderStatus.Pending) {\n        revert OrderNotPending(orderId);\n    }\n\n    order.status = OrderStatus.Filled;\n    // slither-disable-next-line unused-return\n    _pendingOrderIds.remove(orderId);\n\n    // Check if yzUSD is paused or if there are redeem restrictions\n    require(!isPaused, \"Redeem operations are paused\");\n    require(isEligibleForRedeem(order.receiver), \"Receiver not eligible for redeem\");\n\n    uint256 assets = _redeem(caller, address(this), order.receiver, order.shares);\n\n    emit FilledRedeemOrder(caller, order.receiver, order.owner, orderId, assets, order.shares);\n}",
+          "reasoning": "This fix ensures that before proceeding with the redemption, the function checks if the yzUSD is paused and if the receiver is eligible for redemption. This prevents unauthorized redemptions when the system is paused or when the receiver does not meet the criteria."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "fillRedeemOrders",
+          "fixed_function_code": "function fillRedeemOrders(uint256[] calldata orderIds) external nonReentrant onlyRole(ORDER_FILLER_ROLE) {\n    address caller = _msgSender();\n    // Check if yzUSD is paused before processing orders\n    require(!isPaused, \"Redeem operations are paused\");\n    for (uint256 idx = 0; idx < orderIds.length; idx++) {\n        uint256 orderId = orderIds[idx];\n        _fillRedeemOrder(caller, orderId);\n    }\n}",
+          "reasoning": "By adding a check for the paused state of yzUSD before processing any orders, this ensures that no redeem orders are filled when the system is paused, thus maintaining the integrity of the pause functionality."
+        }
+      ],
+      "key_changes": [
+        "Added checks for yzUSD pause state in _fillRedeemOrder.",
+        "Added eligibility check for redeem in _fillRedeemOrder.",
+        "Added yzUSD pause check in fillRedeemOrders."
+      ],
+      "security_improvements": [
+        "Ensures consistent enforcement of pause and redeem restrictions.",
+        "Prevents unauthorized redemptions during paused states.",
+        "Enhances overall security by centralizing checks in critical functions."
+      ],
+      "additional_recommendations": "Consider implementing unit tests to verify that the pause and eligibility checks are functioning correctly across all redemption paths.",
+      "confidence": 95,
+      "fix_code": "function _fillRedeemOrder(address caller, uint256 orderId) internal {\n    Order storage order = _orders[orderId];\n    if (order.status != OrderStatus.Pending) {\n        revert OrderNotPending(orderId);\n    }\n\n    order.status = OrderStatus.Filled;\n    // slither-disable-next-line unused-return\n    _pendingOrderIds.remove(orderId);\n\n    // Check if yzUSD is paused or if there are redeem restrictions\n    require(!isPaused, \"Redeem operations are paused\");\n    require(isEligibleForRedeem(order.receiver), \"Receiver not eligible for redeem\");\n\n    uint256 assets = _redeem(caller, address(this), order.receiver, order.shares);\n\n    emit FilledRedeemOrder(caller, order.receiver, order.owner, orderId, assets, order.shares);\n}\n\nfunction fillRedeemOrders(uint256[] calldata orderIds) external nonReentrant onlyRole(ORDER_FILLER_ROLE) {\n    address caller = _msgSender();\n    // Check if yzUSD is paused before processing orders\n    require(!isPaused, \"Redeem operations are paused\");\n    for (uint256 idx = 0; idx < orderIds.length; idx++) {\n        uint256 orderId = orderIds[idx];\n        _fillRedeemOrder(caller, orderId);\n    }\n}",
+      "expected_fixed_blocks": 2,
+      "returned_fixed_blocks": 2,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:28:34.333059"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:28:34.333081",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

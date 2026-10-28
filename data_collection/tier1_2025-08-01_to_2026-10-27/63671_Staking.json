@@ -1,0 +1,104 @@
+{
+  "id": "63671",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/mantle-lsp/contracts/blob/6210e907b0f790ee9e11fe8ccb4d4baf12de6609/src/Staking.sol#L596-L611",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      596,
+      611
+    ]
+  ],
+  "filename": "63671_Staking.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 770,
+  "vulnerability_title": "Missing freshness check on oracle data in `Staking.totalControlled()` enables stale-rate arbitrage",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs",
+    "snippets": [
+      {
+        "code": "        // the latter can be manipulated, for example by transferring funds to the `ExecutionLayerReturnsReceiver`, and\n        // therefore be non-zero by the time the first stake is made\n        if (mETH.totalSupply() == 0) {\n            return mETHAmount;\n        }\n\n        // deltaETH = (totalControlled / mETHSupply) * mETHAmount\n        // This rounds down to zero in the case of `mETHAmount * totalControlled < mETHSupply`.\n        // While this scenario is theoretically possible, it can only be realised feasibly during the protocol's\n        // bootstrap phase and if `totalControlled` and `mETHSupply` can be changed independently of each other. Since\n        // the former is permissioned, and the latter is not permitted by the protocol, this cannot be exploited by an\n        // attacker.\n        return Math.mulDiv(mETHAmount, totalControlled(), mETH.totalSupply());\n    }\n\n    /// @notice The total amount of ETH controlled by the protocol.\n    /// @dev Sums over the balances of various contracts and the beacon chain information from the oracle.\n    function totalControlled() public view returns (uint256) {\n        OracleRecord memory record = oracle.latestRecord();\n        uint256 total = 0;\n        total += unallocatedETH;\n        total += allocatedETHForDeposits;\n        /// The total ETH deposited to the beacon chain must be decreased by the deposits processed by the off-chain\n        /// oracle since it will be accounted for in the currentTotalValidatorBalance from that point onwards.\n        total += totalDepositedInValidators - record.cumulativeProcessedDepositAmount;\n        total += record.currentTotalValidatorBalance;\n        total += liquidityBuffer.getAvailableBalance();\n        total -= liquidityBuffer.cumulativeDrawdown();\n        total += unstakeRequestsManager.balance();\n        return total;\n    }\n\n    /// @notice Checks if the given withdrawal credentials are a valid 0x01 prefixed withdrawal address.\n    /// @dev See also\n    /// https://github.com/ethereum/consensus-specs/blob/master/specs/phase0/validator.md#eth1_address_withdrawal_prefix\n    function _requireProtocolWithdrawalAccount(bytes calldata withdrawalCredentials) internal view {\n        if (withdrawalCredentials.length != 32) {\n            revert InvalidWithdrawalCredentialsWrongLength(withdrawalCredentials.length);\n        }\n\n        // Check the ETH1_ADDRESS_WITHDRAWAL_PREFIX and that all other bytes are zero.\n        bytes12 prefixAndPadding = bytes12(withdrawalCredentials[:12]);\n        if (prefixAndPadding != 0x010000000000000000000000) {\n            revert InvalidWithdrawalCredentialsNotETH1(prefixAndPadding);\n        }\n",
+        "start_line": 596,
+        "end_line": 611,
+        "context_start_line": 581,
+        "context_end_line": 626,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:07:37.841941",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of stale data being used in the `totalControlled()` function, which is confirmed by the code that calls `oracle.latestRecord()` without freshness checks.",
+      "content_reasoning": "The content mentions the `totalControlled()` function and the `oracle.latestRecord()` function, both of which are present in the extracted code and relate directly to the vulnerability described.",
+      "functions_found": [
+        "totalControlled",
+        "latestRecord"
+      ],
+      "variables_found": [
+        "total",
+        "record"
+      ],
+      "patterns_found": [
+        "stale data usage",
+        "lack of freshness check"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 85,
+      "reasoning": "There is currently no tag assigned, which is incorrect given the nature of the vulnerability. A tag related to oracle issues or data freshness should be present.",
+      "suggested_tag": "oracle_data_freshness",
+      "alternative_tags": [
+        "data_staleness",
+        "oracle_vulnerability"
+      ],
+      "correction_explanation": "The vulnerability specifically relates to the use of stale oracle data, which warrants a specific tag to highlight this issue."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": false,
+      "reasoning": "The MANDO categories do not adequately capture the specific nature of the vulnerability related to oracle data freshness and its implications on business logic."
+    },
+    "scsvs_classification": {
+      "primary_category": "C3",
+      "primary_category_name": "Oracle",
+      "secondary_categories": [
+        "G4"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more granular classification that directly addresses the oracle-related vulnerability and its impact on business logic.",
+      "vulnerability_type": "Stale oracle data leading to potential exploitation in minting and burning operations."
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-04-25T20:26:23.637458",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs"
+  }
+}

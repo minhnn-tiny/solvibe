@@ -1,0 +1,133 @@
+{
+  "id": "64843",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/perps/types/Book.sol# L391-L403",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      391,
+      403
+    ]
+  ],
+  "filename": "64843_Book.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 501,
+  "vulnerability_title": "[M-08] Reduce-only orders can be used to inflate `quoteOI` and DoS the orderbook",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Skip updating `quoteOI`/`baseOI` for reduce-only orders or enforce notional and price caps relative to mark price so attackers cannot inflate open interest with extreme values.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-161)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_updateBookPostOrder",
+        "start_line": 390,
+        "end_line": 403,
+        "code": "\n    function _updateBookPostOrder(Book storage self, Order memory order) private returns (Limit storage limit) {\n        if (order.side == Side.BUY) {\n            limit = self.bidLimits[order.price];\n            if (limit.numOrders == 0) self.bidTree.insert(order.price);\n            self.metadata.numBids++;\n            self.metadata.quoteOI += order.amount.fullMulDiv(order.price, 1e18);\n        } else {\n            limit = self.askLimits[order.price];\n            if (limit.numOrders == 0) self.askTree.insert(order.price);\n            self.metadata.numAsks++;\n            self.metadata.baseOI += order.amount;\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            391,
+            403
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:34:53.547791",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of inflating `quoteOI` through reduce-only orders with large prices.",
+      "content_reasoning": "The code snippet shows the unconditional increase of `metadata.quoteOI` for BUY orders, which matches the described vulnerability.",
+      "functions_found": [
+        "_updateBookPostOrder"
+      ],
+      "variables_found": [
+        "metadata.quoteOI",
+        "order.price",
+        "order.amount"
+      ],
+      "patterns_found": [
+        "unconditional increase of quoteOI"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report lacks a tag, but it clearly describes a denial of service vulnerability.",
+      "suggested_tag": "denial_of_service",
+      "alternative_tags": [],
+      "correction_explanation": "The vulnerability allows for a denial of service attack by inflating `quoteOI`, which should be tagged accordingly."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [],
+      "confidence": 95,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability directly leads to a denial of service by causing other users' orders to revert due to inflated `quoteOI`."
+    },
+    "scsvs_classification": {
+      "primary_category": "G8",
+      "primary_category_name": "Denial of service",
+      "secondary_categories": [],
+      "confidence": 95,
+      "use_scsvs_instead": false,
+      "reasoning": "The issue is a classic denial of service problem, which is well-categorized under both MANDO and SCSVS as G8.",
+      "vulnerability_type": "Denial of service through resource exhaustion by inflating open interest."
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves skipping the update of quoteOI/baseOI for reduce-only orders and enforcing notional and price caps to prevent inflation of open interest.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "_updateBookPostOrder",
+          "fixed_function_code": "function _updateBookPostOrder(Book storage self, Order memory order) private returns (Limit storage limit) {\n    if (order.side == Side.BUY) {\n        limit = self.bidLimits[order.price];\n        if (limit.numOrders == 0) self.bidTree.insert(order.price);\n        self.metadata.numBids++;\n        // Check if the order is reduce-only and skip updating quoteOI if true\n        if (!order.isReduceOnly) {\n            // Enforce a notional cap to prevent inflation\n            require(order.amount.fullMulDiv(order.price, 1e18) <= MAX_NOTIONAL_CAP, \"Notional cap exceeded\");\n            self.metadata.quoteOI += order.amount.fullMulDiv(order.price, 1e18);\n        }\n    } else {\n        limit = self.askLimits[order.price];\n        if (limit.numOrders == 0) self.askTree.insert(order.price);\n        self.metadata.numAsks++;\n        // Check if the order is reduce-only and skip updating baseOI if true\n        if (!order.isReduceOnly) {\n            // Enforce a notional cap to prevent inflation\n            require(order.amount <= MAX_NOTIONAL_CAP, \"Notional cap exceeded\");\n            self.metadata.baseOI += order.amount;\n        }\n    }\n}",
+          "reasoning": "This fix addresses the vulnerability by ensuring that reduce-only orders do not affect the open interest calculations, thus preventing malicious inflation. Additionally, it enforces a notional cap to prevent extreme values from being used to manipulate the order book."
+        }
+      ],
+      "key_changes": [
+        "Added a check to skip updating quoteOI/baseOI for reduce-only orders.",
+        "Introduced a notional cap to prevent excessive open interest inflation.",
+        "Added require statements to enforce the notional cap."
+      ],
+      "security_improvements": [
+        "Prevents denial of service by avoiding unnecessary inflation of open interest.",
+        "Ensures that only meaningful orders affect the market's open interest.",
+        "Adds a layer of validation to prevent extreme values from being processed."
+      ],
+      "additional_recommendations": "Regularly audit the notional cap value to ensure it aligns with market conditions and adjust as necessary.",
+      "confidence": 95,
+      "fix_code": "function _updateBookPostOrder(Book storage self, Order memory order) private returns (Limit storage limit) {\n    if (order.side == Side.BUY) {\n        limit = self.bidLimits[order.price];\n        if (limit.numOrders == 0) self.bidTree.insert(order.price);\n        self.metadata.numBids++;\n        // Check if the order is reduce-only and skip updating quoteOI if true\n        if (!order.isReduceOnly) {\n            // Enforce a notional cap to prevent inflation\n            require(order.amount.fullMulDiv(order.price, 1e18) <= MAX_NOTIONAL_CAP, \"Notional cap exceeded\");\n            self.metadata.quoteOI += order.amount.fullMulDiv(order.price, 1e18);\n        }\n    } else {\n        limit = self.askLimits[order.price];\n        if (limit.numOrders == 0) self.askTree.insert(order.price);\n        self.metadata.numAsks++;\n        // Check if the order is reduce-only and skip updating baseOI if true\n        if (!order.isReduceOnly) {\n            // Enforce a notional cap to prevent inflation\n            require(order.amount <= MAX_NOTIONAL_CAP, \"Notional cap exceeded\");\n            self.metadata.baseOI += order.amount;\n        }\n    }\n}",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:36:45.593800"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:36:45.593821",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

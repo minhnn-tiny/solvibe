@@ -1,0 +1,137 @@
+{
+  "id": "64846",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/perps/types/FundingRateEngine.sol# L98-L117",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      98,
+      117
+    ]
+  ],
+  "filename": "64846_FundingRateEngine.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 129,
+  "vulnerability_title": "[M-11] Funding Mis-Accrual Due to Missing Time Normalization in `_calcFundingIndex`",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "1. **Add time-proportional scaling** \u2014 scale per-interval funding by `elapsed / baseInterval`.\n2. **Unit tests for path-independence** \u2014 confirm that 1\u00d710h = 10\u00d71h accrual.\n3. **Monitoring** \u2014 track expected vs. realized accrual and alert on deviations.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-232)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_calcFundingIndex",
+        "start_line": 97,
+        "end_line": 117,
+        "code": "\n    function _calcFundingIndex(\n        FundingRateEngine storage self,\n        FundingRateSettings storage settings,\n        int256 markTwap,\n        int256 indexTwap\n    ) private returns (int256 fundingIndex, int256 fundingRate) {\n        int256 innerClamp = settings.innerClamp.toInt256();\n        int256 outerClamp = settings.outerClamp.toInt256();\n\n        int256 premium = _div(markTwap - indexTwap, indexTwap);\n\n        int256 rawFunding = premium + (settings.interestRate - premium).clamp(-innerClamp, innerClamp);\n\n        fundingRate = rawFunding.clamp(-outerClamp, outerClamp);\n\n        if (fundingRate != rawFunding) self.resetIterationsLeft = settings.resetIterations;\n        else if (self.resetIterationsLeft > 0) --self.resetIterationsLeft;\n\n        fundingIndex = _mul(fundingRate, indexTwap);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            98,
+            117
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:34:57.416223",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of missing time-proportional scaling in the funding accrual calculation.",
+      "content_reasoning": "The code snippet shows the calculation of the funding index without considering elapsed time, which matches the described vulnerability.",
+      "functions_found": [
+        "_calcFundingIndex"
+      ],
+      "variables_found": [
+        "fundingIndex",
+        "fundingRate",
+        "indexTwap"
+      ],
+      "patterns_found": [
+        "missing time scaling"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report lacks a tag, but it should be tagged to reflect the nature of the vulnerability.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "arithmetic"
+      ],
+      "correction_explanation": "The issue is primarily related to business logic errors in funding calculations, which can lead to incorrect financial outcomes."
+    },
+    "mando_classification": {
+      "primary_category": "arithmetic",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The issue involves incorrect mathematical operations due to missing time scaling, which fits under arithmetic issues."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G7"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is a business logic flaw affecting financial calculations, which is best categorized under SCSVS G4. It also involves arithmetic precision issues.",
+      "vulnerability_type": "Incorrect funding accrual due to missing time normalization"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Introduce time-proportional scaling to ensure funding is accrued correctly over time intervals.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "_calcFundingIndex",
+          "fixed_function_code": "function _calcFundingIndex(\n        FundingRateEngine storage self,\n        FundingRateSettings storage settings,\n        int256 markTwap,\n        int256 indexTwap,\n        uint256 elapsedTime,\n        uint256 baseInterval\n    ) private returns (int256 fundingIndex, int256 fundingRate) {\n        int256 innerClamp = settings.innerClamp.toInt256();\n        int256 outerClamp = settings.outerClamp.toInt256();\n\n        int256 premium = _div(markTwap - indexTwap, indexTwap);\n\n        int256 rawFunding = premium + (settings.interestRate - premium).clamp(-innerClamp, innerClamp);\n\n        fundingRate = rawFunding.clamp(-outerClamp, outerClamp);\n\n        if (fundingRate != rawFunding) self.resetIterationsLeft = settings.resetIterations;\n        else if (self.resetIterationsLeft > 0) --self.resetIterationsLeft;\n\n        // Apply time-proportional scaling\n        int256 timeScaledFundingRate = _mul(fundingRate, int256(elapsedTime)) / int256(baseInterval);\n\n        fundingIndex = _mul(timeScaledFundingRate, indexTwap);\n    }",
+          "reasoning": "The function now includes time-proportional scaling by introducing `elapsedTime` and `baseInterval` parameters. This ensures that the funding rate is correctly scaled according to the time elapsed, preventing mis-accrual of funding."
+        }
+      ],
+      "key_changes": [
+        "Added elapsedTime and baseInterval parameters to the function.",
+        "Introduced time-proportional scaling to the funding rate calculation.",
+        "Ensured fundingIndex is calculated using the time-scaled funding rate."
+      ],
+      "security_improvements": [
+        "Prevents incorrect funding accrual over time.",
+        "Mitigates potential exploitation by malicious actors.",
+        "Ensures fair and accurate funding transfers between users."
+      ],
+      "additional_recommendations": "Implement unit tests to verify path-independence and monitor expected vs. realized accrual to detect any deviations.",
+      "confidence": 95,
+      "fix_code": "function _calcFundingIndex(\n        FundingRateEngine storage self,\n        FundingRateSettings storage settings,\n        int256 markTwap,\n        int256 indexTwap,\n        uint256 elapsedTime,\n        uint256 baseInterval\n    ) private returns (int256 fundingIndex, int256 fundingRate) {\n        int256 innerClamp = settings.innerClamp.toInt256();\n        int256 outerClamp = settings.outerClamp.toInt256();\n\n        int256 premium = _div(markTwap - indexTwap, indexTwap);\n\n        int256 rawFunding = premium + (settings.interestRate - premium).clamp(-innerClamp, innerClamp);\n\n        fundingRate = rawFunding.clamp(-outerClamp, outerClamp);\n\n        if (fundingRate != rawFunding) self.resetIterationsLeft = settings.resetIterations;\n        else if (self.resetIterationsLeft > 0) --self.resetIterationsLeft;\n\n        // Apply time-proportional scaling\n        int256 timeScaledFundingRate = _mul(fundingRate, int256(elapsedTime)) / int256(baseInterval);\n\n        fundingIndex = _mul(timeScaledFundingRate, indexTwap);\n    }",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:33:22.273897"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:33:22.273909",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

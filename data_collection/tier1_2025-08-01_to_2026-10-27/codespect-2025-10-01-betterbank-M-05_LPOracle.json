@@ -1,0 +1,90 @@
+{
+  "id": "codespect-2025-10-01-betterbank-M-05",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/grape-finance/BB-Custom-contracts/blob/43fba5ed6a5f47d6ae997660a7fe656c57f44b30/contracts/LPOracle.sol#L112",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      112,
+      112
+    ]
+  ],
+  "filename": "codespect-2025-10-01-betterbank-M-05_LPOracle.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 261,
+  "vulnerability_title": "UniswapV2 price TWAP accumulator underflow will lead to oracle update failure",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "update",
+        "start_line": 104,
+        "end_line": 214,
+        "code": "    function update() external  onlyApproved checkEpoch {\n        // 1) token0/token1 price TWAPs (Uniswap cumulative)\n        {\n            (uint256 p0C, uint256 p1C, uint32 blockTs) = UniswapV2OracleLibrary\n                .currentCumulativePrices(address(pair));\n            uint32 dt = blockTs - blockTimestampLast;\n            require(dt > 0, \"Oracle: ZERO_TIME\");\n\n            price0Average = FixedPoint.uq112x112(\n                uint224((p0C - price0CumulativeLast) / dt)\n            );\n            price1Average = FixedPoint.uq112x112(\n                uint224((p1C - price1CumulativeLast) / dt)\n            );\n\n            price0CumulativeLast = p0C;\n            price1CumulativeLast = p1C;\n            blockTimestampLast = blockTs;\n        }\n\n        // 2) \u221aK TWAP via two-segment integration\n        {\n            // get reserves + last-reserve-update timestamp\n            (uint112 r0, uint112 r1, uint32 tsReserve) = pair.getReserves();\n            uint32 nowTs = uint32(block.timestamp);\n\n            // spot \u221aK (Q112.112)\n            uint256 sqrtKNow = FixedPoint.encode(\n                uint112(Math.sqrt(r0 * r1))).div(uint112(pair.totalSupply()))._x;\n\n            // total time since last oracle update\n            uint32 dtFull = nowTs - kTimestampLast;\n            require(dtFull > 0, \"Oracle: ZERO_TIME\");\n\n            // split into before/after reserve-change\n            uint32 dt1;\n            uint32 dt2;\n            if (tsReserve > kTimestampLast) {\n                dt1 = tsReserve - kTimestampLast;\n                dt2 = nowTs - tsReserve;\n            } else {\n                dt1 = dtFull;\n                dt2 = 0;\n            }\n\n            // patch cumulative: old\u221aK * dt1 + new\u221aK * dt2\n            uint256 kC = kCumulativeLast + lastSqrtK * dt1 + sqrtKNow * dt2;\n\n            // compute TWAP over the full window\n            kAverage = FixedPoint.uq112x112(\n                uint224((kC - kCumulativeLast) / dtFull)\n            );\n\n            kCumulativeLast = kC;\n            kTimestampLast = nowTs;\n            lastSqrtK = sqrtKNow;\n        }\n\n        // 3) USD per-token TWAPs (custom feed)\n        {\n            uint32 nowTsU = uint32(block.timestamp);\n            uint256 u0 = masterOracle.getLatestPrice(token0);\n            uint256 u1 = masterOracle.getLatestPrice(token1);\n            uint32 dtU = nowTsU - usdTimestampLast;\n            require(dtU > 0, \"Oracle: ZERO_TIME\");\n\n            uint256 newUsd0C = usd0CumulativeLast + u0 * dtU;\n            uint256 newUsd1C = usd1CumulativeLast + u1 * dtU;\n\n            uint256 avg0Raw = (newUsd0C - usd0CumulativeLast) / dtU;\n            uint256 avg1Raw = (newUsd1C - usd1CumulativeLast) / dtU;\n\n            uint256 avg0Q112 = (avg0Raw << 112) / 1e18;\n            uint256 avg1Q112 = (avg1Raw << 112) / 1e18;\n\n            usd0Average = FixedPoint.uq112x112(uint224(avg0Q112));\n            usd1Average = FixedPoint.uq112x112(uint224(avg1Q112));\n\n            usd0CumulativeLast = newUsd0C;\n            usd1CumulativeLast = newUsd1C;\n            usdTimestampLast = nowTsU;\n        }\n\n        // 4) LP price jump cap (freeze if > LPPriceCap \u00d7 last)\n        {\n            uint256 sqrt0 = Math.sqrt(uint256(usd0Average._x));\n            uint256 sqrt1 = Math.sqrt(uint256(usd1Average._x));\n            uint256 kx = uint256(kAverage._x);\n            uint256 part = kx * 2 * sqrt0 / 2 ** 56;\n            uint256 lpQ112 = part * sqrt1 / 2 ** 56;\n            uint256 newLpPrice = lpQ112 * 1e18 >> 112;\n\n            if (lastLpPrice == 0 || lpPriceCap == 0) {\n                lastLpPrice = newLpPrice;\n            } else {\n                uint256 maxAllowed = lastLpPrice * lpPriceCap / 1e18;\n                if (newLpPrice <= maxAllowed) {\n                    lastLpPrice = newLpPrice;\n                }\n            }\n        }\n\n        emit Updated(\n            price0CumulativeLast,\n            price1CumulativeLast,\n            kCumulativeLast,\n            usd0CumulativeLast,\n            usd1CumulativeLast,\n            blockTimestampLast\n        );\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            112,
+            112
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:44:18.156360",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "The contract uses Solidity 0.8.20, and update subtracts the Uniswap cumulative prices and timestamps without an unchecked block. When an accumulator wraps around, the subtraction reverts and update fails, leaving consult on stale averages.",
+      "functions_found": [
+        "update",
+        "consult"
+      ],
+      "variables_found": [
+        "price0CumulativeLast",
+        "price1CumulativeLast",
+        "blockTimestampLast",
+        "usd0CumulativeLast",
+        "usd1CumulativeLast"
+      ],
+      "patterns_found": [
+        "checked subtraction on accumulators that are meant to wrap"
+      ],
+      "issues": [
+        "UniTWAPOracle, which the finding gives as the correct version, is a different contract."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": "arithmetic",
+      "mando_applicable": true
+    },
+    "scsvs_classification": {
+      "primary_category": "G7",
+      "primary_category_name": "Arithmetic",
+      "vulnerability_type": "accumulator underflow makes the oracle update revert"
+    },
+    "fix_code_source": "none"
+  }
+}

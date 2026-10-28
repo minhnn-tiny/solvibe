@@ -1,0 +1,137 @@
+{
+  "id": "65029",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-12-panoptic/blob/fe557748210a529ae414d7c487b6514be0d9e220/contracts/RiskEngine.sol# L1324-L1334",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      1324,
+      1334
+    ]
+  ],
+  "filename": "65029_RiskEngine.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 2403,
+  "vulnerability_title": "[M-02] `RiskEngine::_getRequiredCollateralAtTickSinglePosition()` fails to accumulate credits across multiple legs, leading to potential erroneous liquidations",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "1. Treat credits as an accumulator and sum the credit contributions from all qualifying legs, rather than overwriting the value.\n2. Clearly distinguish between:\n\n   * Per-leg credit contributions\n   * The total credit amount for a multi-leg position\n3. Add unit tests covering multi-leg scenarios, including:\n\n   * Multiple `width == 0 && isLong == true` legs\n   * Mixed `tokenType` configurations\n4. (Optional) Update inline documentation or comments to clearly define the expected semantics of `credits`, reducing the risk of future regressions.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "Please add the following test content to a new file under `test/foundry/core/` (e.g., `test/foundry/core/poc_getRequiredCollateralAtTickSinglePosition.t.sol`) and execute it:\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-12-panoptic-next-core/submissions/S-675)\n\nOutput:\n```\n\nRan 2 tests for test/foundry/core/poc_getRequiredCollateralAtTickSinglePosition.t.sol:Poc\n[PASS] test__getRequiredCollateralAtTickSinglePosition_one() (gas: 7827689)\n[PASS] test__getRequiredCollateralAtTickSinglePosition_two() (gas: 7493324)\n```\n\n**[Panoptic mitigated](https://github.com/code-423n4/2026-02-panoptic-next-core-mitigation?tab=readme-ov-file# mitigation-of-high--medium-severity-issues):**\n\n> Combine credit amounts for multileg `tokenId`s.\n\n**Status:** Mitigation confirmed. Full details in reports from [Valves](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-6), [edoscoba](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-21), and [Nyx](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review/submissions/S-35).\n\n---",
+    "poc_code_blocks": [
+      "Ran 2 tests for test/foundry/core/poc_getRequiredCollateralAtTickSinglePosition.t.sol:Poc\n[PASS] test__getRequiredCollateralAtTickSinglePosition_one() (gas: 7827689)\n[PASS] test__getRequiredCollateralAtTickSinglePosition_two() (gas: 7493324)"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_getRequiredCollateralAtTickSinglePosition",
+        "start_line": 1310,
+        "end_line": 1345,
+        "code": "    function _getRequiredCollateralAtTickSinglePosition(\n        TokenId tokenId,\n        uint128 positionSize,\n        int24 atTick,\n        int16 poolUtilization,\n        bool underlyingIsToken0\n    ) internal view returns (uint256 tokenRequired, uint256 credits) {\n        uint256 numLegs = tokenId.countLegs();\n\n        unchecked {\n            for (uint256 index = 0; index < numLegs; ++index) {\n                // bypass the collateral calculation if tokenType doesn't match the requested token (underlyingIsToken0)\n                if (tokenId.tokenType(index) != (underlyingIsToken0 ? 0 : 1)) continue;\n\n                if (tokenId.width(index) == 0 && tokenId.isLong(index) == 1) {\n                    LeftRightUnsigned amountsMoved = PanopticMath.getAmountsMoved(\n                        tokenId,\n                        positionSize,\n                        index,\n                        false\n                    );\n                    credits = tokenId.tokenType(index) == 0\n                        ? amountsMoved.rightSlot()\n                        : amountsMoved.leftSlot();\n                }\n                // Increment the tokenRequired accumulator\n                tokenRequired += _getRequiredCollateralSingleLeg(\n                    tokenId,\n                    index,\n                    positionSize,\n                    atTick,\n                    poolUtilization\n                );\n            }\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1324,
+            1334
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:43.891705",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of overwriting credits instead of accumulating them, leading to potential erroneous liquidations.",
+      "content_reasoning": "The code snippet shows the function `_getRequiredCollateralAtTickSinglePosition` where the `credits` variable is overwritten instead of accumulated, matching the report's description.",
+      "functions_found": [
+        "_getRequiredCollateralAtTickSinglePosition"
+      ],
+      "variables_found": [
+        "credits",
+        "tokenRequired"
+      ],
+      "patterns_found": [
+        "overwriting instead of accumulating"
+      ],
+      "issues": [
+        "credits undercounting"
+      ]
+    },
+    "report_tag_validation": {
+      "existing_tag": null,
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged to reflect the business logic flaw.",
+      "suggested_tag": "business_logic_flaw",
+      "alternative_tags": [
+        "logic_error"
+      ],
+      "correction_explanation": "The issue is primarily a business logic flaw where credits are not accumulated correctly, leading to potential erroneous liquidations."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 50,
+      "mando_applicable": false,
+      "reasoning": "The MANDO categories do not directly address business logic errors related to credit accumulation in this context."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue is a business logic flaw where credits are not accumulated correctly, leading to potential erroneous liquidations. This fits well under the SCSVS category G4 for business logic.",
+      "vulnerability_type": "Business logic flaw in credit accumulation"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Accumulate credits across all qualifying legs instead of overwriting, ensuring accurate credit calculation for multi-leg positions.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "_getRequiredCollateralAtTickSinglePosition",
+          "fixed_function_code": "function _getRequiredCollateralAtTickSinglePosition(\n        TokenId tokenId,\n        uint128 positionSize,\n        int24 atTick,\n        int16 poolUtilization,\n        bool underlyingIsToken0\n    ) internal view returns (uint256 tokenRequired, uint256 credits) {\n        uint256 numLegs = tokenId.countLegs();\n\n        unchecked {\n            for (uint256 index = 0; index < numLegs; ++index) {\n                // bypass the collateral calculation if tokenType doesn't match the requested token (underlyingIsToken0)\n                if (tokenId.tokenType(index) != (underlyingIsToken0 ? 0 : 1)) continue;\n\n                if (tokenId.width(index) == 0 && tokenId.isLong(index) == 1) {\n                    LeftRightUnsigned amountsMoved = PanopticMath.getAmountsMoved(\n                        tokenId,\n                        positionSize,\n                        index,\n                        false\n                    );\n                    // Accumulate credits instead of overwriting\n                    credits += tokenId.tokenType(index) == 0\n                        ? amountsMoved.rightSlot()\n                        : amountsMoved.leftSlot();\n                }\n                // Increment the tokenRequired accumulator\n                tokenRequired += _getRequiredCollateralSingleLeg(\n                    tokenId,\n                    index,\n                    positionSize,\n                    atTick,\n                    poolUtilization\n                );\n            }\n        }\n    }",
+          "reasoning": "The fix ensures that credits are accumulated across all qualifying legs, preventing undercounting of credits and ensuring accurate solvency evaluations. This prevents erroneous liquidations by correctly summing the credit contributions from each leg."
+        }
+      ],
+      "key_changes": [
+        "Changed credits assignment to accumulation using '+=' to sum contributions.",
+        "Ensured credits are calculated for each qualifying leg without overwriting.",
+        "Maintained existing logic for tokenRequired accumulation."
+      ],
+      "security_improvements": [
+        "Prevents erroneous liquidations by accurately calculating total credits.",
+        "Improves robustness of credit calculation logic for multi-leg positions."
+      ],
+      "additional_recommendations": "Add comprehensive unit tests to cover various multi-leg scenarios and ensure the function behaves correctly under different configurations.",
+      "confidence": 95,
+      "fix_code": "function _getRequiredCollateralAtTickSinglePosition(\n        TokenId tokenId,\n        uint128 positionSize,\n        int24 atTick,\n        int16 poolUtilization,\n        bool underlyingIsToken0\n    ) internal view returns (uint256 tokenRequired, uint256 credits) {\n        uint256 numLegs = tokenId.countLegs();\n\n        unchecked {\n            for (uint256 index = 0; index < numLegs; ++index) {\n                // bypass the collateral calculation if tokenType doesn't match the requested token (underlyingIsToken0)\n                if (tokenId.tokenType(index) != (underlyingIsToken0 ? 0 : 1)) continue;\n\n                if (tokenId.width(index) == 0 && tokenId.isLong(index) == 1) {\n                    LeftRightUnsigned amountsMoved = PanopticMath.getAmountsMoved(\n                        tokenId,\n                        positionSize,\n                        index,\n                        false\n                    );\n                    // Accumulate credits instead of overwriting\n                    credits += tokenId.tokenType(index) == 0\n                        ? amountsMoved.rightSlot()\n                        : amountsMoved.leftSlot();\n                }\n                // Increment the tokenRequired accumulator\n                tokenRequired += _getRequiredCollateralSingleLeg(\n                    tokenId,\n                    index,\n                    positionSize,\n                    atTick,\n                    poolUtilization\n                );\n            }\n        }\n    }",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:27:40.155687"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:27:40.155708",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

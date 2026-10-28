@@ -1,0 +1,143 @@
+{
+  "id": "61793",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/AladdinDAO/fx-protocol-contracts/blob/56a47eab8d10334e479df83a2b13a8b68ce390e9/contracts/core/PoolManager.sol#L688",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      688,
+      688
+    ],
+    [
+      688,
+      688
+    ],
+    [
+      386,
+      386
+    ],
+    [
+      416,
+      416
+    ]
+  ],
+  "filename": "61793_PoolManager.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 715,
+  "vulnerability_title": "Pool at Capacity Cannot Be Liquidated",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_changePoolCollateral",
+        "start_line": 684,
+        "end_line": 692,
+        "code": "  function _changePoolCollateral(address pool, int256 delta, int256 rawDelta) internal {\n    bytes32 data = poolInfo[pool].collateralData;\n    uint256 capacity = data.decodeUint(COLLATERAL_CAPACITY_OFFSET, COLLATERAL_DATA_BITS);\n    uint256 balance = uint256(int256(data.decodeUint(COLLATERAL_BALANCE_OFFSET, COLLATERAL_DATA_BITS)) + delta);\n    if (balance > capacity) revert ErrorCollateralExceedCapacity();\n    data = data.insertUint(balance, COLLATERAL_BALANCE_OFFSET, COLLATERAL_DATA_BITS);\n    balance = uint256(int256(data.decodeUint(RAW_COLLATERAL_BALANCE_OFFSET, RAW_COLLATERAL_DATA_BITS)) + rawDelta);\n    poolInfo[pool].collateralData = data.insertUint(balance, RAW_COLLATERAL_BALANCE_OFFSET, RAW_COLLATERAL_DATA_BITS);\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            688,
+            688
+          ],
+          [
+            688,
+            688
+          ]
+        ]
+      },
+      {
+        "function_name": "liquidate",
+        "start_line": 386,
+        "end_line": 423,
+        "code": "  function liquidate(\n    address pool,\n    address receiver,\n    uint256 maxFxUSD,\n    uint256 maxStable\n  )\n    external\n    onlyRegisteredPool(pool)\n    nonReentrant\n    whenNotPaused\n    onlyFxUSDSave\n    returns (uint256 colls, uint256 fxUSDUsed, uint256 stableUsed)\n  {\n    LiquidateOrRebalanceMemoryVar memory op = _beforeRebalanceOrLiquidate(pool);\n    {\n      IPool.LiquidateResult memory result;\n      uint256 reservedRawColls = IReservePool(reservePool).getBalance(op.collateralToken);\n      reservedRawColls = _scaleUp(reservedRawColls, op.scalingFactor);\n      result = IPool(pool).liquidate(maxFxUSD + _scaleUp(maxStable, op.stablePrice), reservedRawColls);\n      op.rawColls = result.rawColls + result.bonusRawColls;\n      op.bonusRawColls = result.bonusRawColls;\n      op.rawDebts = result.rawDebts;\n\n      // take bonus or shortfall from reserve pool\n      uint256 bonusFromReserve = result.bonusFromReserve;\n      if (bonusFromReserve > 0) {\n        bonusFromReserve = _scaleDown(result.bonusFromReserve, op.scalingFactor);\n        IReservePool(reservePool).requestBonus(IPool(pool).collateralToken(), address(this), bonusFromReserve);\n\n        // increase pool reserve first\n        _changePoolCollateral(pool, int256(bonusFromReserve), int256(result.bonusFromReserve));\n      }\n    }\n\n    (colls, fxUSDUsed, stableUsed) = _afterRebalanceOrLiquidate(pool, maxFxUSD, op, receiver);\n\n    emit Liquidate(pool, colls, fxUSDUsed, stableUsed);\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            386,
+            386
+          ],
+          [
+            416,
+            416
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:01:08.512789",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of exceeding pool capacity during liquidation, which is reflected in the code logic.",
+      "content_reasoning": "The content discusses the relevant functions and variables that are present in the code, specifically the `_changePoolCollateral` and `liquidate` functions.",
+      "functions_found": [
+        "_changePoolCollateral",
+        "liquidate"
+      ],
+      "variables_found": [
+        "poolInfo",
+        "reservePool"
+      ],
+      "patterns_found": [
+        "capacity check",
+        "liquidation process"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 85,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to reflect the nature of the vulnerability.",
+      "suggested_tag": "liquidation_capacity_issue",
+      "alternative_tags": [
+        "pool_management",
+        "collateral_management"
+      ],
+      "correction_explanation": "A tag related to liquidation and capacity issues is appropriate given the nature of the vulnerability."
+    },
+    "mando_classification": {
+      "primary_category": "arithmetic",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": true,
+      "reasoning": "The issue relates to arithmetic operations concerning capacity checks and collateral management, which fits the arithmetic category."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "C8"
+      ],
+      "confidence": 85,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue is primarily related to the business logic of the liquidation process and how collateral is managed, which is better captured by SCSVS categories.",
+      "vulnerability_type": "Liquidation process may fail due to capacity constraints."
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-04-26T00:29:56.756209",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

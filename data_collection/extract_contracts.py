@@ -21,6 +21,16 @@ FAILED_LOG = OUTPUT_DIR / "failed_extractions.log"
 SHARED_FILES_JSON = OUTPUT_DIR / "shared_github_files.json"
 FINDINGS_JSON = MARKDOWN_DIR / "batch_4_solodit_findings.json"
 
+
+def set_paths(markdown_dir: Path, output_dir: Path):
+    """Point the extractor at another batch; the findings JSON sits next to its markdown folder."""
+    global MARKDOWN_DIR, OUTPUT_DIR, TIER_1_DIR, TIER_2_DIR, TIER_3_DIR, STATS_FILE, FAILED_LOG, SHARED_FILES_JSON, FINDINGS_JSON
+    MARKDOWN_DIR, OUTPUT_DIR = Path(markdown_dir), Path(output_dir)
+    TIER_1_DIR, TIER_2_DIR, TIER_3_DIR = (OUTPUT_DIR / d for d in ("tier_1_complete", "tier_2_code_blocks", "tier_3_snippets"))
+    STATS_FILE, FAILED_LOG = OUTPUT_DIR / "extraction_stats.json", OUTPUT_DIR / "failed_extractions.log"
+    SHARED_FILES_JSON, FINDINGS_JSON = OUTPUT_DIR / "shared_github_files.json", MARKDOWN_DIR.with_suffix(".json")
+
+
 # GitHub API settings
 GITHUB_RAW_URL = "https://raw.githubusercontent.com"
 REQUEST_DELAY = 1.0  # Increased to avoid rate limits
@@ -139,7 +149,8 @@ class ContractExtractor:
         url = url.rstrip('.,;:>').lstrip('<')
         
         # Pattern: https://github.com/owner/repo/blob/branch/path/file.sol#L42-L58 or # L42-L58
-        pattern = r'github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+?)(?:#\s*L(\d+)(?:-L(\d+))?)?$'
+        # (a /tree/ URL that ends in a .sol file opens the same file)
+        pattern = r'github\.com/([^/]+)/([^/]+)/(?:blob|tree)/([^/]+)/(.+?)(?:#\s*L(\d+)(?:-L(\d+))?)?$'
         match = re.search(pattern, url)
         
         if not match:
@@ -1153,7 +1164,12 @@ def main():
         default=None,
         help="Only process markdown findings whose numeric ID is >= this value (e.g., 41922)",
     )
+    parser.add_argument("--markdown-dir", help="Batch markdown folder, e.g. downloaded_findings/batch_5_firm_findings")
+    parser.add_argument("--output-dir", help="Batch output folder, e.g. batch_5_extracted_contracts")
     args = parser.parse_args()
+    if args.markdown_dir or args.output_dir:
+        assert args.markdown_dir and args.output_dir, "give both --markdown-dir and --output-dir"
+        set_paths(args.markdown_dir, args.output_dir)
 
     extractor = ContractExtractor(start_from_id=args.start_from_id)
     extractor.run()

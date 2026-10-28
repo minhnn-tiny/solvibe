@@ -1,0 +1,160 @@
+{
+  "id": "64850",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/perps/modules/LiquidatorPanel.sol# L262-L266",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      262,
+      266
+    ],
+    [
+      185,
+      185
+    ]
+  ],
+  "filename": "64850_LiquidatorPanel.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 738,
+  "vulnerability_title": "[M-15] Loss for protocol by incorrectly assuming the position has been fully closed",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Either place FOK orders in case of backstop liquidation or check whether the `position.amount == 0` also before writing off the user\u2019s margin balance.\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "backstopLiquidate",
+        "start_line": 233,
+        "end_line": 296,
+        "code": "\n    function backstopLiquidate(bytes32 asset, address account, uint256 subaccount)\n        external\n        onlyBackstopLiquidator\n        onlyActiveProtocol\n    {\n        ClearingHouse storage clearingHouse = StorageLib.loadClearingHouse();\n\n        __InternalLiquidateCache__ memory cache = _liquidate({\n            clearingHouse: clearingHouse,\n            asset: asset,\n            account: account,\n            subaccount: subaccount,\n            bookType: BookType.BACKSTOP\n        });\n\n        int256 proratedMargin = cache.maintenanceOrProratedMargin.toInt256();\n\n        cache.margin -= proratedMargin;\n\n        proratedMargin += cache.positionResult.rpnl;\n\n        if (proratedMargin < 0) {\n            cache.margin += proratedMargin;\n            delete proratedMargin;\n        }\n\n        int256 fee = _settleBackstopLiquidation(clearingHouse, asset, proratedMargin.toUint256()).toInt256();\n\n        // realize bad debt if underwater and full close\n        if (cache.margin < 0 && cache.positions.length == 1) {\n            fee += cache.margin;\n            delete cache.margin;\n        }\n\n        _emitLiquidationEvent({\n            asset: asset,\n            account: account,\n            subaccount: subaccount,\n            side: cache.side,\n            quoteTraded: cache.fillResult.quoteTraded,\n            baseTraded: cache.fillResult.baseTraded,\n            rpnl: cache.positionResult.rpnl,\n            margin: cache.margin,\n            fee: fee,\n            liquidationType: LiquidationType.BACKSTOP_LIQUIDATEE\n        });\n\n        if (fee > 0) StorageLib.loadInsuranceFund().pay(fee.abs());\n        else StorageLib.loadInsuranceFund().claim(fee.abs());\n\n        StorageLib.loadCollateralManager().settleFill(account, subaccount, cache.margin, 0);\n\n        clearingHouse.updateAccount({\n            account: account,\n            subaccount: subaccount,\n            assets: cache.assets,\n            positions: cache.positions,\n            tradedAsset: asset,\n            positionIdx: cache.positionIdx,\n            oiDelta: cache.positionResult.oiDelta,\n            sideClose: cache.positionResult.sideClose\n        });\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            262,
+            266
+          ]
+        ]
+      },
+      {
+        "function_name": "liquidate",
+        "start_line": 160,
+        "end_line": 232,
+        "code": "\n    function liquidate(bytes32 asset, address account, uint256 subaccount) external onlyLiquidator onlyActiveProtocol {\n        ClearingHouse storage clearingHouse = StorageLib.loadClearingHouse();\n\n        __InternalLiquidateCache__ memory cache = _liquidate({\n            clearingHouse: clearingHouse,\n            asset: asset,\n            account: account,\n            subaccount: subaccount,\n            bookType: BookType.STANDARD\n        });\n\n        int256 fee = StorageLib.loadMarketSettings(asset).liquidationFeeRate.fullMulDiv(\n            cache.fillResult.quoteTraded, 1e18\n        ).toInt256();\n\n        // settle rpnl and fee on margin\n        cache.margin += cache.positionResult.rpnl - fee;\n\n        (cache.margin, cache.positionResult.marginDelta) = clearingHouse.rebalanceClose({\n            assets: cache.assets,\n            positions: cache.positions,\n            margin: cache.margin,\n            marginDelta: cache.positionResult.marginDelta\n        });\n\n        bool fullClose = cache.positions[cache.positionIdx].amount == 0 && cache.positions.length == 1;\n\n        // account close above water\n        if (fullClose && cache.positionResult.marginDelta < 0) {\n            // below maintenance margin\n            if (cache.positionResult.marginDelta.abs() < cache.maintenanceOrProratedMargin) {\n                fee -= cache.positionResult.marginDelta;\n                delete cache.positionResult.marginDelta;\n            }\n            // account close under water\n        } else if (fullClose && cache.margin < 0) {\n            fee += cache.margin;\n\n            delete cache.margin;\n        }\n\n        _emitLiquidationEvent({\n            asset: asset,\n            account: account,\n            subaccount: subaccount,\n            side: cache.side,\n            quoteTraded: cache.fillResult.quoteTraded,\n            baseTraded: cache.fillResult.baseTraded,\n            rpnl: cache.positionResult.rpnl,\n            margin: cache.margin,\n            fee: fee,\n            liquidationType: LiquidationType.LIQUIDATEE\n        });\n\n        if (fee > 0) StorageLib.loadInsuranceFund().pay(fee.abs());\n        else StorageLib.loadInsuranceFund().claim(fee.abs());\n\n        StorageLib.loadCollateralManager().settleFill(\n            account, subaccount, cache.margin, cache.positionResult.marginDelta\n        );\n\n        clearingHouse.updateAccount({\n            account: account,\n            subaccount: subaccount,\n            assets: cache.assets,\n            positions: cache.positions,\n            tradedAsset: asset,\n            positionIdx: cache.positionIdx,\n            oiDelta: cache.positionResult.oiDelta,\n            sideClose: cache.positionResult.sideClose\n        });\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            185,
+            185
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:02.087342",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of incorrectly assuming a position is fully closed, leading to potential loss for the protocol.",
+      "content_reasoning": "The code snippet includes the `backstopLiquidate()` function and the logic that fails to check if the position is fully closed before writing off the margin balance.",
+      "functions_found": [
+        "backstopLiquidate"
+      ],
+      "variables_found": [
+        "cache.margin",
+        "cache.positions"
+      ],
+      "patterns_found": [
+        "incorrect assumption of full position closure"
+      ],
+      "issues": [
+        "Incomplete check for full position closure"
+      ]
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged to reflect the business logic issue.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "liquidation_issue"
+      ],
+      "correction_explanation": "The issue is primarily related to business logic, as it involves incorrect assumptions about position closure leading to financial loss."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 70,
+      "mando_applicable": false,
+      "reasoning": "The issue does not fit well into any of the MANDO categories, as it is primarily a business logic flaw rather than a technical vulnerability like access control or arithmetic errors."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is a business logic issue where the protocol incorrectly assumes a position is fully closed, leading to potential financial loss.",
+      "vulnerability_type": "Incorrect assumption of position closure leading to financial loss"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves checking if the position amount is zero before writing off the margin balance, ensuring that the position is fully closed.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "backstopLiquidate",
+          "fixed_function_code": "function backstopLiquidate(bytes32 asset, address account, uint256 subaccount)\n        external\n        onlyBackstopLiquidator\n        onlyActiveProtocol\n    {\n        ClearingHouse storage clearingHouse = StorageLib.loadClearingHouse();\n\n        __InternalLiquidateCache__ memory cache = _liquidate({\n            clearingHouse: clearingHouse,\n            asset: asset,\n            account: account,\n            subaccount: subaccount,\n            bookType: BookType.BACKSTOP\n        });\n\n        int256 proratedMargin = cache.maintenanceOrProratedMargin.toInt256();\n\n        cache.margin -= proratedMargin;\n\n        proratedMargin += cache.positionResult.rpnl;\n\n        if (proratedMargin < 0) {\n            cache.margin += proratedMargin;\n            delete proratedMargin;\n        }\n\n        int256 fee = _settleBackstopLiquidation(clearingHouse, asset, proratedMargin.toUint256()).toInt256();\n\n        // Check if the position is fully closed before realizing bad debt\n        if (cache.margin < 0 && cache.positions[cache.positionIdx].amount == 0 && cache.positions.length == 1) {\n            fee += cache.margin;\n            delete cache.margin;\n        }\n\n        _emitLiquidationEvent({\n            asset: asset,\n            account: account,\n            subaccount: subaccount,\n            side: cache.side,\n            quoteTraded: cache.fillResult.quoteTraded,\n            baseTraded: cache.fillResult.baseTraded,\n            rpnl: cache.positionResult.rpnl,\n            margin: cache.margin,\n            fee: fee,\n            liquidationType: LiquidationType.BACKSTOP_LIQUIDATEE\n        });\n\n        if (fee > 0) StorageLib.loadInsuranceFund().pay(fee.abs());\n        else StorageLib.loadInsuranceFund().claim(fee.abs());\n\n        StorageLib.loadCollateralManager().settleFill(account, subaccount, cache.margin, 0);\n\n        clearingHouse.updateAccount({\n            account: account,\n            subaccount: subaccount,\n            assets: cache.assets,\n            positions: cache.positions,\n            tradedAsset: asset,\n            positionIdx: cache.positionIdx,\n            oiDelta: cache.positionResult.oiDelta,\n            sideClose: cache.positionResult.sideClose\n        });\n    }",
+          "reasoning": "This fix ensures that the margin is only written off if the position is fully closed by checking if the position amount is zero. This prevents the protocol from incurring unnecessary losses."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "liquidate",
+          "fixed_function_code": "function liquidate(bytes32 asset, address account, uint256 subaccount) external onlyLiquidator onlyActiveProtocol {\n        ClearingHouse storage clearingHouse = StorageLib.loadClearingHouse();\n\n        __InternalLiquidateCache__ memory cache = _liquidate({\n            clearingHouse: clearingHouse,\n            asset: asset,\n            account: account,\n            subaccount: subaccount,\n            bookType: BookType.STANDARD\n        });\n\n        int256 fee = StorageLib.loadMarketSettings(asset).liquidationFeeRate.fullMulDiv(\n            cache.fillResult.quoteTraded, 1e18\n        ).toInt256();\n\n        // settle rpnl and fee on margin\n        cache.margin += cache.positionResult.rpnl - fee;\n\n        (cache.margin, cache.positionResult.marginDelta) = clearingHouse.rebalanceClose({\n            assets: cache.assets,\n            positions: cache.positions,\n            margin: cache.margin,\n            marginDelta: cache.positionResult.marginDelta\n        });\n\n        bool fullClose = cache.positions[cache.positionIdx].amount == 0 && cache.positions.length == 1;\n\n        // account close above water\n        if (fullClose && cache.positionResult.marginDelta < 0) {\n            // below maintenance margin\n            if (cache.positionResult.marginDelta.abs() < cache.maintenanceOrProratedMargin) {\n                fee -= cache.positionResult.marginDelta;\n                delete cache.positionResult.marginDelta;\n            }\n            // account close under water\n        } else if (fullClose && cache.margin < 0) {\n            fee += cache.margin;\n\n            delete cache.margin;\n        }\n\n        _emitLiquidationEvent({\n            asset: asset,\n            account: account,\n            subaccount: subaccount,\n            side: cache.side,\n            quoteTraded: cache.fillResult.quoteTraded,\n            baseTraded: cache.fillResult.baseTraded,\n            rpnl: cache.positionResult.rpnl,\n            margin: cache.margin,\n            fee: fee,\n            liquidationType: LiquidationType.LIQUIDATEE\n        });\n\n        if (fee > 0) StorageLib.loadInsuranceFund().pay(fee.abs());\n        else StorageLib.loadInsuranceFund().claim(fee.abs());\n\n        StorageLib.loadCollateralManager().settleFill(\n            account, subaccount, cache.margin, cache.positionResult.marginDelta\n        );\n\n        clearingHouse.updateAccount({\n            account: account,\n            subaccount: subaccount,\n            assets: cache.assets,\n            positions: cache.positions,\n            tradedAsset: asset,\n            positionIdx: cache.positionIdx,\n            oiDelta: cache.positionResult.oiDelta,\n            sideClose: cache.positionResult.sideClose\n        });\n    }",
+          "reasoning": "The fix ensures that the margin is only written off if the position is fully closed by checking if the position amount is zero. This prevents the protocol from incurring unnecessary losses."
+        }
+      ],
+      "key_changes": [
+        "Added check for position amount being zero before writing off margin.",
+        "Ensured full closure of position before realizing bad debt.",
+        "Preserved original function signatures and logic flow."
+      ],
+      "security_improvements": [
+        "Prevents financial loss by ensuring positions are fully closed before margin write-off.",
+        "Improves protocol stability by avoiding unnecessary margin deductions.",
+        "Enhances clarity and correctness of liquidation logic."
+      ],
+      "additional_recommendations": "Consider implementing FOK orders for backstop liquidations to ensure full position closure.",
+      "confidence": 95,
+      "fix_code": "function backstopLiquidate(bytes32 asset, address account, uint256 subaccount)\n        external\n        onlyBackstopLiquidator\n        onlyActiveProtocol\n    {\n        ClearingHouse storage clearingHouse = StorageLib.loadClearingHouse();\n\n        __InternalLiquidateCache__ memory cache = _liquidate({\n            clearingHouse: clearingHouse,\n            asset: asset,\n            account: account,\n            subaccount: subaccount,\n            bookType: BookType.BACKSTOP\n        });\n\n        int256 proratedMargin = cache.maintenanceOrProratedMargin.toInt256();\n\n        cache.margin -= proratedMargin;\n\n        proratedMargin += cache.positionResult.rpnl;\n\n        if (proratedMargin < 0) {\n            cache.margin += proratedMargin;\n            delete proratedMargin;\n        }\n\n        int256 fee = _settleBackstopLiquidation(clearingHouse, asset, proratedMargin.toUint256()).toInt256();\n\n        // Check if the position is fully closed before realizing bad debt\n        if (cache.margin < 0 && cache.positions[cache.positionIdx].amount == 0 && cache.positions.length == 1) {\n            fee += cache.margin;\n            delete cache.margin;\n        }\n\n        _emitLiquidationEvent({\n            asset: asset,\n            account: account,\n            subaccount: subaccount,\n            side: cache.side,\n            quoteTraded: cache.fillResult.quoteTraded,\n            baseTraded: cache.fillResult.baseTraded,\n            rpnl: cache.positionResult.rpnl,\n            margin: cache.margin,\n            fee: fee,\n            liquidationType: LiquidationType.BACKSTOP_LIQUIDATEE\n        });\n\n        if (fee > 0) StorageLib.loadInsuranceFund().pay(fee.abs());\n        else StorageLib.loadInsuranceFund().claim(fee.abs());\n\n        StorageLib.loadCollateralManager().settleFill(account, subaccount, cache.margin, 0);\n\n        clearingHouse.updateAccount({\n            account: account,\n            subaccount: subaccount,\n            assets: cache.assets,\n            positions: cache.positions,\n            tradedAsset: asset,\n            positionIdx: cache.positionIdx,\n            oiDelta: cache.positionResult.oiDelta,\n            sideClose: cache.positionResult.sideClose\n        });\n    }\n\nfunction liquidate(bytes32 asset, address account, uint256 subaccount) external onlyLiquidator onlyActiveProtocol {\n        ClearingHouse storage clearingHouse = StorageLib.loadClearingHouse();\n\n        __InternalLiquidateCache__ memory cache = _liquidate({\n            clearingHouse: clearingHouse,\n            asset: asset,\n            account: account,\n            subaccount: subaccount,\n            bookType: BookType.STANDARD\n        });\n\n        int256 fee = StorageLib.loadMarketSettings(asset).liquidationFeeRate.fullMulDiv(\n            cache.fillResult.quoteTraded, 1e18\n        ).toInt256();\n\n        // settle rpnl and fee on margin\n        cache.margin += cache.positionResult.rpnl - fee;\n\n        (cache.margin, cache.positionResult.marginDelta) = clearingHouse.rebalanceClose({\n            assets: cache.assets,\n            positions: cache.positions,\n            margin: cache.margin,\n            marginDelta: cache.positionResult.marginDelta\n        });\n\n        bool fullClose = cache.positions[cache.positionIdx].amount == 0 && cache.positions.length == 1;\n\n        // account close above water\n        if (fullClose && cache.positionResult.marginDelta < 0) {\n            // below maintenance margin\n            if (cache.positionResult.marginDelta.abs() < cache.maintenanceOrProratedMargin) {\n                fee -= cache.positionResult.marginDelta;\n                delete cache.positionResult.marginDelta;\n            }\n            // account close under water\n        } else if (fullClose && cache.margin < 0) {\n            fee += cache.margin;\n\n            delete cache.margin;\n        }\n\n        _emitLiquidationEvent({\n            asset: asset,\n            account: account,\n            subaccount: subaccount,\n            side: cache.side,\n            quoteTraded: cache.fillResult.quoteTraded,\n            baseTraded: cache.fillResult.baseTraded,\n            rpnl: cache.positionResult.rpnl,\n            margin: cache.margin,\n            fee: fee,\n            liquidationType: LiquidationType.LIQUIDATEE\n        });\n\n        if (fee > 0) StorageLib.loadInsuranceFund().pay(fee.abs());\n        else StorageLib.loadInsuranceFund().claim(fee.abs());\n\n        StorageLib.loadCollateralManager().settleFill(\n            account, subaccount, cache.margin, cache.positionResult.marginDelta\n        );\n\n        clearingHouse.updateAccount({\n            account: account,\n            subaccount: subaccount,\n            assets: cache.assets,\n            positions: cache.positions,\n            tradedAsset: asset,\n            positionIdx: cache.positionIdx,\n            oiDelta: cache.positionResult.oiDelta,\n            sideClose: cache.positionResult.sideClose\n        });\n    }",
+      "expected_fixed_blocks": 2,
+      "returned_fixed_blocks": 2,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:26:18.754428"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:26:18.754453",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

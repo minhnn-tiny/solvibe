@@ -1,0 +1,153 @@
+{
+  "id": "63048",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/pendle-finance/pendle-core-v2-public/blob/46d13ce4168e8c5ad9e5641dd6380fea69e48490/contracts/interfaces/IStandardizedYield.sol#L87",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      87,
+      87
+    ],
+    [
+      45,
+      45
+    ]
+  ],
+  "filename": "63048_IStandardizedYield.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 167,
+  "vulnerability_title": "M-2: Incorrect assumption that one (1) Pendle SY token equals one (1) Yield Token in oracle pricing",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "_No response_",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "_No response_",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "redeem",
+        "start_line": 87,
+        "end_line": 110,
+        "code": "    function redeem(\n        address receiver,\n        uint256 amountSharesToRedeem,\n        address tokenOut,\n        uint256 minTokenOut,\n        bool burnFromInternalBalance\n    ) external returns (uint256 amountTokenOut);\n\n    /**\n     * @notice exchangeRate * syBalance / 1e18 must return the asset balance of the account\n     * @notice vice-versa, if a user uses some amount of tokens equivalent to X asset, the amount of sy\n     he can mint must be X * exchangeRate / 1e18\n     * @dev SYUtils's assetToSy & syToAsset should be used instead of raw multiplication\n     & division\n     */\n    function exchangeRate() external view returns (uint256 res);\n\n    /**\n     * @notice claims reward for (`user`)\n     * @param user the user receiving their rewards\n     * @return rewardAmounts an array of reward amounts in the same order as `getRewardTokens`\n     * @dev\n     * Emits a `ClaimRewards` event\n     * See {getRewardTokens} for list of reward tokens",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            87,
+            87
+          ]
+        ]
+      },
+      {
+        "code": "        address indexed caller,\n        address indexed receiver,\n        address indexed tokenIn,\n        uint256 amountDeposited,\n        uint256 amountSyOut\n    );\n\n    /// @dev Emitted when any shares are redeemed for base tokens\n    event Redeem(\n        address indexed caller,\n        address indexed receiver,\n        address indexed tokenOut,\n        uint256 amountSyToRedeem,\n        uint256 amountTokenOut\n    );\n\n    /// @dev check `assetInfo()` for more information\n    enum AssetType {\n        TOKEN,\n        LIQUIDITY\n    }\n\n    /// @dev Emitted when (`user`) claims their rewards\n    event ClaimRewards(address indexed user, address[] rewardTokens, uint256[] rewardAmounts);\n\n    /**\n     * @notice mints an amount of shares by depositing a base token.\n     * @param receiver shares recipient address\n     * @param tokenIn address of the base tokens to mint shares\n     * @param amountTokenToDeposit amount of base tokens to be transferred from (`msg.sender`)\n     * @param minSharesOut reverts if amount of shares minted is lower than this",
+        "start_line": 45,
+        "end_line": 45,
+        "context_start_line": 30,
+        "context_end_line": 60,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:05:34.009962",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the systemic mispricing issue due to the hardcoded assumption in the pricing formula.",
+      "content_reasoning": "The content mentions the relevant functions and variables that are present in the extracted code, specifically the `redeem` and `exchangeRate` functions.",
+      "functions_found": [
+        "redeem",
+        "exchangeRate"
+      ],
+      "variables_found": [],
+      "patterns_found": [
+        "hardcoded pricing assumption",
+        "oracle mispricing"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 85,
+      "reasoning": "The report lacks a tag that reflects the nature of the vulnerability, which is related to oracle pricing and business logic.",
+      "suggested_tag": "oracle_pricing_issue",
+      "alternative_tags": [
+        "business_logic_error"
+      ],
+      "correction_explanation": "A tag related to oracle pricing issues is necessary to highlight the specific nature of the vulnerability."
+    },
+    "mando_classification": {
+      "primary_category": "G7",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability involves a mathematical operation that leads to systemic mispricing, which fits under arithmetic issues."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "C3"
+      ],
+      "confidence": 85,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue is primarily related to the business logic of the oracle pricing mechanism, and it also involves components related to oracles.",
+      "vulnerability_type": "Systemic mispricing due to incorrect assumptions in oracle pricing"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Updated the pricing mechanism to use actual market prices instead of a hardcoded assumption.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "redeem",
+          "fixed_function_code": "function redeem(\n        address receiver,\n        uint256 amountSharesToRedeem,\n        address tokenOut,\n        uint256 minTokenOut,\n        bool burnFromInternalBalance\n    ) external returns (uint256 amountTokenOut) {\n        // Calculate the actual exchange rate using market data\n        uint256 actualExchangeRate = getMarketPrice(tokenOut);\n        uint256 syBalance = getSyBalance(receiver);\n        amountTokenOut = (actualExchangeRate * syBalance) / 1e18;\n        require(amountTokenOut >= minTokenOut, \"Insufficient output amount\");\n        // Proceed with redeeming shares\n        // ... (rest of the redeem logic)\n    }",
+          "reasoning": "This function now calculates the amount of tokens to redeem based on the actual market price of the SY token, preventing mispricing and potential financial losses."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "exchangeRate",
+          "fixed_function_code": "function exchangeRate() external view returns (uint256 res) {\n        // Use the market price to determine the exchange rate\n        uint256 marketPrice = getMarketPrice();\n        uint256 syBalance = getSyBalance(msg.sender);\n        res = (marketPrice * syBalance) / 1e18;\n    }",
+          "reasoning": "This function now retrieves the market price to calculate the exchange rate, ensuring that the value of SY tokens reflects real market conditions."
+        }
+      ],
+      "key_changes": [
+        "Replaced hardcoded pricing assumptions with actual market price retrieval.",
+        "Implemented checks to ensure that the redeemed amount meets the minimum output requirement.",
+        "Updated the exchange rate calculation to reflect current market conditions."
+      ],
+      "security_improvements": [
+        "Reduced risk of liquidation reverts by aligning token values with market prices.",
+        "Enhanced user trust by ensuring that the redeem process is based on accurate pricing."
+      ],
+      "additional_recommendations": "Regularly audit the market price retrieval mechanism to ensure it remains secure and accurate.",
+      "confidence": 90,
+      "fix_code": "function redeem(\n        address receiver,\n        uint256 amountSharesToRedeem,\n        address tokenOut,\n        uint256 minTokenOut,\n        bool burnFromInternalBalance\n    ) external returns (uint256 amountTokenOut) {\n        // Calculate the actual exchange rate using market data\n        uint256 actualExchangeRate = getMarketPrice(tokenOut);\n        uint256 syBalance = getSyBalance(receiver);\n        amountTokenOut = (actualExchangeRate * syBalance) / 1e18;\n        require(amountTokenOut >= minTokenOut, \"Insufficient output amount\");\n        // Proceed with redeeming shares\n        // ... (rest of the redeem logic)\n    }\n\nfunction exchangeRate() external view returns (uint256 res) {\n        // Use the market price to determine the exchange rate\n        uint256 marketPrice = getMarketPrice();\n        uint256 syBalance = getSyBalance(msg.sender);\n        res = (marketPrice * syBalance) / 1e18;\n    }",
+      "expected_fixed_blocks": 2,
+      "returned_fixed_blocks": 2,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-04-25T05:01:00.196588"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-25T05:01:00.196610",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

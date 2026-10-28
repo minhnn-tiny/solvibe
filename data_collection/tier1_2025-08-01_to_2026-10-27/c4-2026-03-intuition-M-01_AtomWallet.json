@@ -1,0 +1,91 @@
+{
+  "id": "c4-2026-03-intuition-M-01",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2026-03-intuition/blob/314b7d4d9ccbaf27e4484a6c0706af83d3f75f36/src/protocol/wallet/AtomWallet.sol#L285",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      285,
+      285
+    ]
+  ],
+  "filename": "c4-2026-03-intuition-M-01_AtomWallet.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 382,
+  "vulnerability_title": "[M-01] Unsigned validity window metadata",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "[View Detailed Proof of Concept](https://code4rena.com/audits/2026-03-intuition/submissions?uid=dTbp2RYA85M)",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_validateSignature",
+        "start_line": 285,
+        "end_line": 311,
+        "code": "    function _validateSignature(\n        PackedUserOperation calldata userOp,\n        bytes32 userOpHash\n    )\n        internal\n        virtual\n        override\n        returns (uint256 validationData)\n    {\n        (uint48 validUntil, uint48 validAfter, bytes memory signature) =\n            _extractValidUntilAndValidAfterFromSignature(userOp.signature);\n\n        bytes32 hash = keccak256(abi.encodePacked(\"\\x19Ethereum Signed Message:\\n32\", userOpHash));\n\n        (address recovered, ECDSA.RecoverError recoverError, bytes32 errorArg) = ECDSA.tryRecover(hash, signature);\n\n        if (recoverError == ECDSA.RecoverError.InvalidSignatureLength) {\n            revert AtomWallet_InvalidSignatureLength(uint256(errorArg));\n        } else if (recoverError == ECDSA.RecoverError.InvalidSignatureS) {\n            revert AtomWallet_InvalidSignatureS(errorArg);\n        } else if (recoverError == ECDSA.RecoverError.InvalidSignature) {\n            return _packValidationData(true, validUntil, validAfter);\n        }\n\n        bool sigFailed = recovered != owner();\n        return _packValidationData(sigFailed, validUntil, validAfter);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            285,
+            285
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:43:46.006644",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 96,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "_validateSignature takes validUntil and validAfter from the last 12 bytes of the signature but recovers the signer from the EIP-191 hash of userOpHash only. The time window is therefore not signed, and a relayer can change it without breaking the signature.",
+      "functions_found": [
+        "_validateSignature",
+        "_extractValidUntilAndValidAfterFromSignature",
+        "owner"
+      ],
+      "variables_found": [
+        "validUntil",
+        "validAfter",
+        "userOpHash",
+        "userOp.signature"
+      ],
+      "patterns_found": [
+        "validUntil and validAfter read from the trailing 12 bytes of the signature",
+        "signed hash covers only userOpHash, which does not include the time window"
+      ],
+      "issues": [
+        "A plain 65-byte signature is also accepted and gives validUntil = 0 and validAfter = 0, so a relayer can also strip the window completely."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "mando_applicable": true
+    },
+    "scsvs_classification": {
+      "primary_category": "G5",
+      "primary_category_name": "Access control",
+      "vulnerability_type": "signature validity window not covered by the signed hash"
+    },
+    "fix_code_source": "none"
+  }
+}

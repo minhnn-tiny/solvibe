@@ -1,0 +1,87 @@
+{
+  "id": "c4-2026-01-olas-M-08",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/valory-xyz/autonolas-registries/blob/be1057a5e37f17f26b13c41311fe0e8e40259484/contracts/staking/StakingBase.sol#L669-L693",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      669,
+      693
+    ]
+  ],
+  "filename": "c4-2026-01-olas-M-08_StakingBase.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 1222,
+  "vulnerability_title": "[M-08] Incorrect proportional reward splits when an operator has been slashed",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Update `_getRewardReceiversAndAmounts` so that when the distribution type is `Proportional`, the function queries the actual bond amounts for each operator. Operators with reduced or zero bonds (due to slashing) should receive proportionally less or no rewards. This ensures accurate and fair distribution.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_getRewardReceiversAndAmounts",
+        "start_line": 657,
+        "end_line": 735,
+        "code": "    function _getRewardReceiversAndAmounts(\n        uint256 serviceId,\n        address serviceOwner,\n        address multisig,\n        uint256 reward,\n        uint256 rewardDistributionInfo\n    ) internal view virtual returns (address[] memory receivers, uint256[] memory amounts) {\n        // Get reward distribution info: rewardDistributionType and customRewardsDistributor address, if required\n        // rewardDistributionType is extracted from first 8 bits\n        RewardDistributionType rewardDistributionType = RewardDistributionType(uint8(rewardDistributionInfo));\n\n        // Check reward distribution type\n        if (rewardDistributionType == RewardDistributionType.Proportional) {\n            // Get service agent instances\n            (uint256 numInstances, address[] memory agentInstances) = IService(serviceRegistry).getAgentInstances(serviceId);\n\n            // Total number of receivers: 1 (serviceOwner) + numInstances (number of operators)\n            uint256 totalNumReceivers = numInstances + 1;\n\n            // Allocate arrays\n            receivers = new address[](totalNumReceivers);\n            amounts = new uint256[](totalNumReceivers);\n\n            // Default setup implies that all bonds are equal\n            // Get each operator reward\n            uint256 operatorReward = reward / (totalNumReceivers);\n\n            // Get corresponding operators and set operators reward amounts\n            for (uint256 i = 0; i < numInstances; ++i) {\n                receivers[i] = IService(serviceRegistry).mapAgentInstanceOperators(agentInstances[i]);\n                amounts[i] = operatorReward;\n            }\n\n            // Set service owner address and its reward amount\n            receivers[numInstances] = serviceOwner;\n            // Service owner gets its reward amount and a division remainder, if any\n            amounts[numInstances] = reward - (numInstances * operatorReward);\n        } else if (rewardDistributionType == RewardDistributionType.ServiceOwner) {\n            // Allocate arrays\n            receivers = new address[](1);\n            amounts = new uint256[](1);\n\n            // Set service owner address and its reward amount\n            receivers[0] = serviceOwner;\n            amounts[0] = reward;\n        } else if (rewardDistributionType == RewardDistributionType.ServiceMultisig) {\n            // Allocate arrays\n            receivers = new address[](1);\n            amounts = new uint256[](1);\n\n            // Set service owner address and its reward amount\n            receivers[0] = multisig;\n            amounts[0] = reward;\n        } else {\n            // Custom rewards distributor address: shift rewardDistributionType value of 8 bits\n            // Note this address was already checked for not being zero\n            address customRewardsDistributor = address(uint160(rewardDistributionInfo >> 8));\n\n            // Get receivers and amounts from external customRewardsDistributor contract\n            (receivers, amounts) = ICustomRewardsDistributor(customRewardsDistributor).getRewardReceiversAndAmounts(serviceId,\n                serviceOwner, multisig, reward);\n\n            // Check for correct array lengths\n            if (receivers.length == 0 || receivers.length != amounts.length) {\n                revert WrongArrayLength(receivers.length, amounts.length);\n            }\n\n            // Sum all calculated amounts\n            uint256 amountCheck;\n            for (uint256 i = 0; i < amounts.length; ++i) {\n                amountCheck += amounts[i];\n            }\n\n            // Check for reward amount to match total calculated amount\n            if (amountCheck != reward) {\n                revert WrongAmount(amountCheck, reward);\n            }\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            669,
+            693
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:43:23.123609",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 92,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "For the Proportional type, _getRewardReceiversAndAmounts gives every operator the same share: the reward divided by the number of instances plus one. It never reads the operators' current bonds, so an operator slashed to zero still gets a full share.",
+      "functions_found": [
+        "_getRewardReceiversAndAmounts"
+      ],
+      "variables_found": [
+        "operatorReward",
+        "rewardDistributionType",
+        "agentInstances"
+      ],
+      "patterns_found": [
+        "equal reward split that assumes equal bonds and ignores slashing"
+      ],
+      "issues": [
+        "ServiceRegistry::slash is in another file; the split logic is in this file."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": null,
+      "mando_applicable": false
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "vulnerability_type": "proportional rewards ignore slashed operator bonds"
+    },
+    "fix_code_source": "none"
+  }
+}

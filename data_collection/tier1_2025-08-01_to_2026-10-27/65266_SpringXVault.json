@@ -1,0 +1,127 @@
+{
+  "id": "65266",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/TheOfficialSpringX/ContractAudits/blob/83b86d28af5264e6046eed8552a4a8ea9f36dc8d/vaults/SpringXVault.sol#L116-L134",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      116,
+      134
+    ],
+    [
+      35,
+      38
+    ]
+  ],
+  "filename": "65266_SpringXVault.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 353,
+  "vulnerability_title": "[M-01] Raw `IERC20.approve()` in `setVaultStrategy()` is Incompatible with USDT0",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Replace the two raw `IERC20.approve()` calls with `TransferTokenHelper.safeTokenApprove()` in `SpringXVault.setVaultStrategy()`:\n\n```diff\n-IERC20(assets).approve(address(_strategy), 0);\n-IERC20(assets).approve(address(_strategy), type(uint256).max);\n\n+TransferTokenHelper.safeTokenApprove(address(assets), address(_strategy), 0);\n+TransferTokenHelper.safeTokenApprove(address(assets), address(_strategy), type(uint256).max);\n```\n\nAdditionally, harden `safeTokenApprove()` itself to enforce the zero-first reset internally so no caller can skip it:\n\n```diff\n function safeTokenApprove(address token, address to, uint value) internal {\n+    if (value != 0) {\n+        (bool s, bytes memory d) = token.call(abi.encodeCall(IERC20.approve, (to, 0)));\n+        require(s && (d.length == 0 || abi.decode(d, (bool))), 'TransferTokenHelper -> safeTokenApprove: Reset FAILED');\n+    }\n     (bool success, bytes memory data) = token.call(abi.encodeCall(IERC20.approve, (to, value)));\n     require(success && (data.length == 0 || abi.decode(data, (bool))), 'TransferTokenHelper -> safeTokenApprove: Approve Token FAILED');\n }\n```\n\nAlternatively, use OpenZeppelin's `SafeERC20.forceApprove()`, which is already used in `SpringXPointFixedAPYFarm` and handles both the zero-first reset and non-bool-returning tokens.",
+    "fix_code_blocks": [
+      "-IERC20(assets).approve(address(_strategy), 0);\n-IERC20(assets).approve(address(_strategy), type(uint256).max);\n\n+TransferTokenHelper.safeTokenApprove(address(assets), address(_strategy), 0);\n+TransferTokenHelper.safeTokenApprove(address(assets), address(_strategy), type(uint256).max);",
+      "function safeTokenApprove(address token, address to, uint value) internal {\n+    if (value != 0) {\n+        (bool s, bytes memory d) = token.call(abi.encodeCall(IERC20.approve, (to, 0)));\n+        require(s && (d.length == 0 || abi.decode(d, (bool))), 'TransferTokenHelper -> safeTokenApprove: Reset FAILED');\n+    }\n     (bool success, bytes memory data) = token.call(abi.encodeCall(IERC20.approve, (to, value)));\n     require(success && (data.length == 0 || abi.decode(data, (bool))), 'TransferTokenHelper -> safeTokenApprove: Approve Token FAILED');\n }"
+    ]
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "1. Deploy `SpringXVault` with `assets = USDT0`.\n2. Owner calls `setVaultStrategy(strategyAddress)`.\n3. Execution reaches `IERC20(assets).approve(address(_strategy), 0)`.\n4. USDT0's `approve()` executes but returns no data.\n5. Solidity's ABI decoder attempts to read a `bool` from empty return data \u2192 reverts.\n6. `setVaultStrategy()` is permanently uncallable for this vault.",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "setVaultStrategy",
+        "start_line": 116,
+        "end_line": 134,
+        "code": "    function setVaultStrategy(IStrategy _strategy) external onlyOwner {\n        strategy = _strategy;\n\n        if (address(_strategy) != address(0)) {\n            if (address(assets) != nativeAddress) {\n                // Reset approval to 0 first (required by some tokens like USDT),\n                // then approve max amount for the strategy to pull tokens.\n                IERC20(assets).approve(address(_strategy), 0);\n                IERC20(assets).approve(address(_strategy), type(uint256).max);\n                // Transfer all existing vault ERC20 balance to the new strategy.\n                transferERC20ToStrategy();\n            } else {\n                // Transfer all existing native currency to the new strategy.\n                transferNativeToStrategy();\n            }\n        }\n\n        emit SetVaultStrategy(address(_strategy));\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            116,
+            134
+          ]
+        ]
+      },
+      {
+        "code": "    // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n    //  Data Structures\n    // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n    /// @dev Tracks the total amount of underlying tokens deposited by each user.\n    ///      Used for balance accounting on withdrawals.\n    struct VaultUserInfo {\n        uint256 amount;\n    }\n\n    // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n    //  State Variables\n    // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n    /// @notice The yield strategy contract that this vault delegates funds to.\n    /// @dev Can be address(0) if no strategy is attached \u2014 vault simply holds funds.\n    IStrategy public strategy;\n\n    /// @notice The ERC20 token that this vault accepts as deposits.\n    /// @dev If this equals `nativeAddress`, the vault operates in native currency mode.\n    IERC20 public assets;\n\n    /// @notice The total amount of assets deposited across all users.\n    /// @dev Maintained independently from actual token balance to track user deposits accurately.\n    uint256 public totalAssets;\n\n    /// @notice The mainChef contract address \u2014 the only address allowed to call deposit/withdraw.\n    /// @dev Acts as an access control gateway between end users and the vault.\n    address public mainChef;\n\n    /// @notice A sentinel address used to identify native currency (e.g., ETH) operations.\n    /// @dev When `address(assets) == nativeAddress`, the vault uses msg.value and native transfers\n    ///      instead of ERC20 transfer calls.\n    address public nativeAddress;",
+        "start_line": 35,
+        "end_line": 38,
+        "context_start_line": 20,
+        "context_end_line": 53,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T16:58:30.970020",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue with the raw `IERC20.approve()` calls and their impact on USDT0, which is reflected in the code.",
+      "content_reasoning": "The content mentions the `setVaultStrategy()` function and the `IERC20.approve()` calls, which are present in the extracted code.",
+      "functions_found": [
+        "setVaultStrategy",
+        "safeTokenApprove"
+      ],
+      "variables_found": [
+        "strategy",
+        "assets"
+      ],
+      "patterns_found": [
+        "raw IERC20.approve() usage",
+        "non-bool-returning token issue"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 90,
+      "reasoning": "The report describes a specific vulnerability related to token approval, which should be tagged appropriately.",
+      "suggested_tag": "token_approval_issue",
+      "alternative_tags": [
+        "ERC20_vulnerability"
+      ],
+      "correction_explanation": "A tag indicating a token approval issue is necessary to highlight the specific vulnerability related to the use of `IERC20.approve()`."
+    },
+    "mando_classification": {
+      "primary_category": "unchecked_low_level_calls",
+      "secondary_categories": [
+        "denial_of_service"
+      ],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The issue relates to unchecked low-level calls to `IERC20.approve()`, which can lead to denial of service for USDT0 vaults."
+    },
+    "scsvs_classification": {
+      "primary_category": "C1",
+      "primary_category_name": "Token",
+      "secondary_categories": [
+        "G4",
+        "I1"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is specifically related to token approval logic and its impact on business logic and integration, making SCSVS categories more appropriate.",
+      "vulnerability_type": "Denial of service due to improper token approval handling"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-04-16T17:13:06.024840",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

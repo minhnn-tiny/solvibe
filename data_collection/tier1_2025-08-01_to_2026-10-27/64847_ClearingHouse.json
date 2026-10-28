@@ -1,0 +1,108 @@
+{
+  "id": "64847",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/perps/types/ClearingHouse.sol# L108-L144",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      108,
+      144
+    ]
+  ],
+  "filename": "64847_ClearingHouse.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 786,
+  "vulnerability_title": "[M-12] Perps - GTL post-only orders skew totalAssets accounting, minting excessive shares and rendering the GTL vault insolvent",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "placeOrder",
+        "start_line": 107,
+        "end_line": 144,
+        "code": "\n    function placeOrder(ClearingHouse storage self, address account, PlaceOrderArgs calldata args, BookType bookType)\n        internal\n        returns (PlaceOrderResult memory orderResult)\n    {\n        Market storage market = self.market[args.asset];\n\n        orderResult = market.placeOrder(account, args, bookType);\n\n        uint256 collateralPosted;\n        if (orderResult.basePosted > 0 && !args.reduceOnly) {\n            collateralPosted = _getCollateral(\n                orderResult.basePosted, args.limitPrice, market.getPositionLeverage(account, args.subaccount)\n            );\n        }\n\n        if (orderResult.baseTraded == 0) {\n            StorageLib.loadCollateralManager().handleCollateralDelta({\n                account: account,\n                collateralDelta: collateralPosted.toInt256()\n            });\n\n            return orderResult;\n        }\n\n        _processTakerFill(\n            self,\n            __FillParams__({\n                asset: args.asset,\n                account: account,\n                subaccount: args.subaccount,\n                side: args.side,\n                quoteAmount: orderResult.quoteTraded,\n                baseAmount: orderResult.baseTraded,\n                collateralPosted: collateralPosted\n            })\n        );\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            108,
+            144
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:34:58.458941",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue where the GTL vault's internal accounting fails to account for subaccounts when placing post-only orders, leading to incorrect totalAssets calculation.",
+      "content_reasoning": "The code snippet shows the placeOrder function where the issue arises. The function returns early if baseTraded is 0, which matches the described vulnerability.",
+      "functions_found": [
+        "placeOrder"
+      ],
+      "variables_found": [
+        "orderResult",
+        "collateralPosted"
+      ],
+      "patterns_found": [
+        "early return without subaccount update"
+      ],
+      "issues": [
+        "Incorrect accounting of subaccounts leading to inflated minted shares."
+      ]
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "No existing tag is present. The issue relates to business logic and accounting errors.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "accounting_error"
+      ],
+      "correction_explanation": "The issue is primarily a business logic flaw in the accounting of assets and shares."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 50,
+      "mando_applicable": false,
+      "reasoning": "The issue does not fit well into any of the MANDO categories as it is primarily a business logic error related to accounting and not a typical security vulnerability like access control or reentrancy."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "C4"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is a business logic flaw in the accounting of assets and shares, which is best categorized under SCSVS G4. Additionally, it involves a vault component, making C4 relevant.",
+      "vulnerability_type": "Business logic error in asset accounting leading to incorrect share minting."
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-03-20T15:31:15.726446",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

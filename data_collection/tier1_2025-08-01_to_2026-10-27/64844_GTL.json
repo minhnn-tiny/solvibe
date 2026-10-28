@@ -1,0 +1,138 @@
+{
+  "id": "64844",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/perps/GTL.sol# L292-L294",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      292,
+      294
+    ]
+  ],
+  "filename": "64844_GTL.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 299,
+  "vulnerability_title": "[M-09] GTL contract is vulnerable to an inflation attack",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Use one of the provide methods inside the solady ERC4626 contract:\n\n1. Decimal offset\n2. Virtual shares\n3. Fixed initial conversion rate when minting shares\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-177)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_convertToAssets",
+        "start_line": 292,
+        "end_line": 294,
+        "code": "    function _convertToAssets(uint256 shares, uint256 allocatedAssets) public view virtual returns (uint256 assets) {\n        return shares.fullMulDiv(usdc.balanceOf(address(this)) + allocatedAssets + 1, totalSupply() + 1);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            292,
+            294
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:34:54.829029",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability related to inflation attacks due to lack of protection methods in the GTL contract.",
+      "content_reasoning": "The code snippet shows a function that calculates asset conversion without implementing protection methods, which aligns with the described vulnerability.",
+      "functions_found": [
+        "_convertToAssets"
+      ],
+      "variables_found": [
+        "shares",
+        "allocatedAssets"
+      ],
+      "patterns_found": [
+        "lack of protection methods"
+      ],
+      "issues": [
+        "inflation attack vulnerability"
+      ]
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 80,
+      "reasoning": "The report lacks a tag, but it should be tagged to reflect the inflation attack vulnerability.",
+      "suggested_tag": "inflation_attack",
+      "alternative_tags": [
+        "asset_conversion_issue"
+      ],
+      "correction_explanation": "The vulnerability is specific to inflation attacks due to improper asset conversion logic."
+    },
+    "mando_classification": {
+      "primary_category": "arithmetic",
+      "secondary_categories": [],
+      "confidence": 70,
+      "mando_applicable": true,
+      "reasoning": "The issue relates to mathematical operations and precision issues in asset conversion, fitting the 'arithmetic' category."
+    },
+    "scsvs_classification": {
+      "primary_category": "C4",
+      "primary_category_name": "Vault",
+      "secondary_categories": [
+        "G7"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is specific to vault operations and involves arithmetic precision issues, making SCSVS categories more suitable.",
+      "vulnerability_type": "Inflation attack due to improper asset conversion in vault contract"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Implement a fixed initial conversion rate to ensure that shares are minted correctly and prevent inflation attacks.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "_convertToAssets",
+          "fixed_function_code": "function _convertToAssets(uint256 shares, uint256 allocatedAssets) public view virtual returns (uint256 assets) {\n    uint256 totalSupplyWithOffset = totalSupply() > 0 ? totalSupply() : 1;\n    uint256 balanceWithOffset = usdc.balanceOf(address(this)) + allocatedAssets;\n    return shares.fullMulDiv(balanceWithOffset, totalSupplyWithOffset);\n}",
+          "reasoning": "This fix introduces a check to ensure that the total supply is never zero by using a fixed initial conversion rate. This prevents the division by zero issue and ensures that shares are always minted with a valid conversion rate, thus mitigating the inflation attack."
+        }
+      ],
+      "key_changes": [
+        "Introduced a check to ensure total supply is never zero by using a fixed initial conversion rate.",
+        "Adjusted the balance calculation to prevent division by zero.",
+        "Ensured that shares are minted correctly by using a valid conversion rate."
+      ],
+      "security_improvements": [
+        "Prevents division by zero errors.",
+        "Ensures shares are minted with a valid conversion rate.",
+        "Mitigates potential inflation attacks by ensuring proper asset conversion."
+      ],
+      "additional_recommendations": "Consider implementing additional checks for overflow and underflow using SafeMath or Solidity's built-in overflow checks.",
+      "confidence": 95,
+      "fix_code": "function _convertToAssets(uint256 shares, uint256 allocatedAssets) public view virtual returns (uint256 assets) {\n    uint256 totalSupplyWithOffset = totalSupply() > 0 ? totalSupply() : 1;\n    uint256 balanceWithOffset = usdc.balanceOf(address(this)) + allocatedAssets;\n    return shares.fullMulDiv(balanceWithOffset, totalSupplyWithOffset);\n}",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:30:15.075044"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:30:15.075056",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

@@ -1,0 +1,140 @@
+{
+  "id": "62856",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/etherspot/etherspot-modular-accounts/blob/9019f2a78c36e74bdb1df4029672998cb4631162/src/paymaster/utils/UniswapHelper.sol#L57-L70",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      57,
+      70
+    ]
+  ],
+  "filename": "62856_UniswapHelper.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 142,
+  "vulnerability_title": "[M-06] The `minSwapAmount` Check Is Made for the Minimum Amount Instead of the Exact Amount",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "We should make the check against the expected amount instead of the minimum amount. The expected amount is the value coming from `tokenToWei()`.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_maybeSwapTokenToWeth",
+        "start_line": 56,
+        "end_line": 70,
+        "code": "\n    function _maybeSwapTokenToWeth(IERC20 tokenIn, uint256 amountToSwap, uint256 quote) internal returns (uint256) {\n        if (amountToSwap == 0) {\n            return 0;\n        }\n        // uint256 expectedOutput = tokenToWei(amountToSwap, quote);\n        uint256 amountOutMin = addSlippage(tokenToWei(amountToSwap, quote), uniswapHelperConfig.slippage);\n        // Compare expected output (in wei) vs minSwapAmount (also in wei)\n        if (amountOutMin < uniswapHelperConfig.minSwapAmount) {\n            return 0;\n        }\n        return swapToToken(\n            address(tokenIn), address(wrappedNative), amountToSwap, amountOutMin, uniswapHelperConfig.uniswapPoolFee\n        );\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            57,
+            70
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:05:17.274892",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of checking the minimum amount instead of the expected amount, which is evident in the code.",
+      "content_reasoning": "The content mentions the function `_maybeSwapTokenToWeth` and the variables `amountOutMin` and `minSwapAmount`, which are present in the code.",
+      "functions_found": [
+        "_maybeSwapTokenToWeth",
+        "addSlippage",
+        "tokenToWei",
+        "swapToToken"
+      ],
+      "variables_found": [
+        "amountToSwap",
+        "quote",
+        "amountOutMin",
+        "uniswapHelperConfig.minSwapAmount"
+      ],
+      "patterns_found": [
+        "incorrect minimum amount check"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "There is no existing tag, which is appropriate given the nature of the vulnerability.",
+      "suggested_tag": "Logic Error",
+      "alternative_tags": [
+        "Business Logic Error"
+      ],
+      "correction_explanation": "The issue is a logic error in the way the minimum amount is checked, which affects the functionality of the swap operation."
+    },
+    "mando_classification": {
+      "primary_category": "G7",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The issue relates to a logical error in mathematical operations, specifically in the comparison of amounts, which falls under arithmetic issues."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G7"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is primarily a business logic error related to the handling of amounts in a swap operation, which is better captured by SCSVS categories.",
+      "vulnerability_type": "Incorrect logic in amount validation during token swap"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The check now compares the expected output amount against the calculated output instead of the minimum swap amount, ensuring valid swaps are not rejected.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "_maybeSwapTokenToWeth",
+          "fixed_function_code": "function _maybeSwapTokenToWeth(IERC20 tokenIn, uint256 amountToSwap, uint256 quote) internal returns (uint256) {\n        if (amountToSwap == 0) {\n            return 0;\n        }\n        uint256 expectedOutput = tokenToWei(amountToSwap, quote);\n        uint256 amountOutMin = addSlippage(expectedOutput, uniswapHelperConfig.slippage);\n        // Compare expected output (in wei) vs calculated expected output\n        if (amountOutMin < expectedOutput) {\n            return 0;\n        }\n        return swapToToken(\n            address(tokenIn), address(wrappedNative), amountToSwap, amountOutMin, uniswapHelperConfig.uniswapPoolFee\n        );\n    }",
+          "reasoning": "This function fix addresses the vulnerability by ensuring that the comparison is made against the expected output amount derived from the tokenToWei function, rather than the minimum swap amount, thus allowing valid swaps to proceed."
+        }
+      ],
+      "key_changes": [
+        "Replaced the comparison from minSwapAmount to expectedOutput",
+        "Introduced expectedOutput variable to hold the calculated expected amount",
+        "Ensured that the logic checks against the correct value to prevent valid swaps from being rejected"
+      ],
+      "security_improvements": [
+        "Improved validation logic to ensure only valid swaps are processed",
+        "Reduced risk of rejecting legitimate transactions due to incorrect checks"
+      ],
+      "additional_recommendations": "Consider adding more comprehensive unit tests to cover edge cases for token swaps to ensure robustness against similar issues in the future.",
+      "confidence": 95,
+      "fix_code": "function _maybeSwapTokenToWeth(IERC20 tokenIn, uint256 amountToSwap, uint256 quote) internal returns (uint256) {\n        if (amountToSwap == 0) {\n            return 0;\n        }\n        uint256 expectedOutput = tokenToWei(amountToSwap, quote);\n        uint256 amountOutMin = addSlippage(expectedOutput, uniswapHelperConfig.slippage);\n        // Compare expected output (in wei) vs calculated expected output\n        if (amountOutMin < expectedOutput) {\n            return 0;\n        }\n        return swapToToken(\n            address(tokenIn), address(wrappedNative), amountToSwap, amountOutMin, uniswapHelperConfig.uniswapPoolFee\n        );\n    }",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-04-25T03:02:20.185297"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-25T03:02:20.185318",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

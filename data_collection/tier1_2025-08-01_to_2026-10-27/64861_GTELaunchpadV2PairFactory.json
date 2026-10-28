@@ -1,0 +1,141 @@
+{
+  "id": "64861",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/main/contracts/launchpad/uniswap/GTELaunchpadV2PairFactory.sol# L36-L37",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      36,
+      37
+    ]
+  ],
+  "filename": "64861_GTELaunchpadV2PairFactory.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 59,
+  "vulnerability_title": "[M-18] Pair pre-creation disables Launchpad rewards hooks leading to no fees accrued or distributed",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Restrict `createPair` for Launchpad markets to Launchpad only or always pass real `launchpadLp` and `launchpadFeeDistributor` to `initialize(...)` regardless of caller.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-11)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "createPair",
+        "start_line": 28,
+        "end_line": 48,
+        "code": "\n    function createPair(address tokenA, address tokenB) external returns (address pair) {\n        if (tokenA == tokenB) revert(\"UniswapV2: IDENTICAL_ADDRESSES\");\n        (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);\n        if (token0 == address(0)) revert(\"UniswapV2: ZERO_ADDRESS\");\n        if (getPair[token0][token1] != address(0)) revert(\"UniswapV2: PAIR_EXISTS\"); // single check is sufficient\n        bytes memory bytecode = type(GTELaunchpadV2Pair).creationCode;\n\n        (address _launchpadLp, address _launchpadFeeDistributor) =\n            msg.sender == launchpad ? (launchpadLp, launchpadFeeDistributor) : (address(0), address(0));\n\n        bytes32 salt = keccak256(abi.encodePacked(token0, token1, _launchpadLp, _launchpadFeeDistributor));\n        assembly {\n            pair := create2(0, add(bytecode, 32), mload(bytecode), salt)\n        }\n        IUniswapV2Pair(pair).initialize(token0, token1, _launchpadLp, _launchpadFeeDistributor);\n        getPair[token0][token1] = pair;\n        getPair[token1][token0] = pair; // populate mapping in the reverse direction\n        allPairs.push(pair);\n        emit PairCreated(token0, token1, pair, allPairs.length);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            36,
+            37
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:15.031560",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue where the createPair function allows non-Launchpad callers to initialize pairs with zero hooks, leading to no rewards being accrued or distributed.",
+      "content_reasoning": "The code snippet shows the createPair function where the initialization of hooks depends on the caller, matching the described vulnerability.",
+      "functions_found": [
+        "createPair"
+      ],
+      "variables_found": [
+        "launchpad",
+        "launchpadLp",
+        "launchpadFeeDistributor",
+        "getPair"
+      ],
+      "patterns_found": [
+        "Caller-conditioned initialization",
+        "Hard gating on zero hooks"
+      ],
+      "issues": [
+        "Caller-conditioned initialization leads to zero hooks for non-Launchpad callers"
+      ]
+    },
+    "report_tag_validation": {
+      "existing_tag": null,
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged to reflect the nature of the vulnerability.",
+      "suggested_tag": "access_control",
+      "alternative_tags": [
+        "business_logic"
+      ],
+      "correction_explanation": "The issue is primarily about improper access control where non-Launchpad callers can create pairs with zero hooks, affecting the business logic of fee distribution."
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability stems from improper access control, allowing unauthorized users to create pairs without proper hooks, fitting the access_control category."
+    },
+    "scsvs_classification": {
+      "primary_category": "G5",
+      "primary_category_name": "Access control",
+      "secondary_categories": [
+        "G4"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue involves unauthorized access to create pairs, which is a clear access control problem. Additionally, it affects the business logic by preventing fee distribution.",
+      "vulnerability_type": "Unauthorized pair creation leading to zero hooks and no fee distribution"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Restrict the createPair function to only allow the Launchpad to create pairs for Launchpad markets, ensuring proper hooks are always initialized.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "createPair",
+          "fixed_function_code": "function createPair(address tokenA, address tokenB) external returns (address pair) {\n    if (tokenA == tokenB) revert(\"UniswapV2: IDENTICAL_ADDRESSES\");\n    (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);\n    if (token0 == address(0)) revert(\"UniswapV2: ZERO_ADDRESS\");\n    if (getPair[token0][token1] != address(0)) revert(\"UniswapV2: PAIR_EXISTS\"); // single check is sufficient\n    bytes memory bytecode = type(GTELaunchpadV2Pair).creationCode;\n\n    // Ensure only the Launchpad can create pairs with hooks\n    require(msg.sender == launchpad, \"UniswapV2: FORBIDDEN\");\n    address _launchpadLp = launchpadLp;\n    address _launchpadFeeDistributor = launchpadFeeDistributor;\n\n    bytes32 salt = keccak256(abi.encodePacked(token0, token1, _launchpadLp, _launchpadFeeDistributor));\n    assembly {\n        pair := create2(0, add(bytecode, 32), mload(bytecode), salt)\n    }\n    IUniswapV2Pair(pair).initialize(token0, token1, _launchpadLp, _launchpadFeeDistributor);\n    getPair[token0][token1] = pair;\n    getPair[token1][token0] = pair; // populate mapping in the reverse direction\n    allPairs.push(pair);\n    emit PairCreated(token0, token1, pair, allPairs.length);\n}",
+          "reasoning": "The fix ensures that only the Launchpad can create pairs with the necessary hooks by checking if the caller is the Launchpad. This prevents unauthorized pair creation that would otherwise result in zero hooks and no fee distribution."
+        }
+      ],
+      "key_changes": [
+        "Added a require statement to restrict pair creation to the Launchpad.",
+        "Removed conditional logic for setting hooks based on the caller.",
+        "Ensured hooks are always initialized with the correct values."
+      ],
+      "security_improvements": [
+        "Prevents unauthorized pair creation that could disable fee distribution.",
+        "Ensures consistent initialization of hooks for all Launchpad pairs.",
+        "Reduces the risk of economic harm to stakers by maintaining reward distribution."
+      ],
+      "additional_recommendations": "Consider implementing access control mechanisms for other critical functions to prevent unauthorized access.",
+      "confidence": 95,
+      "fix_code": "function createPair(address tokenA, address tokenB) external returns (address pair) {\n    if (tokenA == tokenB) revert(\"UniswapV2: IDENTICAL_ADDRESSES\");\n    (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);\n    if (token0 == address(0)) revert(\"UniswapV2: ZERO_ADDRESS\");\n    if (getPair[token0][token1] != address(0)) revert(\"UniswapV2: PAIR_EXISTS\"); // single check is sufficient\n    bytes memory bytecode = type(GTELaunchpadV2Pair).creationCode;\n\n    // Ensure only the Launchpad can create pairs with hooks\n    require(msg.sender == launchpad, \"UniswapV2: FORBIDDEN\");\n    address _launchpadLp = launchpadLp;\n    address _launchpadFeeDistributor = launchpadFeeDistributor;\n\n    bytes32 salt = keccak256(abi.encodePacked(token0, token1, _launchpadLp, _launchpadFeeDistributor));\n    assembly {\n        pair := create2(0, add(bytecode, 32), mload(bytecode), salt)\n    }\n    IUniswapV2Pair(pair).initialize(token0, token1, _launchpadLp, _launchpadFeeDistributor);\n    getPair[token0][token1] = pair;\n    getPair[token1][token0] = pair; // populate mapping in the reverse direction\n    allPairs.push(pair);\n    emit PairCreated(token0, token1, pair, allPairs.length);\n}",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:31:38.818965"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:31:38.818987",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

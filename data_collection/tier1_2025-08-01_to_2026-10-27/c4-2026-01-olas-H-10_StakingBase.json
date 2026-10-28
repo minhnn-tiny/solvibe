@@ -1,0 +1,128 @@
+{
+  "id": "c4-2026-01-olas-H-10",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/valory-xyz/autonolas-registries/blob/be1057a5e37f17f26b13c41311fe0e8e40259484/contracts/staking/StakingBase.sol#L540",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      540,
+      540
+    ],
+    [
+      929,
+      929
+    ],
+    [
+      126,
+      126
+    ]
+  ],
+  "filename": "c4-2026-01-olas-H-10_StakingBase.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 1222,
+  "vulnerability_title": "[H-10] Token Callback Reentrancy",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_claim",
+        "start_line": 540,
+        "end_line": 575,
+        "code": "    function _claim(uint256 serviceId, bool execCheckPoint) internal returns (uint256 reward) {\n        ServiceInfo storage sInfo = mapServiceInfo[serviceId];\n        // Check for the service ownership\n        if (msg.sender != sInfo.owner) {\n            revert OwnerOnly(msg.sender, sInfo.owner);\n        }\n\n        // Call the checkpoint, if required\n        if (execCheckPoint) {\n            checkpoint();\n        }\n\n        // Get service reward\n        reward = sInfo.reward;\n\n        // Check for the zero reward\n        if (reward == 0) {\n            revert ZeroValue();\n        }\n\n        // Zero the reward field\n        sInfo.reward = 0;\n\n        // Transfer accumulated rewards to the service multisig\n        // Note that the reentrancy is not possible since the reward is set to zero\n        address multisig = sInfo.multisig;\n\n        // Get reward receivers and amounts based on the distribution type\n        (address[] memory receivers, uint256[] memory amounts) =\n            _getRewardReceiversAndAmounts(serviceId, sInfo.owner, sInfo.multisig, reward, sInfo.rewardDistributionInfo);\n\n        // Transfer reward amounts to specified receivers\n        _withdraw(receivers, amounts);\n\n        emit RewardClaimed(epochCounter, serviceId, msg.sender, multisig, sInfo.nonces, receivers, amounts);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            540,
+            540
+          ]
+        ]
+      },
+      {
+        "function_name": "_withdraw",
+        "start_line": 929,
+        "end_line": 948,
+        "code": "    function _withdraw(address[] memory receivers, uint256[] memory amounts) internal virtual {\n        // Get current balance\n        uint256 updatedBalance = balance;\n\n        // Note that array lengths are checked in upper level functions\n        // Traverse all receivers and amounts\n        for (uint256 i = 0; i < receivers.length; ++i) {\n            // Update the contract balance\n            // Underflow is not going to happen since reward calculations are based on availableRewards <= balance\n            updatedBalance -= amounts[i];\n\n            // Transfer rewards\n            _transfer(receivers[i], amounts[i]);\n\n            emit Withdraw(receivers[i], amounts[i]);\n        }\n\n        // Record updated contract balance\n        balance = updatedBalance;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            929,
+            929
+          ]
+        ]
+      },
+      {
+        "function_name": "safeTransferFrom",
+        "start_line": 85,
+        "end_line": 208,
+        "code": "    function safeTransferFrom(address from, address to, uint256 id) external;\n\n    /// @dev Transfers the service that was previously approved to this contract address.\n    /// @param from Account address to transfer from.\n    /// @param to Account address to transfer to.\n    /// @param id Service Id.\n    function transferFrom(address from, address to, uint256 id) external;\n\n    /// @dev Gets the service instance.\n    /// @param serviceId Service Id.\n    /// @return service Corresponding Service struct.\n    function getService(uint256 serviceId) external view returns (Service memory service);\n\n    /// @dev Gets service agent parameters: number of agent instances (slots) and a bond amount.\n    /// @param serviceId Service Id.\n    /// @return numAgentIds Number of canonical agent Ids in the service.\n    /// @return agentParams Set of agent parameters for each canonical agent Id.\n    function getAgentParams(uint256 serviceId) external view\n        returns (uint256 numAgentIds, AgentParams[] memory agentParams);\n\n    /// @dev Gets service agent instances.\n    /// @param serviceId ServiceId.\n    /// @return numAgentInstances Number of agent instances.\n    /// @return agentInstances Set of agent instance addresses.\n    function getAgentInstances(uint256 serviceId) external view\n        returns (uint256 numAgentInstances, address[] memory agentInstances);\n\n    /// @dev Gets operator address by provided agent instance one.\n    /// @param agentInstance Agent instance address\n    /// @return operator Operator address that supplied agent instance.\n    function mapAgentInstanceOperators(address agentInstance) external view returns (address operator);\n}\n\n/// @dev Only `owner` has a privilege, but the `sender` was provided.\n/// @param sender Sender address.\n/// @param owner Required sender address as an owner.\nerror OwnerOnly(address sender, address owner);\n\n/// @dev Provided zero address.\nerror ZeroAddress();\n\n/// @dev Provided zero value.\nerror ZeroValue();\n\n/// @dev Provided non-zero value.\nerror NonZeroValue();\n\n/// @dev The deployed activity checker must be a contract.\n/// @param activityChecker Activity checker address.\nerror ContractOnly(address activityChecker);\n\n/// @dev Agent Id is not correctly provided for the current routine.\n/// @param agentId Component Id.\nerror WrongAgentId(uint256 agentId);\n\n/// @dev Wrong state of a service.\n/// @param state Service state.\n/// @param serviceId Service Id.\nerror WrongServiceState(uint256 state, uint256 serviceId);\n\n/// @dev Wrong length of two arrays.\n/// @param numValues1 Number of values in a first array.\n/// @param numValues2 Number of values in a second array.\nerror WrongArrayLength(uint256 numValues1, uint256 numValues2);\n\n/// @dev Multisig is not whitelisted.\n/// @param multisig Address of a multisig implementation.\nerror UnauthorizedMultisig(address multisig);\n\n/// @dev The contract is already initialized.\nerror AlreadyInitialized();\n\n/// @dev No rewards are available in the contract.\nerror NoRewardsAvailable();\n\n/// @dev Maximum number of staking services is reached.\n/// @param maxNumServices Maximum number of staking services.\nerror MaxNumServicesReached(uint256 maxNumServices);\n\n/// @dev Received lower value than the expected one.\n/// @param provided Provided value is lower.\n/// @param expected Expected value.\nerror LowerThan(uint256 provided, uint256 expected);\n\n/// @dev Supplied wrong amount.\n/// @param provided Provided amount.\n/// @param expected Expected amount.\nerror WrongAmount(uint256 provided, uint256 expected);\n\n/// @dev Required service configuration is wrong.\n/// @param serviceId Service Id.\nerror WrongServiceConfiguration(uint256 serviceId);\n\n/// @dev Service is not unstaked.\n/// @param serviceId Service Id.\nerror ServiceNotUnstaked(uint256 serviceId);\n\n/// @dev Service is not found.\n/// @param serviceId Service Id.\nerror ServiceNotFound(uint256 serviceId);\n\n/// @dev Service was not staked a minimum required time.\n/// @param serviceId Service Id.\n/// @param tsProvided Time the service is staked for.\n/// @param tsExpected Minimum time the service needs to be staked for.\nerror NotEnoughTimeStaked(uint256 serviceId, uint256 tsProvided, uint256 tsExpected);\n\n// Service Info struct\nstruct ServiceInfo {\n    // Service multisig address\n    address multisig;\n    // Service owner\n    address owner;\n    // Service multisig nonces\n    uint256[] nonces;\n    // Staking start time\n    uint256 tsStart;\n    // Accumulated service staking reward\n    uint256 reward;\n    // Accumulated inactivity that might lead to the service eviction\n    uint256 inactivity;\n    // Reward distribution info\n    uint256 rewardDistributionInfo;\n}",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            126,
+            126
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:42:48.663220",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 82,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "_withdraw copies balance into updatedBalance, calls the virtual _transfer for each receiver, and writes balance back only after the loop. _claim and _unstake reach this path and the file has no reentrancy guard, so the first issue in the finding can be seen here.",
+      "functions_found": [
+        "_claim",
+        "_withdraw",
+        "_transfer",
+        "_unstake"
+      ],
+      "variables_found": [
+        "balance",
+        "updatedBalance",
+        "sInfo.reward"
+      ],
+      "patterns_found": [
+        "storage balance written after external transfers",
+        "no reentrancy guard on claim and unstake"
+      ],
+      "issues": [
+        "The second issue in the finding, about ServiceManager.create and onERC721Received, is in ServiceManager.sol and is not in this file.",
+        "The third problem_code block (lines 85-208) comes from the ServiceManager.sol link and shows unrelated interface and error code."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": "reentrancy",
+      "mando_applicable": true
+    },
+    "scsvs_classification": {
+      "primary_category": "G6",
+      "primary_category_name": "Communications",
+      "vulnerability_type": "reentrancy in reward withdrawal, balance written after transfers"
+    },
+    "fix_code_source": "none"
+  }
+}

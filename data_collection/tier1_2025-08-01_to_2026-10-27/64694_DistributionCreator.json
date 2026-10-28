@@ -1,0 +1,109 @@
+{
+  "id": "64694",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-11-merkl/blob/e8c1d6f5a91c1144571c3ed238358a2b032dd32e/contracts/DistributionCreator.sol# L237",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      237,
+      237
+    ]
+  ],
+  "filename": "64694_DistributionCreator.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 668,
+  "vulnerability_title": "[M-03] Multi-step campaign overrides are anchored to the original campaign, making later overrides impossible",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Change `overrideCampaign` to validate against the `effective campaign parameters`:\n\n* When there is an override:\n\n  \n```\n\n  CampaignParameters memory base = campaignOverrides[_campaignId].campaignId == _campaignId\n  ? campaignOverrides[_campaignId]\n  : campaignList[campaignLookup(_campaignId)];\n  \n```\n\n* Use base for all validation instead of the original `campaignList` entry.\n* This aligns on-chain constraints with how off-chain logic is expected to interpret campaigns.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-11-merkl/submissions/S-865)\n\n---",
+    "fix_code_blocks": [
+      "CampaignParameters memory base = campaignOverrides[_campaignId].campaignId == _campaignId\n  ? campaignOverrides[_campaignId]\n  : campaignList[campaignLookup(_campaignId)];"
+    ]
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "overrideCampaign",
+        "start_line": 236,
+        "end_line": 253,
+        "code": "    function overrideCampaign(bytes32 _campaignId, CampaignParameters memory newCampaign) external {\n        CampaignParameters memory _campaign = campaign(_campaignId);\n        _isValidOperator(_campaign.creator);\n        if (\n            newCampaign.rewardToken != _campaign.rewardToken ||\n            newCampaign.amount != _campaign.amount ||\n            (newCampaign.startTimestamp != _campaign.startTimestamp && block.timestamp > _campaign.startTimestamp) || // Allow to update startTimestamp before campaign start\n            // End timestamp should be in the future\n            newCampaign.duration + _campaign.startTimestamp <= block.timestamp\n        ) revert Errors.InvalidOverride();\n\n        newCampaign.campaignId = _campaignId;\n        // The manager address cannot be changed\n        newCampaign.creator = _campaign.creator;\n        campaignOverrides[_campaignId] = newCampaign;\n        campaignOverridesTimestamp[_campaignId].push(block.timestamp);\n        emit CampaignOverride(_campaignId, newCampaign);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            237,
+            237
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T16:58:20.064783",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue with the `overrideCampaign` function, specifically how it compares new overrides against the original campaign parameters instead of the latest overrides.",
+      "content_reasoning": "The content mentions the `overrideCampaign` function and the relevant variables and conditions that lead to the described vulnerability, confirming the presence of the issue.",
+      "functions_found": [
+        "overrideCampaign"
+      ],
+      "variables_found": [
+        "_campaign",
+        "newCampaign"
+      ],
+      "patterns_found": [
+        "validation against original parameters",
+        "single-use override mechanism"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 85,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to reflect the functional issue described in the report.",
+      "suggested_tag": "Business Logic Error",
+      "alternative_tags": [
+        "Campaign Management Issue"
+      ],
+      "correction_explanation": "The issue is primarily related to the business logic of campaign overrides, which should be captured by a relevant tag."
+    },
+    "mando_classification": {
+      "primary_category": "G4",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": true,
+      "reasoning": "The issue is related to the business logic of the contract, specifically how campaign overrides are handled, which fits under the MANDO category for business logic."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G1"
+      ],
+      "confidence": 85,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more granular classification, and the issue primarily relates to the business logic of the contract, with potential architectural implications.",
+      "vulnerability_type": "Business logic flaw in campaign override mechanism"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-04-16T17:15:17.130104",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

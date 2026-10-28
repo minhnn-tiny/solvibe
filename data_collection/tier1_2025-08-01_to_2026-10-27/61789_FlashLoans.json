@@ -1,0 +1,131 @@
+{
+  "id": "61789",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/AladdinDAO/fx-protocol-contracts/blob/56a47eab8d10334e479df83a2b13a8b68ce390e9/contracts/core/FlashLoans.sol#L67-L97",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      67,
+      97
+    ],
+    [
+      67,
+      97
+    ],
+    [
+      87,
+      87
+    ],
+    [
+      86,
+      86
+    ]
+  ],
+  "filename": "61789_FlashLoans.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 97,
+  "vulnerability_title": "Flashloan Functionality is Blocked",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "flashLoan",
+        "start_line": 67,
+        "end_line": 96,
+        "code": "  function flashLoan(\n    IERC3156FlashBorrower receiver,\n    address token,\n    uint256 amount,\n    bytes calldata data\n  ) external nonReentrant whenNotPaused returns (bool) {\n    // save the current balance\n    uint256 prevBalance = IERC20(token).balanceOf(address(this));\n    uint256 fee = flashFee(token, amount);\n\n    // transfer token to receiver\n    IERC20(token).safeTransfer(address(receiver), amount);\n\n    // invoke the recipient's callback\n    if (receiver.onFlashLoan(_msgSender(), token, amount, fee, data) != CALLBACK_SUCCESS) {\n      revert ErrorERC3156CallbackFailed();\n    }\n\n    // ensure that the tokens + fee have been deposited back to the network\n    uint256 returnedAmount = IERC20(token).balanceOf(address(this)) - prevBalance;\n    if (returnedAmount < amount + fee) {\n      revert ErrorInsufficientFlashLoanReturn();\n    }\n\n    if (fee > 0) {\n      IERC20(token).safeTransfer(treasury, fee);\n    }\n\n    return true;\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            67,
+            97
+          ],
+          [
+            67,
+            97
+          ],
+          [
+            87,
+            87
+          ],
+          [
+            86,
+            86
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:01:03.306999",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue with the `flashLoan` function, specifically the incorrect condition that leads to the failure of the flash loan.",
+      "content_reasoning": "The content mentions the relevant function and variables, and the described vulnerable pattern of incorrect repayment validation is present in the code.",
+      "functions_found": [
+        "flashLoan"
+      ],
+      "variables_found": [
+        "prevBalance",
+        "fee",
+        "returnedAmount"
+      ],
+      "patterns_found": [
+        "incorrect repayment validation"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 85,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to reflect the nature of the vulnerability.",
+      "suggested_tag": "Flashloan Vulnerability",
+      "alternative_tags": [
+        "Business Logic Error"
+      ],
+      "correction_explanation": "The issue pertains to the business logic of the flash loan functionality, which should be tagged accordingly."
+    },
+    "mando_classification": {
+      "primary_category": "G7",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": true,
+      "reasoning": "The issue involves a mathematical operation related to the repayment condition, which falls under arithmetic vulnerabilities."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G7"
+      ],
+      "confidence": 85,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more granular classification, with G4 capturing the business logic flaw and G7 addressing the arithmetic aspect of the vulnerability.",
+      "vulnerability_type": "Incorrect repayment validation in flash loan functionality"
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-04-25T21:54:43.532658",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

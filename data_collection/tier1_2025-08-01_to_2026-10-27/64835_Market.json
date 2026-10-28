@@ -1,0 +1,174 @@
+{
+  "id": "64835",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/perps/types/Market.sol# L136",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      136,
+      136
+    ],
+    [
+      277,
+      277
+    ],
+    [
+      90,
+      90
+    ]
+  ],
+  "filename": "64835_Market.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 644,
+  "vulnerability_title": "[H-02] Backstop bid-side frozen by tick-size constraint",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Add a one-tick buffer for post-only backstop orders.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-292)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "placeOrder",
+        "start_line": 129,
+        "end_line": 150,
+        "code": "\n    function placeOrder(Market storage self, address account, PlaceOrderArgs calldata args, BookType bookType)\n        internal\n        onlyActiveMarket(args.asset)\n        returns (PlaceOrderResult memory result)\n    {\n        // sanity check: non liquidation taker order can't be placed on the backstop book\n        if (bookType == BookType.BACKSTOP && args.tif != TiF.MOC) revert InvalidBackstopOrder();\n\n        if (args.reduceOnly) {\n            _validateReduceOnlyOrder({\n                self: self,\n                account: account,\n                subaccount: args.subaccount,\n                orderAmount: args.amount,\n                side: args.side,\n                baseDenominated: args.baseDenominated\n            });\n        }\n\n        return CLOBLib.placeOrder(account, args, bookType);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            136,
+            136
+          ]
+        ]
+      },
+      {
+        "function_name": "linkReduceOnlyOrder",
+        "start_line": 272,
+        "end_line": 282,
+        "code": "\n    function linkReduceOnlyOrder(\n        Market storage self,\n        address account,\n        uint256 subaccount,\n        uint256 orderId,\n        BookType bookType\n    ) internal {\n        if (bookType == BookType.STANDARD) _linkReduceOnlyStandard(self, account, subaccount, orderId);\n        else _linkReduceOnlyBackstop(self, account, subaccount, orderId);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            277,
+            277
+          ]
+        ]
+      },
+      {
+        "code": "    );\n\n    event FundingSettled(bytes32 indexed asset, int256 funding, int256 cumulativeFunding, uint256 openInterest, uint256 nonce);\n\n    event MarkPriceUpdated(bytes32 indexed asset, uint256 markPrice, uint256 p1, uint256 p2, uint256 p3, uint256 nonce);\n\n    error MarketInactive();\n    error InvalidReduceOnlyDenomination();\n    error MaxLeverageExceeded();\n    error LeverageInvalid();\n    error InvalidBackstopOrder();\n    error ZeroTrade();\n    error ZeroOrder();\n    error NotReduceOnly();\n    error ReduceOnlyCapExceeded();\n    error BackstopOrderNotPostOnly();\n    error PartialBackstopLiquidation();\n    error InvalidDeleveragePair();\n\n    modifier onlyActiveMarket(bytes32 asset) {\n        assertActive(asset);\n        _;\n    }\n\n    function init(\n        Market storage self,\n        bytes32 asset,\n        MarketSettings memory marketSettings,\n        FundingRateSettings memory fundingSettings,\n        uint256 initialPrice\n    ) internal {",
+        "start_line": 90,
+        "end_line": 90,
+        "context_start_line": 75,
+        "context_end_line": 105,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T16:58:26.427116",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability related to backstop orders and their manipulation, which is evident in the provided code snippets.",
+      "content_reasoning": "The content mentions specific functions and variables that are present in the code, such as the handling of backstop orders and the associated errors.",
+      "functions_found": [
+        "placeOrder",
+        "linkReduceOnlyOrder"
+      ],
+      "variables_found": [
+        "bookType",
+        "args"
+      ],
+      "patterns_found": [
+        "reverting on invalid backstop orders",
+        "tick size constraint"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 85,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned based on the nature of the vulnerability.",
+      "suggested_tag": "Denial of Service",
+      "alternative_tags": [
+        "Order Manipulation",
+        "Market Manipulation"
+      ],
+      "correction_explanation": "The vulnerability allows for denial of service by manipulating the order book, which should be reflected in the tagging."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability directly relates to a denial of service scenario where an attacker can prevent legitimate bids from being placed."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G8"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is rooted in the business logic of order placement and manipulation, which is better captured in SCSVS categories.",
+      "vulnerability_type": "Denial of service through order book manipulation"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Added a one-tick buffer for post-only backstop orders to prevent manipulation of the order book.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "placeOrder",
+          "fixed_function_code": "function placeOrder(Market storage self, address account, PlaceOrderArgs calldata args, BookType bookType)\n        internal\n        onlyActiveMarket(args.asset)\n        returns (PlaceOrderResult memory result)\n    {\n        // sanity check: non liquidation taker order can't be placed on the backstop book\n        if (bookType == BookType.BACKSTOP && args.tif != TiF.MOC) revert InvalidBackstopOrder();\n\n        // Adding a one-tick buffer for post-only backstop orders\n        if (bookType == BookType.BACKSTOP && args.price <= getCurrentMarketPrice(self, args.asset) + tickSize) revert InvalidBackstopOrder();\n\n        if (args.reduceOnly) {\n            _validateReduceOnlyOrder({\n                self: self,\n                account: account,\n                subaccount: args.subaccount,\n                orderAmount: args.amount,\n                side: args.side,\n                baseDenominated: args.baseDenominated\n            });\n        }\n\n        return CLOBLib.placeOrder(account, args, bookType);\n    }",
+          "reasoning": "This function now checks if the price of the backstop order is within a valid range, ensuring that it cannot be manipulated to disrupt the bidding process."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "linkReduceOnlyOrder",
+          "fixed_function_code": "function linkReduceOnlyOrder(\n        Market storage self,\n        address account,\n        uint256 subaccount,\n        uint256 orderId,\n        BookType bookType\n    ) internal {\n        if (bookType == BookType.STANDARD) _linkReduceOnlyStandard(self, account, subaccount, orderId);\n        else if (bookType == BookType.BACKSTOP) {\n            // Ensure that linking backstop orders is done safely\n            require(isValidBackstopOrder(self, orderId), \"Invalid backstop order\");\n            _linkReduceOnlyBackstop(self, account, subaccount, orderId);\n        }\n    }",
+          "reasoning": "This function now includes a check to ensure that only valid backstop orders are linked, preventing potential manipulation."
+        }
+      ],
+      "key_changes": [
+        "Added a price check for backstop orders to enforce a one-tick buffer.",
+        "Implemented a validity check for linking backstop orders."
+      ],
+      "security_improvements": [
+        "Reduced risk of denial of service through order book manipulation.",
+        "Enhanced validation for order placement and linking."
+      ],
+      "additional_recommendations": "Consider implementing further checks on order sizes and limits to prevent abuse and ensure market integrity.",
+      "confidence": 90,
+      "fix_code": "function placeOrder(Market storage self, address account, PlaceOrderArgs calldata args, BookType bookType)\n        internal\n        onlyActiveMarket(args.asset)\n        returns (PlaceOrderResult memory result)\n    {\n        // sanity check: non liquidation taker order can't be placed on the backstop book\n        if (bookType == BookType.BACKSTOP && args.tif != TiF.MOC) revert InvalidBackstopOrder();\n\n        // Adding a one-tick buffer for post-only backstop orders\n        if (bookType == BookType.BACKSTOP && args.price <= getCurrentMarketPrice(self, args.asset) + tickSize) revert InvalidBackstopOrder();\n\n        if (args.reduceOnly) {\n            _validateReduceOnlyOrder({\n                self: self,\n                account: account,\n                subaccount: args.subaccount,\n                orderAmount: args.amount,\n                side: args.side,\n                baseDenominated: args.baseDenominated\n            });\n        }\n\n        return CLOBLib.placeOrder(account, args, bookType);\n    }\n\nfunction linkReduceOnlyOrder(\n        Market storage self,\n        address account,\n        uint256 subaccount,\n        uint256 orderId,\n        BookType bookType\n    ) internal {\n        if (bookType == BookType.STANDARD) _linkReduceOnlyStandard(self, account, subaccount, orderId);\n        else if (bookType == BookType.BACKSTOP) {\n            // Ensure that linking backstop orders is done safely\n            require(isValidBackstopOrder(self, orderId), \"Invalid backstop order\");\n            _linkReduceOnlyBackstop(self, account, subaccount, orderId);\n        }\n    }",
+      "expected_fixed_blocks": 3,
+      "returned_fixed_blocks": 2,
+      "block_count_match": false,
+      "generated_by": "openai",
+      "generation_date": "2026-04-16T17:13:27.715273"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-16T17:13:27.715296",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

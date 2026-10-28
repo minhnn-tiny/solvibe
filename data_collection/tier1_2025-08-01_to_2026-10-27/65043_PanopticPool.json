@@ -1,0 +1,139 @@
+{
+  "id": "65043",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-12-panoptic/blob/fe557748210a529ae414d7c487b6514be0d9e220/contracts/PanopticPool.sol# L1598-L1664",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      1598,
+      1664
+    ]
+  ],
+  "filename": "65043_PanopticPool.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 2156,
+  "vulnerability_title": "[M-16] Force exercise lacks caller-side bounds for exercise fee",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Consider adding explicit caller-side bounds for force exercise payments.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "In `PanopticPool.t.sol`, import a `PositionBalanceLibrary`:\n```\n\n \"import {PositionBalance, PositionBalanceLibrary} from \"@types/PositionBalance.sol\";\"\n```\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-12-panoptic-next-core/submissions/S-1239)\n\n**Panoptic marked as informative.**\n\n---",
+    "poc_code_blocks": [
+      "\"import {PositionBalance, PositionBalanceLibrary} from \"@types/PositionBalance.sol\";\""
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_forceExercise",
+        "start_line": 1598,
+        "end_line": 1664,
+        "code": "    function _forceExercise(\n        address account,\n        TokenId tokenId,\n        int24 twapTick,\n        int24 currentTick\n    ) internal {\n        CollateralTracker ct0 = collateralToken0();\n        CollateralTracker ct1 = collateralToken1();\n\n        uint128 positionSize;\n\n        LeftRightSigned exerciseFees;\n        {\n            PositionBalance positionBalance = s_positionBalance[account][tokenId];\n\n            positionSize = positionBalance.positionSize();\n\n            if (positionSize == 0) revert Errors.PositionNotOwned();\n\n            // Compute the exerciseFee, this will decrease the further away the price is from the exercised position\n            // Include any deltas in long legs between the current and oracle tick in the exercise fee\n            exerciseFees = riskEngine().exerciseCost(\n                currentTick,\n                twapTick,\n                tokenId,\n                positionBalance\n            );\n        }\n\n        // The protocol delegates some virtual shares to ensure the burn can be settled.\n        ct0.delegate(account);\n        ct1.delegate(account);\n        {\n            int24[2] memory tickLimits;\n            tickLimits[0] = MIN_SWAP_TICK;\n            tickLimits[1] = MAX_SWAP_TICK;\n            (RiskParameters riskParameters, ) = getRiskParameters(0);\n\n            // Exercise the option\n            // Turn off ITM swapping to prevent swap at potentially unfavorable price\n            _burnOptions(\n                tokenId,\n                positionSize,\n                tickLimits,\n                account,\n                COMMIT_LONG_SETTLED,\n                riskParameters\n            );\n        }\n        // redistribute token composition of refund amounts if user doesn't have enough of one token to pay\n        LeftRightSigned refundAmounts = riskEngine().getRefundAmounts(\n            account,\n            exerciseFees,\n            twapTick,\n            ct0,\n            ct1\n        );\n\n        // settle difference between delegated amounts (from the protocol) and exercise fees/substituted tokens\n        ct0.refund(account, msg.sender, refundAmounts.rightSlot());\n        ct1.refund(account, msg.sender, refundAmounts.leftSlot());\n        // revoke the virtual shares that were delegated after settling the difference with the exercisor\n        ct0.revoke(account);\n        ct1.revoke(account);\n\n        emit ForcedExercised(msg.sender, account, tokenId, exerciseFees);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1598,
+            1664
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:36:00.320165",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the lack of caller-side bounds for the exercise fee in the _forceExercise function.",
+      "content_reasoning": "The content mentions the _forceExercise function and variables like exerciseFees, which are present in the code. The described pattern of lacking fee bounds is evident.",
+      "functions_found": [
+        "_forceExercise"
+      ],
+      "variables_found": [
+        "exerciseFees",
+        "currentTick",
+        "twapTick"
+      ],
+      "patterns_found": [
+        "lack of fee bounds"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, which is necessary for categorization.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "G4"
+      ],
+      "correction_explanation": "The issue is related to business logic as it involves the calculation and enforcement of fees without bounds, affecting user expectations and contract interactions."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 70,
+      "mando_applicable": false,
+      "reasoning": "The MANDO categories do not specifically address business logic issues related to fee calculations and user expectations, which is the core of this vulnerability."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G10"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue is a business logic flaw where the lack of fee bounds can lead to unexpected costs for users. This fits well under SCSVS G4. Additionally, it relates to gas usage and limitations (G10) due to potential unexpected costs.",
+      "vulnerability_type": "Lack of fee bounds leading to unexpected user costs"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Introduce a maximum cap on the exercise fee to prevent unexpected high costs for users.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "_forceExercise",
+          "fixed_function_code": "function _forceExercise(\n        address account,\n        TokenId tokenId,\n        int24 twapTick,\n        int24 currentTick\n    ) internal {\n        CollateralTracker ct0 = collateralToken0();\n        CollateralTracker ct1 = collateralToken1();\n\n        uint128 positionSize;\n\n        LeftRightSigned exerciseFees;\n        {\n            PositionBalance positionBalance = s_positionBalance[account][tokenId];\n\n            positionSize = positionBalance.positionSize();\n\n            if (positionSize == 0) revert Errors.PositionNotOwned();\n\n            // Compute the exerciseFee, this will decrease the further away the price is from the exercised position\n            // Include any deltas in long legs between the current and oracle tick in the exercise fee\n            exerciseFees = riskEngine().exerciseCost(\n                currentTick,\n                twapTick,\n                tokenId,\n                positionBalance\n            );\n\n            // Introduce a maximum cap on the exercise fee\n            uint256 maxExerciseFee = getMaxExerciseFee(); // Assume this function returns a predefined maximum fee\n            if (exerciseFees.leftSlot() > maxExerciseFee) {\n                exerciseFees.setLeftSlot(maxExerciseFee);\n            }\n            if (exerciseFees.rightSlot() > maxExerciseFee) {\n                exerciseFees.setRightSlot(maxExerciseFee);\n            }\n        }\n\n        // The protocol delegates some virtual shares to ensure the burn can be settled.\n        ct0.delegate(account);\n        ct1.delegate(account);\n        {\n            int24[2] memory tickLimits;\n            tickLimits[0] = MIN_SWAP_TICK;\n            tickLimits[1] = MAX_SWAP_TICK;\n            (RiskParameters riskParameters, ) = getRiskParameters(0);\n\n            // Exercise the option\n            // Turn off ITM swapping to prevent swap at potentially unfavorable price\n            _burnOptions(\n                tokenId,\n                positionSize,\n                tickLimits,\n                account,\n                COMMIT_LONG_SETTLED,\n                riskParameters\n            );\n        }\n        // redistribute token composition of refund amounts if user doesn't have enough of one token to pay\n        LeftRightSigned refundAmounts = riskEngine().getRefundAmounts(\n            account,\n            exerciseFees,\n            twapTick,\n            ct0,\n            ct1\n        );\n\n        // settle difference between delegated amounts (from the protocol) and exercise fees/substituted tokens\n        ct0.refund(account, msg.sender, refundAmounts.rightSlot());\n        ct1.refund(account, msg.sender, refundAmounts.leftSlot());\n        // revoke the virtual shares that were delegated after settling the difference with the exercisor\n        ct0.revoke(account);\n        ct1.revoke(account);\n\n        emit ForcedExercised(msg.sender, account, tokenId, exerciseFees);\n    }",
+          "reasoning": "By introducing a maximum cap on the exercise fee, we ensure that users are not subjected to unexpectedly high costs. This cap is checked and enforced after the exercise fee is calculated, ensuring that the fee does not exceed a predefined safe limit."
+        }
+      ],
+      "key_changes": [
+        "Introduced a maximum cap on the exercise fee.",
+        "Added checks to enforce the maximum fee cap.",
+        "Ensured compatibility with existing function signature."
+      ],
+      "security_improvements": [
+        "Prevents unexpected high costs for users.",
+        "Enhances predictability of transaction costs.",
+        "Reduces risk of user dissatisfaction and potential financial loss."
+      ],
+      "additional_recommendations": "Consider implementing a mechanism to update the maximum fee cap dynamically based on market conditions, ensuring it remains relevant and effective.",
+      "confidence": 95,
+      "fix_code": "function _forceExercise(\n        address account,\n        TokenId tokenId,\n        int24 twapTick,\n        int24 currentTick\n    ) internal {\n        CollateralTracker ct0 = collateralToken0();\n        CollateralTracker ct1 = collateralToken1();\n\n        uint128 positionSize;\n\n        LeftRightSigned exerciseFees;\n        {\n            PositionBalance positionBalance = s_positionBalance[account][tokenId];\n\n            positionSize = positionBalance.positionSize();\n\n            if (positionSize == 0) revert Errors.PositionNotOwned();\n\n            // Compute the exerciseFee, this will decrease the further away the price is from the exercised position\n            // Include any deltas in long legs between the current and oracle tick in the exercise fee\n            exerciseFees = riskEngine().exerciseCost(\n                currentTick,\n                twapTick,\n                tokenId,\n                positionBalance\n            );\n\n            // Introduce a maximum cap on the exercise fee\n            uint256 maxExerciseFee = getMaxExerciseFee(); // Assume this function returns a predefined maximum fee\n            if (exerciseFees.leftSlot() > maxExerciseFee) {\n                exerciseFees.setLeftSlot(maxExerciseFee);\n            }\n            if (exerciseFees.rightSlot() > maxExerciseFee) {\n                exerciseFees.setRightSlot(maxExerciseFee);\n            }\n        }\n\n        // The protocol delegates some virtual shares to ensure the burn can be settled.\n        ct0.delegate(account);\n        ct1.delegate(account);\n        {\n            int24[2] memory tickLimits;\n            tickLimits[0] = MIN_SWAP_TICK;\n            tickLimits[1] = MAX_SWAP_TICK;\n            (RiskParameters riskParameters, ) = getRiskParameters(0);\n\n            // Exercise the option\n            // Turn off ITM swapping to prevent swap at potentially unfavorable price\n            _burnOptions(\n                tokenId,\n                positionSize,\n                tickLimits,\n                account,\n                COMMIT_LONG_SETTLED,\n                riskParameters\n            );\n        }\n        // redistribute token composition of refund amounts if user doesn't have enough of one token to pay\n        LeftRightSigned refundAmounts = riskEngine().getRefundAmounts(\n            account,\n            exerciseFees,\n            twapTick,\n            ct0,\n            ct1\n        );\n\n        // settle difference between delegated amounts (from the protocol) and exercise fees/substituted tokens\n        ct0.refund(account, msg.sender, refundAmounts.rightSlot());\n        ct1.refund(account, msg.sender, refundAmounts.leftSlot());\n        // revoke the virtual shares that were delegated after settling the difference with the exercisor\n        ct0.revoke(account);\n        ct1.revoke(account);\n\n        emit ForcedExercised(msg.sender, account, tokenId, exerciseFees);\n    }",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:22:25.388348"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:22:25.388361",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

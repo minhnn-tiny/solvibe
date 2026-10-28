@@ -1,0 +1,139 @@
+{
+  "id": "64842",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/perps/PerpManager.sol# L328-L340",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      328,
+      340
+    ]
+  ],
+  "filename": "64842_PerpManager.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 399,
+  "vulnerability_title": "[M-07] Partial Fills before `amendOrder` TX exposes Users to unintended Risks",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Before applying an amendment in the size of the order, we need to know that the order\u2019s filled amount has not changed since tx submission, this way we can protect user against unwanted trades.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-160)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "amendLimitOrder",
+        "start_line": 327,
+        "end_line": 339,
+        "code": "\n    function amendLimitOrder(address account, AmendLimitOrderArgs calldata args)\n        external\n        onlySenderOrOperator(account, PerpsOperatorRoles.PLACE_ORDER)\n        onlyActiveProtocol\n        returns (int256 collateralDelta)\n    {\n        ClearingHouse storage clearingHouse = StorageLib.loadClearingHouse();\n\n        collateralDelta = clearingHouse.market[args.asset].amendLimitOrder(account, args, BookType.STANDARD);\n\n        StorageLib.loadCollateralManager().handleCollateralDelta({account: account, collateralDelta: collateralDelta});\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            328,
+            340
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:34:52.271909",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability related to the `amendLimitOrder` function not checking for partial fills before amendments.",
+      "content_reasoning": "The content mentions the `amendLimitOrder` function and the `_processAmend` function, which are present in the code and are involved in the vulnerability.",
+      "functions_found": [
+        "amendLimitOrder",
+        "_processAmend",
+        "_executeAmendAmount"
+      ],
+      "variables_found": [
+        "collateralDelta",
+        "order.amount"
+      ],
+      "patterns_found": [
+        "lack of validation for partial fills"
+      ],
+      "issues": [
+        "Potential for unintended financial exposure due to lack of validation."
+      ]
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged to reflect the nature of the vulnerability.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "transaction_ordering"
+      ],
+      "correction_explanation": "The vulnerability is primarily related to business logic, as it involves incorrect handling of order amendments leading to financial risk."
+    },
+    "mando_classification": {
+      "primary_category": "front_running",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The issue relates to transaction ordering and the potential for unintended consequences due to asynchronous transaction processing, which aligns with front-running concerns."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G9"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is a business logic flaw where the system does not account for changes in order state, leading to incorrect financial exposure. This is best categorized under SCSVS G4.",
+      "vulnerability_type": "Business logic flaw leading to unintended financial exposure."
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Implement a check to ensure the order's filled amount has not changed before applying any amendments.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "amendLimitOrder",
+          "fixed_function_code": "function amendLimitOrder(address account, AmendLimitOrderArgs calldata args)\n        external\n        onlySenderOrOperator(account, PerpsOperatorRoles.PLACE_ORDER)\n        onlyActiveProtocol\n        returns (int256 collateralDelta)\n    {\n        ClearingHouse storage clearingHouse = StorageLib.loadClearingHouse();\n\n        // Fetch the current filled amount of the order\n        uint256 currentFilledAmount = clearingHouse.market[args.asset].getFilledAmount(account, args.orderId);\n\n        // Ensure the filled amount has not changed since the transaction submission\n        require(currentFilledAmount == args.expectedFilledAmount, \"Order has been partially filled\");\n\n        collateralDelta = clearingHouse.market[args.asset].amendLimitOrder(account, args, BookType.STANDARD);\n\n        StorageLib.loadCollateralManager().handleCollateralDelta({account: account, collateralDelta: collateralDelta});\n    }",
+          "reasoning": "The function now includes a check to ensure that the order's filled amount has not changed since the transaction was submitted. This prevents unintended exposure by ensuring that any amendments are only applied if the order's state is as expected."
+        }
+      ],
+      "key_changes": [
+        "Added a check for the current filled amount of the order.",
+        "Included a require statement to compare the current filled amount with the expected filled amount.",
+        "Prevented amendments if the order has been partially filled."
+      ],
+      "security_improvements": [
+        "Prevents unintended financial exposure by ensuring order state consistency.",
+        "Reduces risk of user errors leading to unexpected trades."
+      ],
+      "additional_recommendations": "Consider implementing event logging for amendments to track changes and aid in debugging.",
+      "confidence": 95,
+      "fix_code": "function amendLimitOrder(address account, AmendLimitOrderArgs calldata args)\n        external\n        onlySenderOrOperator(account, PerpsOperatorRoles.PLACE_ORDER)\n        onlyActiveProtocol\n        returns (int256 collateralDelta)\n    {\n        ClearingHouse storage clearingHouse = StorageLib.loadClearingHouse();\n\n        // Fetch the current filled amount of the order\n        uint256 currentFilledAmount = clearingHouse.market[args.asset].getFilledAmount(account, args.orderId);\n\n        // Ensure the filled amount has not changed since the transaction submission\n        require(currentFilledAmount == args.expectedFilledAmount, \"Order has been partially filled\");\n\n        collateralDelta = clearingHouse.market[args.asset].amendLimitOrder(account, args, BookType.STANDARD);\n\n        StorageLib.loadCollateralManager().handleCollateralDelta({account: account, collateralDelta: collateralDelta});\n    }",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:40:28.247988"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:40:28.248010",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

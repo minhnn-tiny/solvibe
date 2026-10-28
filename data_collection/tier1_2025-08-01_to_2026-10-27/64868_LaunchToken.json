@@ -1,0 +1,125 @@
+{
+  "id": "64868",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/launchpad/LaunchToken.sol# L114",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      114,
+      114
+    ],
+    [
+      134,
+      150
+    ]
+  ],
+  "filename": "64868_LaunchToken.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 163,
+  "vulnerability_title": "[M-25] Bonding Shares Incorrectly Reduced/unstaked on Transfer in launchToken.",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "The bonding share reduction logic should track which tokens are original vs. transferred:\n```\n\n// Option 1: Track original vs transferred tokens separately\nmapping(address => uint256) public originalTokens;\nmapping(address => uint256) public transferredTokens;\n\n// Option 2: Only reduce bonding shares proportionally to original tokens transferred\nfunction _decreaseFeeShares(address account, uint256 amount) internal {\n    uint256 share = bondingShare[account];\n    if (share == 0 || account == address(0)) return;\n\n    // Only reduce shares if transferring original tokens, not received tokens\n    uint256 originalBalance = originalTokens[account];\n    uint256 shareReduction = amount > originalBalance ? share : (share * amount) / originalBalance;\n\n    // ... rest of function with shareReduction instead of amount\n}\n```\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-192)\n\n---",
+    "fix_code_blocks": [
+      "// Option 1: Track original vs transferred tokens separately\nmapping(address => uint256) public originalTokens;\nmapping(address => uint256) public transferredTokens;\n\n// Option 2: Only reduce bonding shares proportionally to original tokens transferred\nfunction _decreaseFeeShares(address account, uint256 amount) internal {\n    uint256 share = bondingShare[account];\n    if (share == 0 || account == address(0)) return;\n\n    // Only reduce shares if transferring original tokens, not received tokens\n    uint256 originalBalance = originalTokens[account];\n    uint256 shareReduction = amount > originalBalance ? share : (share * amount) / originalBalance;\n\n    // ... rest of function with shareReduction instead of amount\n}"
+    ]
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_beforeTokenTransfer",
+        "start_line": 105,
+        "end_line": 119,
+        "code": "\n    function _beforeTokenTransfer(address from, address to, uint256 amount) internal override {\n        if (!unlocked && from != launchpad && to != launchpad && to != gteRouter) {\n            revert TransfersDisabledWhileBonding();\n        }\n\n        if (!unlocked) {\n            if (from != launchpad && to != launchpad && to != gteRouter) revert TransfersDisabledWhileBonding();\n\n            if (from == launchpad && to != launchpad) _increaseFeeShares(to, amount);\n            else if (to != launchpad && to != gteRouter) revert TransfersDisabledWhileBonding();\n        }\n\n        if (from != launchpad) _decreaseFeeShares(from, amount);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            114,
+            114
+          ]
+        ]
+      },
+      {
+        "function_name": "_decreaseFeeShares",
+        "start_line": 133,
+        "end_line": 150,
+        "code": "\n    function _decreaseFeeShares(address account, uint256 amount) internal {\n        uint256 share = bondingShare[account];\n        if (share == 0 || account == address(0)) return;\n\n        amount = amount > share ? share : amount;\n\n        emit FeeShareDecreased(account, amount, _incEventNonce());\n\n        unchecked {\n            totalFeeShare -= amount;\n            bondingShare[account] -= amount;\n        }\n\n        if (totalFeeShare == 0 && !unlocked) _endRewards();\n\n        ILaunchpad(launchpad).decreaseStake(account, uint96(amount));\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            134,
+            150
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:23.136555",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of incorrectly reducing bonding shares during token transfers.",
+      "content_reasoning": "The content mentions the `_decreaseFeeShares` function and the issue with reducing bonding shares, which is present in the code.",
+      "functions_found": [
+        "_decreaseFeeShares",
+        "_beforeTokenTransfer"
+      ],
+      "variables_found": [
+        "bondingShare",
+        "totalFeeShare"
+      ],
+      "patterns_found": [
+        "incorrect share reduction"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged to reflect the business logic flaw.",
+      "suggested_tag": "business_logic_flaw",
+      "alternative_tags": [
+        "logic_error"
+      ],
+      "correction_explanation": "The issue is primarily a business logic flaw where the bonding shares are incorrectly reduced, affecting the fee-sharing mechanism."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 70,
+      "mando_applicable": false,
+      "reasoning": "The issue is a business logic flaw, which does not fit neatly into any of the MANDO categories."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is a business logic issue where the bonding shares are incorrectly reduced, affecting the intended functionality of the contract.",
+      "vulnerability_type": "Incorrect reduction of bonding shares leading to loss of fee-sharing rights."
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-03-20T15:27:46.212142",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

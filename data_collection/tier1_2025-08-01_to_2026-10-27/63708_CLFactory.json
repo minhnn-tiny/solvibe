@@ -1,0 +1,118 @@
+{
+  "id": "63708",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-10-hybra-finance/blob/main/cl/contracts/core/CLFactory.sol# L176-L189",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      176,
+      189
+    ],
+    [
+      176,
+      189
+    ]
+  ],
+  "filename": "63708_CLFactory.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 273,
+  "vulnerability_title": "[M-01] `CLFactory` ignores dynamic fees above 10% and silently falls back to default",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "* Either revert when the module returns > 100\\_000 or raise the factory ceiling to match the module\u2019s cap.\n* Emit events or add admin tooling to surface out-of-range configurations so operators can correct them.\n\nProof of concept\n\n```bash\ncd cl\nforge test --match-path test/PoC\\_DynamicFee\\_ClampToDefault.t.sol -vvv\n```\n\nThe PoC lifts the module cap, sets a 20% custom fee, and shows that `DynamicSwapFeeModule.getFee` returns 200\\_000 while `CLFactory.getSwapFee` still returns the base 500\u202fppm.\n\nPoC source (`cl/test/PoC_DynamicFee_ClampToDefault.t.sol`):\n```\n\n// SPDX-License-Identifier: MIT\npragma solidity 0.7.6;\npragma abicoder v2;\n\nimport \"forge-std/Test.sol\";\n\nimport {C4PoCTestbed} from \"./C4PoCTestbed.t.sol\";\nimport {DynamicSwapFeeModule} from \"contracts/core/fees/DynamicSwapFeeModule.sol\";\n\ncontract PoC_DynamicFee_ClampToDefault is C4PoCTestbed {\n    address internal pool;\n\n    function setUp() public override {\n        super.setUp();\n        pool = poolFactory.createPool(USDC, DAI, 100, uint160(2**96));\n        require(pool != address(0), \"pool not created\");\n    }\n\n    function testFactoryClampsFeeAboveTenPercent() public {\n        address manager = poolFactory.swapFeeManager();\n        vm.prank(manager);\n        swapFeeModule.setFeeCap(pool, 500_000); // raise module cap to 50%\n        vm.prank(manager);\n        swapFeeModule.setScalingFactor(pool, 1); // ensure positive TWAP delta doesn't zero fee\n\n        uint24 highFee = 200_000; // 20%\n        vm.prank(manager);\n        swapFeeModule.setCustomFee(pool, highFee);\n\n        uint24 moduleFee = swapFeeModule.getFee(pool);\n        assertEq(uint256(moduleFee), uint256(highFee), \"module reports configured fee\");\n\n        uint24 factoryFee = poolFactory.getSwapFee(pool);\n        assertEq(uint256(factoryFee), 500, \"factory silently clamps to tick-spacing default\");\n    }\n}\n```\n\n**[Hybra Finance mitigated](https://github.com/code-423n4/2025-11-hybra-finance-mitigation?tab=readme-ov-file# mitigations-of-high--medium-severity-issues):**\n\n> Added setMaxFee() function to make the fee cap configurable by the owner (up to 50%).\n> This replaces the hardcoded limit and allows governance to adjust the maximum dynamic fee when needed.\n\n**Status:** Mitigation confirmed. Full details in the [mitigation review reports from niffylord, rayss, and ZanyBonzy](https://code4rena.com/audits/2025-11-hybra-finance-mitigation-review/submissions/S-2).\n\n---",
+    "fix_code_blocks": [
+      "cd cl\nforge test --match-path test/PoC\\_DynamicFee\\_ClampToDefault.t.sol -vvv",
+      "// SPDX-License-Identifier: MIT\npragma solidity 0.7.6;\npragma abicoder v2;\n\nimport \"forge-std/Test.sol\";\n\nimport {C4PoCTestbed} from \"./C4PoCTestbed.t.sol\";\nimport {DynamicSwapFeeModule} from \"contracts/core/fees/DynamicSwapFeeModule.sol\";\n\ncontract PoC_DynamicFee_ClampToDefault is C4PoCTestbed {\n    address internal pool;\n\n    function setUp() public override {\n        super.setUp();\n        pool = poolFactory.createPool(USDC, DAI, 100, uint160(2**96));\n        require(pool != address(0), \"pool not created\");\n    }\n\n    function testFactoryClampsFeeAboveTenPercent() public {\n        address manager = poolFactory.swapFeeManager();\n        vm.prank(manager);\n        swapFeeModule.setFeeCap(pool, 500_000); // raise module cap to 50%\n        vm.prank(manager);\n        swapFeeModule.setScalingFactor(pool, 1); // ensure positive TWAP delta doesn't zero fee\n\n        uint24 highFee = 200_000; // 20%\n        vm.prank(manager);\n        swapFeeModule.setCustomFee(pool, highFee);\n\n        uint24 moduleFee = swapFeeModule.getFee(pool);\n        assertEq(uint256(moduleFee), uint256(highFee), \"module reports configured fee\");\n\n        uint24 factoryFee = poolFactory.getSwapFee(pool);\n        assertEq(uint256(factoryFee), 500, \"factory silently clamps to tick-spacing default\");\n    }\n}"
+    ]
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "getSwapFee",
+        "start_line": 176,
+        "end_line": 189,
+        "code": "    function getSwapFee(address pool) external view override returns (uint24) {\n        if (swapFeeModule != address(0)) {\n            (bool success, bytes memory data) = swapFeeModule.excessivelySafeStaticCall(\n                200_000, 32, abi.encodeWithSelector(IFeeModule.getFee.selector, pool)\n            );\n            if (success) {\n                uint24 fee = abi.decode(data, (uint24));\n                if (fee <= 100_000) {\n                    return fee;\n                }\n            }\n        }\n        return tickSpacingToFee[CLPool(pool).tickSpacing()];\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            176,
+            189
+          ],
+          [
+            176,
+            189
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:07:48.654594",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of the fee being capped at 10% despite the module allowing higher fees, which is evident in the code logic.",
+      "content_reasoning": "The content mentions the relevant function `getSwapFee` and the logic that checks the fee against 100,000 ppm, which aligns with the reported vulnerability.",
+      "functions_found": [
+        "getSwapFee"
+      ],
+      "variables_found": [
+        "swapFeeModule",
+        "tickSpacingToFee"
+      ],
+      "patterns_found": [
+        "silent fallback",
+        "ignored higher fees"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to reflect the nature of the vulnerability.",
+      "suggested_tag": "fee_management",
+      "alternative_tags": [
+        "governance_issue"
+      ],
+      "correction_explanation": "The issue revolves around fee management and governance misconfiguration, which should be tagged accordingly."
+    },
+    "mando_classification": {
+      "primary_category": "G4",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The issue relates to business logic where the governance's intended fee settings are ignored, which falls under the business logic category."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "C2"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more granular classification, with G4 capturing the business logic flaw and C2 addressing governance-related issues.",
+      "vulnerability_type": "Governance misconfiguration leading to unintended fee settings"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-04-25T14:43:06.784819",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

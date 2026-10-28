@@ -1,0 +1,132 @@
+{
+  "id": "64834",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/9fb17ba2de649106c6310aa351226c9bfab7f40a/contracts/perps/GTL.sol# L74",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      74,
+      74
+    ]
+  ],
+  "filename": "64834_GTL.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 299,
+  "vulnerability_title": "[H-01] Risk of Gas DoS due to Looping",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Iterating through the entire queue to find a specific withdrawal request to cancel is inefficient and dangerous. Users should instead be required to provide a unique identifier for the request they wish to cancel. Using a mapping is the most gas-efficient way to implement this.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-16)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs",
+    "snippets": [
+      {
+        "code": "    }\n\n    struct Withdrawal {\n        address account;\n        uint256 shares;\n    }\n\n    address public immutable usdc;\n    address public immutable perpManager;\n\n    uint256 public constant ADMIN_ROLE = _ROLE_0;\n\n    EnumerableSetLib.Uint256Set private _subaccounts;\n\n    uint256[] private _withdrawalQueue;\n\n    uint256 private _withdrawalCounter;\n\n    mapping(uint256 id => Withdrawal) internal _queuedWithdrawal;\n\n    mapping(address account => uint256) internal _queuedShares;\n\n    /*\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\n                               METADATA\n    \u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580\u2584\u2580*/\n\n    function name() public pure override returns (string memory) {\n        return \"GTE Liquidity Pool\";\n    }\n\n    function symbol() public pure override returns (string memory) {",
+        "start_line": 74,
+        "end_line": 74,
+        "context_start_line": 59,
+        "context_end_line": 89,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T16:58:25.092523",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the risk of a Denial of Service (DoS) attack due to gas limit issues caused by looping through the withdrawal queue.",
+      "content_reasoning": "The content mentions the `cancelWithdrawal` and `processWithdrawals` functions, which are responsible for iterating over the withdrawal queue, confirming the described vulnerability.",
+      "functions_found": [
+        "cancelWithdrawal",
+        "processWithdrawals"
+      ],
+      "variables_found": [
+        "_withdrawalQueue"
+      ],
+      "patterns_found": [
+        "unbounded loop",
+        "gas limit issue"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 85,
+      "reasoning": "The report lacks a tag that reflects the identified vulnerability, which is a Denial of Service risk due to gas limit issues.",
+      "suggested_tag": "Denial of Service",
+      "alternative_tags": [
+        "Gas Limit Issue",
+        "Inefficient Looping"
+      ],
+      "correction_explanation": "A tag should be added to indicate the specific vulnerability type, which is crucial for categorization and prioritization."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability directly relates to resource exhaustion and gas limit issues, fitting well within the denial_of_service category."
+    },
+    "scsvs_classification": {
+      "primary_category": "G8",
+      "primary_category_name": "Denial of service",
+      "secondary_categories": [
+        "G10"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "SCSVS provides a more granular classification, and G8 accurately captures the nature of the vulnerability, while G10 addresses the gas usage aspect.",
+      "vulnerability_type": "Denial of Service due to gas limit exhaustion from looping"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Replaced the withdrawal queue iteration with a mapping to allow direct access to withdrawal requests using unique identifiers.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "cancelWithdrawal",
+          "fixed_function_code": "function cancelWithdrawal(uint256 id) external {\n    require(_queuedWithdrawal[id].account == msg.sender, \"Not your withdrawal\");\n    delete _queuedWithdrawal[id];\n    _queuedShares[msg.sender] -= _queuedWithdrawal[id].shares;\n}",
+          "reasoning": "This function now allows users to cancel their withdrawal requests by providing a unique identifier, eliminating the need to iterate through a queue, thus preventing gas DoS attacks."
+        }
+      ],
+      "key_changes": [
+        "Introduced a unique identifier for each withdrawal request.",
+        "Replaced the withdrawal queue with a mapping for direct access.",
+        "Updated the cancelWithdrawal function to use the unique identifier."
+      ],
+      "security_improvements": [
+        "Reduced gas consumption by eliminating looping over the withdrawal queue.",
+        "Enhanced user experience by allowing direct cancellation of specific requests."
+      ],
+      "additional_recommendations": "Consider implementing rate limiting on withdrawal requests to further mitigate potential abuse.",
+      "confidence": 90,
+      "fix_code": "function cancelWithdrawal(uint256 id) external {\n    require(_queuedWithdrawal[id].account == msg.sender, \"Not your withdrawal\");\n    delete _queuedWithdrawal[id];\n    _queuedShares[msg.sender] -= _queuedWithdrawal[id].shares;\n}",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-04-16T17:16:05.585087"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-16T17:16:05.585113",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs"
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "id": "64848",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/perps/types/Market.sol# L382-L390",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      382,
+      390
+    ]
+  ],
+  "filename": "64848_Market.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 644,
+  "vulnerability_title": "[M-13] Max Leverage Reduction Not Enforced for Legacy Positions",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Add leverage validation when the leverage for a new position is determined to ensure compliance with current `maxOpenLeverage` settings. If the position leverage is too high, either revert the function call or adjust the leverage to `maxOpenLeverage`.\n\nAdditionally, consider enforcing that an open position with leverage exceeding the new `maxOpenLeverage` can only be reduced in size, not increased.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-432)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "getPositionLeverage",
+        "start_line": 381,
+        "end_line": 390,
+        "code": "\n    function getPositionLeverage(Market storage self, address account, uint256 subaccount)\n        internal\n        view\n        returns (uint256 leverage)\n    {\n        leverage = self.position[account][subaccount].leverage;\n\n        if (leverage == 0) leverage = 1e18; // default leverage\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            382,
+            390
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:34:59.500346",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of bypassing leverage limits due to missing validation in the code.",
+      "content_reasoning": "The code snippet shows the function `getPositionLeverage` which retrieves leverage without checking against `maxOpenLeverage`, matching the report's description.",
+      "functions_found": [
+        "getPositionLeverage"
+      ],
+      "variables_found": [
+        "self.position[account][subaccount].leverage"
+      ],
+      "patterns_found": [
+        "lack of leverage validation"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report lacks a tag, but it should be tagged for business logic issues related to leverage validation.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "risk_management"
+      ],
+      "correction_explanation": "The issue is primarily about business logic failure in enforcing leverage limits, which is critical for risk management."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 50,
+      "mando_applicable": false,
+      "reasoning": "The MANDO categories do not directly address business logic flaws related to leverage validation, which is the core issue here."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G5"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue is a business logic flaw where leverage limits are not enforced, fitting well under SCSVS G4. It also involves access control aspects as it bypasses admin-set limits.",
+      "vulnerability_type": "Leverage limit bypass due to missing validation"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Add leverage validation to ensure compliance with maxOpenLeverage settings and prevent increasing leverage beyond allowed limits.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "getPositionLeverage",
+          "fixed_function_code": "function getPositionLeverage(Market storage self, address account, uint256 subaccount, uint256 maxOpenLeverage) internal view returns (uint256 leverage) {\n    leverage = self.position[account][subaccount].leverage;\n\n    if (leverage == 0) leverage = 1e18; // default leverage\n\n    // Enforce max leverage limit\n    require(leverage <= maxOpenLeverage, \"Leverage exceeds max limit\");\n}",
+          "reasoning": "This fix adds a check to ensure that the leverage of a position does not exceed the maxOpenLeverage limit. If it does, the transaction is reverted, preventing the creation of positions with excessive leverage."
+        }
+      ],
+      "key_changes": [
+        "Added a maxOpenLeverage parameter to the function.",
+        "Included a require statement to enforce the leverage limit.",
+        "Reverted transactions that attempt to exceed the leverage limit."
+      ],
+      "security_improvements": [
+        "Prevents users from bypassing leverage limits.",
+        "Reduces systemic risk by ensuring leverage constraints are respected.",
+        "Ensures consistent enforcement of leverage rules across different position opening methods."
+      ],
+      "additional_recommendations": "Regularly review and update maxOpenLeverage settings to align with market conditions and risk management strategies.",
+      "confidence": 95,
+      "fix_code": "function getPositionLeverage(Market storage self, address account, uint256 subaccount, uint256 maxOpenLeverage) internal view returns (uint256 leverage) {\n    leverage = self.position[account][subaccount].leverage;\n\n    if (leverage == 0) leverage = 1e18; // default leverage\n\n    // Enforce max leverage limit\n    require(leverage <= maxOpenLeverage, \"Leverage exceeds max limit\");\n}",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:35:43.187244"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:35:43.187256",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

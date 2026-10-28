@@ -1,0 +1,119 @@
+{
+  "id": "64693",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-11-merkl/blob/e8c1d6f5a91c1144571c3ed238358a2b032dd32e/contracts/Distributor.sol# L425",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      425,
+      425
+    ]
+  ],
+  "filename": "64693_Distributor.sol",
+  "reported_function": {
+    "function_name": "_claim",
+    "contract_name": "Distributor"
+  },
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 558,
+  "vulnerability_title": "[M-02] Improper Error Handling of `onClaim` Callback in `_claim Function`",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_claim",
+        "start_line": 425,
+        "end_line": 491,
+        "code": "    function _claim(\n        address[] calldata users,\n        address[] calldata tokens,\n        uint256[] calldata amounts,\n        bytes32[][] calldata proofs,\n        address[] memory recipients,\n        bytes[] memory datas\n    ) internal nonReentrant {\n        uint256 usersLength = users.length;\n        if (\n            usersLength == 0 ||\n            usersLength != tokens.length ||\n            usersLength != amounts.length ||\n            usersLength != proofs.length ||\n            usersLength != recipients.length ||\n            usersLength != datas.length\n        ) revert Errors.InvalidLengths();\n\n        for (uint256 i; i < usersLength; ) {\n            address user = users[i];\n            address token = tokens[i];\n            uint256 amount = amounts[i];\n            bytes memory data = datas[i];\n\n            // Only approved operators can claim for `user`\n            if (\n                msg.sender != user &&\n                tx.origin != user &&\n                mainOperators[msg.sender][token] == 0 &&\n                mainOperators[msg.sender][address(0)] == 0 &&\n                operators[user][msg.sender] == 0 &&\n                operators[user][address(0)] == 0 &&\n                !accessControlManager.isGovernorOrGuardian(msg.sender)\n            ) revert Errors.NotWhitelisted();\n\n            // Verifying proof\n            bytes32 leaf = keccak256(abi.encode(user, token, amount));\n            if (!_verifyProof(leaf, proofs[i])) revert Errors.InvalidProof();\n\n            // Closing reentrancy gate here\n            uint256 toSend = amount - claimed[user][token].amount;\n            claimed[user][token] = Claim(SafeCast.toUint208(amount), uint48(block.timestamp), getMerkleRoot());\n            emit Claimed(user, token, toSend);\n\n            address recipient = recipients[i];\n            // Only `msg.sender` can set a different recipient for itself within the context of a call to claim\n            // The recipient set in the context of the call to `claim` can override the default recipient set by the user\n            if (msg.sender != user || recipient == address(0)) {\n                address userSetRecipient = claimRecipient[user][token];\n                if (userSetRecipient == address(0)) userSetRecipient = claimRecipient[user][address(0)];\n                if (userSetRecipient == address(0)) recipient = user;\n                else recipient = userSetRecipient;\n            }\n\n            if (toSend != 0) {\n                IERC20(token).safeTransfer(recipient, toSend);\n                if (data.length != 0) {\n                    try IClaimRecipient(recipient).onClaim(user, token, amount, data) returns (bytes32 callbackSuccess) {\n                        if (callbackSuccess != CALLBACK_SUCCESS) revert Errors.InvalidReturnMessage();\n                    } catch {}\n                }\n            }\n            unchecked {\n                ++i;\n            }\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            425,
+            425
+          ]
+        ],
+        "contract_name": "Distributor"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T16:58:19.007938",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the improper error handling in the `_claim` function, specifically the issues with the `try/catch` mechanism.",
+      "content_reasoning": "The content mentions the `_claim` function and the `onClaim` callback, which are present in the extracted code, confirming the vulnerability described.",
+      "functions_found": [
+        "_claim"
+      ],
+      "variables_found": [
+        "users",
+        "tokens",
+        "amounts",
+        "proofs",
+        "recipients",
+        "datas"
+      ],
+      "patterns_found": [
+        "try/catch error handling",
+        "unchecked return values"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to reflect the nature of the vulnerability.",
+      "suggested_tag": "Improper Error Handling",
+      "alternative_tags": [
+        "Callback Vulnerability",
+        "External Call Risk"
+      ],
+      "correction_explanation": "A tag is necessary to categorize the specific vulnerability related to error handling in external calls."
+    },
+    "mando_classification": {
+      "primary_category": "unchecked_low_level_calls",
+      "secondary_categories": [
+        "denial_of_service"
+      ],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability involves improper handling of external calls and unchecked return values, fitting the MANDO category for unchecked low-level calls."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G8"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more granular classification, particularly highlighting issues in business logic and denial of service risks due to improper error handling.",
+      "vulnerability_type": "Improper error handling in external callback"
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-04-16T17:11:51.790097",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

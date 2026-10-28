@@ -1,0 +1,139 @@
+{
+  "id": "64852",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/launchpad/uniswap/GTELaunchpadV2Pair.sol# L250-L251",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      250,
+      251
+    ]
+  ],
+  "filename": "64852_GTELaunchpadV2Pair.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 325,
+  "vulnerability_title": "[H-04] Attacker can drain funds from `GTELaunchPadV2Pair` using `swap`",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "When inferring the amount(s) transferred in by the user, subtract off the accrued launchpad fees so the amounts can be accurately measured. Also, you need to take away the accrued fees from the balances before checking the k invariant.\n\nEssentially, the accrued launchpad fees are no longer part of the available liquidity of the protocol, and so this needs to be carefully considered.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-2)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "swap",
+        "start_line": 232,
+        "end_line": 270,
+        "code": "    function swap(uint256 amount0Out, uint256 amount1Out, address to, bytes calldata data) external lock {\n        if (amount0Out == 0 && amount1Out == 0) revert(\"UniswapV2: INSUFFICIENT_OUTPUT_AMOUNT\");\n        (uint112 _reserve0, uint112 _reserve1,) = getReserves(); // gas savings\n        if (amount0Out >= _reserve0 || amount1Out >= _reserve1) revert(\"UniswapV2: INSUFFICIENT_LIQUIDITY\");\n\n        uint256 balance0;\n        uint256 balance1;\n        {\n            // scope for _token{0,1}, avoids stack too deep errors\n            address _token0 = token0;\n            address _token1 = token1;\n            if (to == _token0 || to == _token1) revert(\"UniswapV2: INVALID_TO\");\n            if (amount0Out > 0) _safeTransfer(_token0, to, amount0Out); // optimistically transfer tokens\n            if (amount1Out > 0) _safeTransfer(_token1, to, amount1Out); // optimistically transfer tokens\n            if (data.length > 0) IUniswapV2Callee(to).uniswapV2Call(msg.sender, amount0Out, amount1Out, data);\n            balance0 = IERC20(_token0).balanceOf(address(this));\n            balance1 = IERC20(_token1).balanceOf(address(this));\n        }\n        uint256 amount0In = balance0 > _reserve0 - amount0Out ? balance0 - (_reserve0 - amount0Out) : 0;\n        uint256 amount1In = balance1 > _reserve1 - amount1Out ? balance1 - (_reserve1 - amount1Out) : 0;\n        if (amount0In == 0 && amount1In == 0) revert(\"UniswapV2: INSUFFICIENT_INPUT_AMOUNT\");\n\n        {\n            // scope for reserve{0,1}Adjusted and launchpadFee{0,1}, avoids stack too deep errors\n            uint256 balance0Adjusted = balance0.mul(1000).sub(amount0In.mul(3));\n            uint256 balance1Adjusted = balance1.mul(1000).sub(amount1In.mul(3));\n\n            if (balance0Adjusted.mul(balance1Adjusted) < uint256(_reserve0).mul(_reserve1).mul(1000 ** 2)) {\n                revert(\"UniswapV2: K\");\n            }\n\n            (uint112 launchpadFee0, uint112 launchpadFee1) = launchpadFeeDistributor > address(0)\n                && rewardsPoolActive > 0 ? _getLaunchpadFees(amount0In, amount1In) : (uint112(0), uint112(0));\n\n            _update(balance0, balance1, _reserve0, _reserve1, launchpadFee0, launchpadFee1);\n        }\n\n        emit Swap(msg.sender, amount0In, amount1In, amount0Out, amount1Out, to);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            250,
+            251
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:04.394245",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability related to incorrect balance and reserve calculations in the swap function.",
+      "content_reasoning": "The content mentions functions and variables such as `swap`, `balance0`, `balance1`, `reserve0`, `reserve1`, and the calculations that are present in the code.",
+      "functions_found": [
+        "swap"
+      ],
+      "variables_found": [
+        "balance0",
+        "balance1",
+        "reserve0",
+        "reserve1"
+      ],
+      "patterns_found": [
+        "incorrect balance and reserve calculation",
+        "k invariant violation"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged to reflect the vulnerability type.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "liquidity_pool"
+      ],
+      "correction_explanation": "The vulnerability is primarily related to business logic errors in the calculation of balances and reserves, affecting the liquidity pool's integrity."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 50,
+      "mando_applicable": false,
+      "reasoning": "The issue is primarily a business logic error related to liquidity pool calculations, which does not fit neatly into any MANDO categories."
+    },
+    "scsvs_classification": {
+      "primary_category": "C8",
+      "primary_category_name": "Liquidity pool",
+      "secondary_categories": [
+        "G4"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability involves incorrect handling of liquidity pool balances and reserves, which is best categorized under SCSVS C8 for liquidity pools. It also involves business logic errors, aligning with G4.",
+      "vulnerability_type": "Incorrect balance and reserve calculations leading to potential fund drainage."
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Adjust the balance calculations to account for accrued fees before checking the k invariant and calculating input amounts.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "swap",
+          "fixed_function_code": "function swap(uint256 amount0Out, uint256 amount1Out, address to, bytes calldata data) external lock {\n    if (amount0Out == 0 && amount1Out == 0) revert(\"UniswapV2: INSUFFICIENT_OUTPUT_AMOUNT\");\n    (uint112 _reserve0, uint112 _reserve1,) = getReserves(); // gas savings\n    if (amount0Out >= _reserve0 || amount1Out >= _reserve1) revert(\"UniswapV2: INSUFFICIENT_LIQUIDITY\");\n\n    uint256 balance0;\n    uint256 balance1;\n    {\n        // scope for _token{0,1}, avoids stack too deep errors\n        address _token0 = token0;\n        address _token1 = token1;\n        if (to == _token0 || to == _token1) revert(\"UniswapV2: INVALID_TO\");\n        if (amount0Out > 0) _safeTransfer(_token0, to, amount0Out); // optimistically transfer tokens\n        if (amount1Out > 0) _safeTransfer(_token1, to, amount1Out); // optimistically transfer tokens\n        if (data.length > 0) IUniswapV2Callee(to).uniswapV2Call(msg.sender, amount0Out, amount1Out, data);\n        balance0 = IERC20(_token0).balanceOf(address(this));\n        balance1 = IERC20(_token1).balanceOf(address(this));\n    }\n\n    // Calculate the accrued fees\n    (uint112 launchpadFee0, uint112 launchpadFee1) = launchpadFeeDistributor > address(0)\n        && rewardsPoolActive > 0 ? _getLaunchpadFees(balance0 - _reserve0 + amount0Out, balance1 - _reserve1 + amount1Out) : (uint112(0), uint112(0));\n\n    // Adjust balances by subtracting accrued fees\n    uint256 adjustedBalance0 = balance0 - launchpadFee0;\n    uint256 adjustedBalance1 = balance1 - launchpadFee1;\n\n    uint256 amount0In = adjustedBalance0 > _reserve0 - amount0Out ? adjustedBalance0 - (_reserve0 - amount0Out) : 0;\n    uint256 amount1In = adjustedBalance1 > _reserve1 - amount1Out ? adjustedBalance1 - (_reserve1 - amount1Out) : 0;\n    if (amount0In == 0 && amount1In == 0) revert(\"UniswapV2: INSUFFICIENT_INPUT_AMOUNT\");\n\n    {\n        // scope for reserve{0,1}Adjusted, avoids stack too deep errors\n        uint256 balance0Adjusted = adjustedBalance0.mul(1000).sub(amount0In.mul(3));\n        uint256 balance1Adjusted = adjustedBalance1.mul(1000).sub(amount1In.mul(3));\n\n        if (balance0Adjusted.mul(balance1Adjusted) < uint256(_reserve0).mul(_reserve1).mul(1000 ** 2)) {\n            revert(\"UniswapV2: K\");\n        }\n\n        _update(balance0, balance1, _reserve0, _reserve1, launchpadFee0, launchpadFee1);\n    }\n\n    emit Swap(msg.sender, amount0In, amount1In, amount0Out, amount1Out, to);\n}",
+          "reasoning": "This fix ensures that the accrued fees are subtracted from the balances before calculating the input amounts and checking the k invariant, preventing attackers from exploiting the fee discrepancy to drain funds."
+        }
+      ],
+      "key_changes": [
+        "Subtracted accrued fees from balances before calculating input amounts.",
+        "Adjusted balance calculations before checking the k invariant.",
+        "Ensured accurate liquidity representation by accounting for fees."
+      ],
+      "security_improvements": [
+        "Prevents manipulation of balance calculations by attackers.",
+        "Ensures k invariant is correctly maintained.",
+        "Accurate representation of available liquidity."
+      ],
+      "additional_recommendations": "Regularly audit the contract for any new vulnerabilities and ensure that all dependencies are up to date.",
+      "confidence": 95,
+      "fix_code": "function swap(uint256 amount0Out, uint256 amount1Out, address to, bytes calldata data) external lock {\n    if (amount0Out == 0 && amount1Out == 0) revert(\"UniswapV2: INSUFFICIENT_OUTPUT_AMOUNT\");\n    (uint112 _reserve0, uint112 _reserve1,) = getReserves(); // gas savings\n    if (amount0Out >= _reserve0 || amount1Out >= _reserve1) revert(\"UniswapV2: INSUFFICIENT_LIQUIDITY\");\n\n    uint256 balance0;\n    uint256 balance1;\n    {\n        // scope for _token{0,1}, avoids stack too deep errors\n        address _token0 = token0;\n        address _token1 = token1;\n        if (to == _token0 || to == _token1) revert(\"UniswapV2: INVALID_TO\");\n        if (amount0Out > 0) _safeTransfer(_token0, to, amount0Out); // optimistically transfer tokens\n        if (amount1Out > 0) _safeTransfer(_token1, to, amount1Out); // optimistically transfer tokens\n        if (data.length > 0) IUniswapV2Callee(to).uniswapV2Call(msg.sender, amount0Out, amount1Out, data);\n        balance0 = IERC20(_token0).balanceOf(address(this));\n        balance1 = IERC20(_token1).balanceOf(address(this));\n    }\n\n    // Calculate the accrued fees\n    (uint112 launchpadFee0, uint112 launchpadFee1) = launchpadFeeDistributor > address(0)\n        && rewardsPoolActive > 0 ? _getLaunchpadFees(balance0 - _reserve0 + amount0Out, balance1 - _reserve1 + amount1Out) : (uint112(0), uint112(0));\n\n    // Adjust balances by subtracting accrued fees\n    uint256 adjustedBalance0 = balance0 - launchpadFee0;\n    uint256 adjustedBalance1 = balance1 - launchpadFee1;\n\n    uint256 amount0In = adjustedBalance0 > _reserve0 - amount0Out ? adjustedBalance0 - (_reserve0 - amount0Out) : 0;\n    uint256 amount1In = adjustedBalance1 > _reserve1 - amount1Out ? adjustedBalance1 - (_reserve1 - amount1Out) : 0;\n    if (amount0In == 0 && amount1In == 0) revert(\"UniswapV2: INSUFFICIENT_INPUT_AMOUNT\");\n\n    {\n        // scope for reserve{0,1}Adjusted, avoids stack too deep errors\n        uint256 balance0Adjusted = adjustedBalance0.mul(1000).sub(amount0In.mul(3));\n        uint256 balance1Adjusted = adjustedBalance1.mul(1000).sub(amount1In.mul(3));\n\n        if (balance0Adjusted.mul(balance1Adjusted) < uint256(_reserve0).mul(_reserve1).mul(1000 ** 2)) {\n            revert(\"UniswapV2: K\");\n        }\n\n        _update(balance0, balance1, _reserve0, _reserve1, launchpadFee0, launchpadFee1);\n    }\n\n    emit Swap(msg.sender, amount0In, amount1In, amount0Out, amount1Out, to);\n}",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:28:18.327880"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:28:18.327892",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

@@ -1,0 +1,126 @@
+{
+  "id": "c4-2026-01-olas-M-09",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/valory-xyz/autonolas-tokenomics/blob/bbec5ac12721a62672fb7a5ffba5c40f5a46d8cb/contracts/Tokenomics.sol#L1163-L1177",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      1163,
+      1177
+    ],
+    [
+      1278,
+      1280
+    ],
+    [
+      85,
+      96
+    ],
+    [
+      85,
+      96
+    ]
+  ],
+  "filename": "c4-2026-01-olas-M-09_Tokenomics.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 1570,
+  "vulnerability_title": "[M-09] `checkpoint()` does not correct `effectiveBond` downward at year boundaries where inflation decreases",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "[View detailed Proof of Concept](https://code4rena.com/audits/2026-01-olas/submissions/S-1030)",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "checkpoint",
+        "start_line": 1089,
+        "end_line": 1306,
+        "code": "    function checkpoint() external returns (bool) {\n        // Get the implementation address that was written to the proxy contract\n        address implementation;\n        assembly {\n            implementation := sload(PROXY_TOKENOMICS)\n        }\n        // Check if there is any address in the PROXY_TOKENOMICS address slot\n        if (implementation == address(0)) {\n            revert DelegatecallOnly();\n        }\n\n        // Check the last donation block number to avoid the possibility of a flash loan attack\n        if (lastDonationBlockNumber == block.number) {\n            revert SameBlockNumberViolation();\n        }\n\n        // New point can be calculated only if we passed the number of blocks equal to the epoch length\n        uint256 prevEpochTime = mapEpochTokenomics[epochCounter - 1].epochPoint.endTime;\n        uint256 diffNumSeconds = block.timestamp - prevEpochTime;\n        uint256 curEpochLen = epochLen;\n        // Check if the time passed since the last epoch end time is bigger than the specified epoch length,\n        // but not bigger than almost a year in seconds\n        if (diffNumSeconds < curEpochLen || diffNumSeconds > MAX_EPOCH_LENGTH) {\n            return false;\n        }\n\n        uint256 eCounter = epochCounter;\n        TokenomicsPoint storage tp = mapEpochTokenomics[eCounter];\n\n        // 0: total incentives funded with donations in ETH, that are split between:\n        // 1: treasuryRewards, 2: componentRewards, 3: agentRewards\n        // OLAS inflation is split between:\n        // 4: maxBond, 5: component ownerTopUps, 6: agent ownerTopUps\n        // 7: returned staking incentive from previous epochs, 8: staking incentive\n        uint256[] memory incentives = new uint256[](9);\n        incentives[0] = tp.epochPoint.totalDonationsETH;\n        incentives[1] = (incentives[0] * tp.epochPoint.rewardTreasuryFraction) / 100;\n        // 0 stands for components and 1 for agents\n        incentives[2] = (incentives[0] * tp.unitPoints[0].rewardUnitFraction) / 100;\n        incentives[3] = (incentives[0] * tp.unitPoints[1].rewardUnitFraction) / 100;\n\n        // The actual inflation per epoch considering that it is settled not in the exact epochLen time, but a bit later\n        uint256 inflationPerEpoch;\n        // Record the current inflation per second\n        uint256 curInflationPerSecond = inflationPerSecond;\n        // Current year\n        uint256 numYears = (block.timestamp - timeLaunch) / ONE_YEAR;\n        // Amounts for the yearly inflation change from year to year, so if the year changes in the middle\n        // of the epoch, it is necessary to adjust epoch inflation numbers to account for the year change\n        if (numYears > currentYear) {\n            // Calculate remainder of inflation for the passing year\n            // End of the year timestamp\n            uint256 yearEndTime = timeLaunch + numYears * ONE_YEAR;\n            // Initial inflation per epoch during the end of the year minus previous epoch timestamp\n            inflationPerEpoch = (yearEndTime - prevEpochTime) * curInflationPerSecond;\n            // Recalculate the inflation per second based on the new inflation for the current year\n            curInflationPerSecond = getInflationForYear(numYears) / ONE_YEAR;\n            // Add the remainder of inflation amount for this epoch based on a new inflation per second ratio\n            inflationPerEpoch += (block.timestamp - yearEndTime) * curInflationPerSecond;\n            // Updating state variables\n            inflationPerSecond = uint96(curInflationPerSecond);\n            currentYear = uint8(numYears);\n            // Set the tokenomics parameters flag such that the maxBond is correctly updated below (3rd bit is set to one)\n            tokenomicsParametersUpdated = tokenomicsParametersUpdated | 0x04;\n        } else {\n            // Inflation per epoch is equal to the inflation per second multiplied by the actual time of the epoch\n            inflationPerEpoch = curInflationPerSecond * diffNumSeconds;\n        }\n\n        // Bonding and top-ups in OLAS are recalculated based on the inflation schedule per epoch\n        // Actual maxBond of the epoch\n        tp.epochPoint.totalTopUpsOLAS = uint96(inflationPerEpoch);\n        incentives[4] = (inflationPerEpoch * tp.epochPoint.maxBondFraction) / 100;\n\n        // Get the maxBond that was credited to effectiveBond during this settled epoch\n        // If the year changes, the maxBond for the next epoch is updated in the condition below and will be used\n        // later when the effectiveBond is updated for the next epoch\n        uint256 curMaxBond = maxBond;\n\n        // Effective bond accumulates bonding leftovers from previous epochs (with the last max bond value set)\n        // It is given the value of the maxBond for the next epoch as a credit\n        // The difference between recalculated max bond per epoch and maxBond value must be reflected in effectiveBond,\n        // since the epoch checkpoint delay was not accounted for initially\n        // This has to be always true, or incentives[4] == curMaxBond if the epoch is settled exactly at the epochLen time\n        if (incentives[4] > curMaxBond) {\n            // Adjust the effectiveBond\n            incentives[4] = effectiveBond + incentives[4] - curMaxBond;\n            effectiveBond = uint96(incentives[4]);\n        }\n\n        // Get the tokenomics point of the next epoch\n        TokenomicsPoint storage nextEpochPoint = mapEpochTokenomics[eCounter + 1];\n        // Update parameters for the next epoch, if changes were requested by the changeTokenomicsParameters() function\n        // Check if the second bit is set to one\n        if (tokenomicsParametersUpdated & 0x01 == 0x01) {\n            // Update epoch length and set the next value back to zero\n            if (nextEpochLen > 0) {\n                curEpochLen = nextEpochLen;\n                epochLen = uint32(curEpochLen);\n                nextEpochLen = 0;\n            }\n\n            // Update veOLAS threshold and set the next value back to zero\n            if (nextVeOLASThreshold > 0) {\n                veOLASThreshold = nextVeOLASThreshold;\n                nextVeOLASThreshold = 0;\n            }\n\n            // Confirm the change of tokenomics parameters\n            emit TokenomicsParametersUpdated(eCounter + 1);\n        }\n\n        // Update incentive fractions for the next epoch if they were requested by the changeIncentiveFractions() function\n        // Check if the second bit is set to one\n        if (tokenomicsParametersUpdated & 0x02 == 0x02) {\n            // Confirm the change of incentive fractions\n            emit IncentiveFractionsUpdated(eCounter + 1);\n        } else {\n            // Copy current tokenomics point into the next one such that it has necessary tokenomics parameters\n            for (uint256 i = 0; i < 2; ++i) {\n                nextEpochPoint.unitPoints[i].topUpUnitFraction = tp.unitPoints[i].topUpUnitFraction;\n                nextEpochPoint.unitPoints[i].rewardUnitFraction = tp.unitPoints[i].rewardUnitFraction;\n            }\n            nextEpochPoint.epochPoint.rewardTreasuryFraction = tp.epochPoint.rewardTreasuryFraction;\n            nextEpochPoint.epochPoint.maxBondFraction = tp.epochPoint.maxBondFraction;\n            // Copy service staking fraction\n            mapEpochStakingPoints[eCounter + 1].stakingFraction = mapEpochStakingPoints[eCounter].stakingFraction;\n        }\n\n        // Update service staking parameters if they were requested by the changeStakingParams() function\n        // Check if the forth bit is set to one\n        if (tokenomicsParametersUpdated & 0x08 == 0x08) {\n            // Confirm the change of service staking parameters\n            emit StakingParamsUpdated(eCounter + 1);\n        } else {\n            // Copy current service staking parameters into the next epoch\n            mapEpochStakingPoints[eCounter + 1].maxStakingIncentive = mapEpochStakingPoints[eCounter].maxStakingIncentive;\n            mapEpochStakingPoints[eCounter + 1].minStakingWeight = mapEpochStakingPoints[eCounter].minStakingWeight;\n        }\n        // Record settled epoch timestamp\n        tp.epochPoint.endTime = uint32(block.timestamp);\n\n        // Cumulative incentives\n        uint256 accountRewards = incentives[2] + incentives[3];\n        // Owner top-ups: epoch incentives for component owners funded with the inflation\n        incentives[5] = (inflationPerEpoch * tp.unitPoints[0].topUpUnitFraction) / 100;\n        // Owner top-ups: epoch incentives for agent owners funded with the inflation\n        incentives[6] = (inflationPerEpoch * tp.unitPoints[1].topUpUnitFraction) / 100;\n        // Even if there was no single donating service owner that had a sufficient veOLAS balance,\n        // we still record the amount of OLAS allocated for component / agent owner top-ups from the inflation schedule.\n        // This amount will appear in the EpochSettled event, and thus can be tracked historically\n        uint256 accountTopUps = incentives[5] + incentives[6];\n\n        // Service staking funding\n        // Refunded amount during the epoch\n        incentives[7] = mapEpochStakingPoints[eCounter].stakingIncentive;\n        // Adding service staking top-ups amount based on a current epoch inflation\n        incentives[8] = incentives[7] + (inflationPerEpoch * mapEpochStakingPoints[eCounter].stakingFraction) / 100;\n        mapEpochStakingPoints[eCounter].stakingIncentive = uint96(incentives[8]);\n\n        // Adjust max bond value if the next epoch is going to be the year change epoch\n        // Note that this computation happens before the epoch that is triggered in the next epoch (the code above) when\n        // the actual year changes\n        numYears = (block.timestamp + curEpochLen - timeLaunch) / ONE_YEAR;\n        // Account for the year change to adjust the max bond\n        if (numYears > currentYear) {\n            // Calculate the inflation remainder for the passing year\n            // End of the year timestamp\n            uint256 yearEndTime = timeLaunch + numYears * ONE_YEAR;\n            // Calculate the inflation per epoch value until the end of the year\n            inflationPerEpoch = (yearEndTime - block.timestamp) * curInflationPerSecond;\n            // Recalculate the inflation per second based on the new inflation for the current year\n            curInflationPerSecond = getInflationForYear(numYears) / ONE_YEAR;\n            // Add the remainder of the inflation for the next epoch based on a new inflation per second ratio\n            inflationPerEpoch += (block.timestamp + curEpochLen - yearEndTime) * curInflationPerSecond;\n            // Calculate the max bond value\n            curMaxBond = (inflationPerEpoch * nextEpochPoint.epochPoint.maxBondFraction) / 100;\n            // Update state maxBond value\n            maxBond = uint96(curMaxBond);\n            // Reset the tokenomics parameters update flag\n            tokenomicsParametersUpdated = 0;\n        } else if (tokenomicsParametersUpdated > 0) {\n            // Since tokenomics parameters have been updated, maxBond has to be recalculated\n            curMaxBond = (curEpochLen * curInflationPerSecond * nextEpochPoint.epochPoint.maxBondFraction) / 100;\n            // Update state maxBond value\n            maxBond = uint96(curMaxBond);\n            // Reset the tokenomics parameters update flag\n            tokenomicsParametersUpdated = 0;\n        }\n        // Update effectiveBond with the current or updated maxBond value\n        curMaxBond += effectiveBond;\n        effectiveBond = uint96(curMaxBond);\n\n        // Update the IDF value for the next epoch or assign a default one if there are no ETH donations\n        if (incentives[0] > 0) {\n            // Calculate IDF based on the incoming donations\n            uint256 idf = _calculateIDF(incentives[1], tp.epochPoint.numNewOwners);\n            nextEpochPoint.epochPoint.idf = uint64(idf);\n            emit IDFUpdated(idf);\n        } else {\n            // Assign a default IDF value\n            nextEpochPoint.epochPoint.idf = 1e18;\n        }\n\n        // Treasury contract rebalances ETH funds depending on the treasury rewards\n        if (incentives[1] == 0 || ITreasury(treasury).rebalanceTreasury(incentives[1])) {\n            // Emit settled epoch written to the last economics point\n            emit EpochSettled(eCounter, incentives[1], accountRewards, accountTopUps, curMaxBond, incentives[7],\n                incentives[8]);\n            // Start new epoch\n            epochCounter = uint32(eCounter + 1);\n        } else {\n            // If the treasury rebalance was not executed correctly, the new epoch does not start\n            revert TreasuryRebalanceFailed(eCounter);\n        }\n\n        return true;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1163,
+            1177
+          ],
+          [
+            1278,
+            1280
+          ]
+        ]
+      },
+      {
+        "function_name": "getVotes",
+        "start_line": 67,
+        "end_line": 179,
+        "code": "    function getVotes(address account) external view returns (uint256);\n}\n\n/// @dev Only `manager` has a privilege, but the `sender` was provided.\n/// @param sender Sender address.\n/// @param manager Required sender address as a manager.\nerror ManagerOnly(address sender, address manager);\n\n/// @dev Only `owner` has a privilege, but the `sender` was provided.\n/// @param sender Sender address.\n/// @param owner Required sender address as an owner.\nerror OwnerOnly(address sender, address owner);\n\n/// @dev Provided zero address.\nerror ZeroAddress();\n\n/// @dev Wrong length of two arrays.\n/// @param numValues1 Number of values in a first array.\n/// @param numValues2 Number of values in a second array.\nerror WrongArrayLength(uint256 numValues1, uint256 numValues2);\n\n/// @dev Service Id does not exist in registry records.\n/// @param serviceId Service Id.\nerror ServiceDoesNotExist(uint256 serviceId);\n\n/// @dev Zero value when it has to be different from zero.\nerror ZeroValue();\n\n/// @dev Value overflow.\n/// @param provided Overflow value.\n/// @param max Maximum possible value.\nerror Overflow(uint256 provided, uint256 max);\n\n/// @dev Service was never deployed.\n/// @param serviceId Service Id.\nerror ServiceNeverDeployed(uint256 serviceId);\n\n/// @dev Received lower value than the expected one.\n/// @param provided Provided value is lower.\n/// @param expected Expected value.\nerror LowerThan(uint256 provided, uint256 expected);\n\n/// @dev Wrong amount received / provided.\n/// @param provided Provided amount.\n/// @param expected Expected amount.\nerror WrongAmount(uint256 provided, uint256 expected);\n\n/// @dev The donator address is blacklisted.\n/// @param account Donator account address.\nerror DonatorBlacklisted(address account);\n\n/// @dev The contract is already initialized.\nerror AlreadyInitialized();\n\n/// @dev The contract has to be delegate-called via proxy.\nerror DelegatecallOnly();\n\n/// @dev Caught an operation that is not supposed to happen in the same block.\nerror SameBlockNumberViolation();\n\n/// @dev Failure of treasury re-balance during the reward allocation.\n/// @param epochNumber Epoch number.\nerror TreasuryRebalanceFailed(uint256 epochNumber);\n\n/// @dev Operation with a wrong component / agent Id.\n/// @param unitId Component / agent Id.\n/// @param unitType Type of the unit (component / agent).\nerror WrongUnitId(uint256 unitId, uint256 unitType);\n\n/*\n* In this contract we consider both ETH and OLAS tokens.\n* For ETH tokens, there are currently about 121 million tokens.\n* Even if the ETH inflation rate is 5% per year, it would take 130+ years to reach 2^96 - 1 of ETH total supply.\n* Lately the inflation rate was lower and could actually be deflationary.\n*\n* For OLAS tokens, the initial numbers will be as follows:\n*  - For the first 10 years there will be the cap of 1 billion (1e27) tokens;\n*  - After 10 years, the inflation rate is capped at 2% per year.\n* Starting from a year 11, the maximum number of tokens that can be reached per the year x is 1e27 * (1.02)^x.\n* To make sure that a unit(n) does not overflow the total supply during the year x, we have to check that\n* 2^n - 1 >= 1e27 * (1.02)^x. We limit n by 96, thus it would take 220+ years to reach that total supply.\n*\n* We then limit each time variable to last until the value of 2^32 - 1 in seconds.\n* 2^32 - 1 gives 136+ years counted in seconds starting from the year 1970.\n* Thus, this counter is safe until the year 2106.\n*\n* The number of blocks cannot be practically bigger than the number of seconds, since there is more than one second\n* in a block. Thus, it is safe to assume that uint32 for the number of blocks is also sufficient.\n*\n* We also limit the number of registry units by the value of 2^32 - 1.\n* We assume that the system is expected to support no more than 2^32-1 units.\n*\n* Lastly, we assume that the coefficients from tokenomics factors calculation are bound by 2^16 - 1.\n*\n* In conclusion, this contract is only safe to use until 2106.\n*/\n\n// Structure for component / agent point with tokenomics-related statistics\n// The size of the struct is 96 + 32 + 8 * 2 = 144 (1 slot)\nstruct UnitPoint {\n    // Summation of all the relative OLAS top-ups accumulated by each component / agent in a service\n    // After 10 years, the OLAS inflation rate is 2% per year. It would take 220+ years to reach 2^96 - 1\n    uint96 sumUnitTopUpsOLAS;\n    // Number of new units\n    // This number cannot be practically bigger than the total number of supported units\n    uint32 numNewUnits;\n    // Reward component / agent fraction\n    // This number cannot be practically bigger than 100 as the summation with other fractions gives at most 100 (%)\n    uint8 rewardUnitFraction;\n    // Top-up component / agent fraction\n    // This number cannot be practically bigger than 100 as the summation with other fractions gives at most 100 (%)\n    uint8 topUpUnitFraction;\n}",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            85,
+            96
+          ],
+          [
+            85,
+            96
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:43:27.760406",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 75,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "checkpoint adds the next epoch's maxBond to effectiveBond in advance (lines 1279-1280) and later corrects effectiveBond only when the actual maxBond is larger than the predicted one, with no branch for the smaller case. This is the one-way correction the finding describes.",
+      "functions_found": [
+        "checkpoint",
+        "reserveAmountForBondProgram"
+      ],
+      "variables_found": [
+        "effectiveBond",
+        "maxBond",
+        "inflationPerEpoch",
+        "inflationPerSecond",
+        "incentives[4]"
+      ],
+      "patterns_found": [
+        "effectiveBond corrected only upward",
+        "next epoch maxBond credited to effectiveBond in advance"
+      ],
+      "issues": [
+        "Lines 1248-1267 already mix the old and new inflation rates when the next epoch is predicted to cross a year boundary. The finding does not discuss this, so the size of the over-credit could not be confirmed from the code.",
+        "The second problem_code block (lines 67-179) comes from the TokenomicsConstants.sol link and shows unrelated error declarations."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": null,
+      "mando_applicable": false
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "vulnerability_type": "bond credit not reduced when actual inflation is lower than predicted"
+    },
+    "fix_code_source": "none"
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "id": "65275",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/Tulpea/Vault/blob/64d394908900fe692e5a2036f1d8c00af6b326db/src/TulpeaYieldVault.sol#L544",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      544,
+      544
+    ],
+    [
+      596,
+      596
+    ]
+  ],
+  "filename": "65275_TulpeaYieldVault.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 909,
+  "vulnerability_title": "[M-01] The `processReport()` Health Check Bypassed on First Report",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Remove the `previousDebt > 0` gate. When `previousDebt == 0`, use `totalAssets()` (or a constant floor of 1) as the reference base to preserve meaningful deviation bounds:\n\n```solidity\nif (healthCheckEnabled) {\n    if (currentAssets > previousDebt) {\n        uint256 profitDelta = currentAssets - previousDebt;\n        uint256 base = previousDebt > 0 ? previousDebt : totalAssets() + 1;\n        uint256 maxAllowed = (base * maxProfitReportBps) / MAX_BPS;\n        if (profitDelta > maxAllowed) revert HealthCheckFailed(profitDelta, maxAllowed, false);\n    } else if (currentAssets < previousDebt) {\n        uint256 lossDelta = previousDebt - currentAssets;\n        uint256 maxAllowed = (previousDebt * maxLossReportBps) / MAX_BPS;\n        if (lossDelta > maxAllowed) revert HealthCheckFailed(lossDelta, maxAllowed, true);\n    }\n}\n```\n\nThis ensures the health check fires on the first report and on every report after a full debt drain, matching the operator's configured intent.",
+    "fix_code_blocks": [
+      "if (healthCheckEnabled) {\n    if (currentAssets > previousDebt) {\n        uint256 profitDelta = currentAssets - previousDebt;\n        uint256 base = previousDebt > 0 ? previousDebt : totalAssets() + 1;\n        uint256 maxAllowed = (base * maxProfitReportBps) / MAX_BPS;\n        if (profitDelta > maxAllowed) revert HealthCheckFailed(profitDelta, maxAllowed, false);\n    } else if (currentAssets < previousDebt) {\n        uint256 lossDelta = previousDebt - currentAssets;\n        uint256 maxAllowed = (previousDebt * maxLossReportBps) / MAX_BPS;\n        if (lossDelta > maxAllowed) revert HealthCheckFailed(lossDelta, maxAllowed, true);\n    }\n}"
+    ]
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "```solidity\nit(\"demonstrates health check is skipped on first processReport() allowing unbounded NAV inflation\", async function () {\n    // 1) Alice deposits 100,000 USDT \u2014 establishes real TVL baseline.\n    await vault.connect(alice).deposit(ALICE_DEPOSIT, aliceAddr);\n    const aliceShares = await vault.balanceOf(aliceAddr);\n    expect(aliceShares).to.equal(ALICE_DEPOSIT * SHARE_SCALE, \"Alice must hold correct share amount\");\n\n    // 2) Configure health check: 1% max profit, health check enabled.\n    //    At this cap a 1,000 USDT jump on a 100k base would be the maximum allowed,\n    //    and 2,000 USDT should revert with HealthCheckFailed.\n    await vault.connect(admin).setHealthCheck(100, 100, true);\n    expect(await vault.healthCheckEnabled()).to.equal(true);\n    expect(await vault.maxProfitReportBps()).to.equal(MAX_PROFIT_BPS);\n\n    // 3) Add the strategy. addStrategy always initialises currentDebt = 0.\n    await vault.connect(admin).addStrategy(await mockStrategy.getAddress());\n    const config = await vault.strategies(await mockStrategy.getAddress());\n    expect(config.currentDebt).to.equal(0n, \"currentDebt must be 0 \u2014 no funds deployed yet\");\n\n    // 4) Strategy receives 2,000 USDT via airdrop before any vault funds are deployed.\n    //    previousDebt = 0, so profitDelta = 2,000 USDT.\n    //    With 1% maxProfitReportBps: maxAllowed = (0 * 100) / 10000 = 0.\n    //    Any non-zero profit should trigger HealthCheckFailed \u2014 but the guard\n    //    short-circuits on `previousDebt > 0`, so it never fires.\n    await mockStrategy.setBalance(STRATEGY_DONATION);\n\n    // Snapshot: vault NAV before the bypassed report\n    const navBefore = await vault.totalAssets();\n    expect(navBefore).to.equal(ALICE_DEPOSIT, \"NAV before report must equal Alice's deposit\");\n    expect(await vault.totalDebt()).to.equal(0n);\n\n    // 5) Keeper calls processReport().\n    //    EXPECTED (if health check worked): revert HealthCheckFailed(2000e6, 0, false)\n    //    ACTUAL: no revert \u2014 2,000 USDT accepted unconditionally.\n    await expect(\n      vault.connect(keeper).processReport(await mockStrategy.getAddress())\n    ).to.not.be.reverted;\n\n    // 6) Vault NAV jumped by the full 2,000 USDT donation \u2014 2% inflation in one tx.\n    //    The configured 1% cap provided zero protection.\n    const navAfter = await vault.totalAssets();\n    expect(navAfter).to.equal(\n      ALICE_DEPOSIT + STRATEGY_DONATION,\n      \"NAV must reflect full 2,000 USDT injection \u2014 health check bypassed\"\n    );\n\n    // 7) totalDebt absorbed the full donation with no bound check.\n    expect(await vault.totalDebt()).to.equal(\n      STRATEGY_DONATION,\n      \"totalDebt must equal donation \u2014 2,000 USDT accepted, 1% cap ignored\"\n    );\n\n    // 8) Alice's 100,000 USDT deposit is now redeemable for ~102,000 USDT.\n    //    A future depositor entering at the new NAV pays the inflated price,\n    //    subsidising Alice's windfall. The health check policy is void.\n    const aliceRedeemValue = await vault.convertToAssets(aliceShares);\n    expect(aliceRedeemValue).to.be.greaterThan(\n      ALICE_DEPOSIT,\n      \"Alice's position must be worth more than her deposit after the unguarded NAV jump\"\n    );\n    const aliceWindfall = aliceRedeemValue - ALICE_DEPOSIT;\n    expect(aliceWindfall).to.be.greaterThanOrEqual(\n      STRATEGY_DONATION - 1n,\n      \"Alice's windfall must equal the full 2,000 USDT donation (\u00b11 wei rounding) \u2014 no health check fired\"\n    );\n  });\n```",
+    "poc_code_blocks": [
+      "it(\"demonstrates health check is skipped on first processReport() allowing unbounded NAV inflation\", async function () {\n    // 1) Alice deposits 100,000 USDT \u2014 establishes real TVL baseline.\n    await vault.connect(alice).deposit(ALICE_DEPOSIT, aliceAddr);\n    const aliceShares = await vault.balanceOf(aliceAddr);\n    expect(aliceShares).to.equal(ALICE_DEPOSIT * SHARE_SCALE, \"Alice must hold correct share amount\");\n\n    // 2) Configure health check: 1% max profit, health check enabled.\n    //    At this cap a 1,000 USDT jump on a 100k base would be the maximum allowed,\n    //    and 2,000 USDT should revert with HealthCheckFailed.\n    await vault.connect(admin).setHealthCheck(100, 100, true);\n    expect(await vault.healthCheckEnabled()).to.equal(true);\n    expect(await vault.maxProfitReportBps()).to.equal(MAX_PROFIT_BPS);\n\n    // 3) Add the strategy. addStrategy always initialises currentDebt = 0.\n    await vault.connect(admin).addStrategy(await mockStrategy.getAddress());\n    const config = await vault.strategies(await mockStrategy.getAddress());\n    expect(config.currentDebt).to.equal(0n, \"currentDebt must be 0 \u2014 no funds deployed yet\");\n\n    // 4) Strategy receives 2,000 USDT via airdrop before any vault funds are deployed.\n    //    previousDebt = 0, so profitDelta = 2,000 USDT.\n    //    With 1% maxProfitReportBps: maxAllowed = (0 * 100) / 10000 = 0.\n    //    Any non-zero profit should trigger HealthCheckFailed \u2014 but the guard\n    //    short-circuits on `previousDebt > 0`, so it never fires.\n    await mockStrategy.setBalance(STRATEGY_DONATION);\n\n    // Snapshot: vault NAV before the bypassed report\n    const navBefore = await vault.totalAssets();\n    expect(navBefore).to.equal(ALICE_DEPOSIT, \"NAV before report must equal Alice's deposit\");\n    expect(await vault.totalDebt()).to.equal(0n);\n\n    // 5) Keeper calls processReport().\n    //    EXPECTED (if health check worked): revert HealthCheckFailed(2000e6, 0, false)\n    //    ACTUAL: no revert \u2014 2,000 USDT accepted unconditionally.\n    await expect(\n      vault.connect(keeper).processReport(await mockStrategy.getAddress())\n    ).to.not.be.reverted;\n\n    // 6) Vault NAV jumped by the full 2,000 USDT donation \u2014 2% inflation in one tx.\n    //    The configured 1% cap provided zero protection.\n    const navAfter = await vault.totalAssets();\n    expect(navAfter).to.equal(\n      ALICE_DEPOSIT + STRATEGY_DONATION,\n      \"NAV must reflect full 2,000 USDT injection \u2014 health check bypassed\"\n    );\n\n    // 7) totalDebt absorbed the full donation with no bound check.\n    expect(await vault.totalDebt()).to.equal(\n      STRATEGY_DONATION,\n      \"totalDebt must equal donation \u2014 2,000 USDT accepted, 1% cap ignored\"\n    );\n\n    // 8) Alice's 100,000 USDT deposit is now redeemable for ~102,000 USDT.\n    //    A future depositor entering at the new NAV pays the inflated price,\n    //    subsidising Alice's windfall. The health check policy is void.\n    const aliceRedeemValue = await vault.convertToAssets(aliceShares);\n    expect(aliceRedeemValue).to.be.greaterThan(\n      ALICE_DEPOSIT,\n      \"Alice's position must be worth more than her deposit after the unguarded NAV jump\"\n    );\n    const aliceWindfall = aliceRedeemValue - ALICE_DEPOSIT;\n    expect(aliceWindfall).to.be.greaterThanOrEqual(\n      STRATEGY_DONATION - 1n,\n      \"Alice's windfall must equal the full 2,000 USDT donation (\u00b11 wei rounding) \u2014 no health check fired\"\n    );\n  });"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "removeStrategy",
+        "start_line": 541,
+        "end_line": 560,
+        "code": "    function removeStrategy(address strategy) external onlyOwner {\n        if (!strategies[strategy].isActive) revert StrategyNotFound(strategy);\n        if (strategies[strategy].currentDebt > 0) revert StrategyHasDebt(strategy, strategies[strategy].currentDebt);\n\n        strategies[strategy].isActive = false;\n\n        // Remove from strategyList array\n        bool found = false;\n        for (uint256 i = 0; i < strategyList.length; i++) {\n            if (strategyList[i] == strategy) {\n                strategyList[i] = strategyList[strategyList.length - 1];\n                strategyList.pop();\n                found = true;\n                break;\n            }\n        }\n        if (!found) revert StrategyNotInList(strategy);\n\n        emit StrategyRemoved(strategy);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            544,
+            544
+          ]
+        ]
+      },
+      {
+        "function_name": "processReport",
+        "start_line": 571,
+        "end_line": 622,
+        "code": "    function processReport(address strategy) external onlyKeeperOrOwner nonReentrant returns (uint256 profit, uint256 loss) {\n        StrategyConfig storage config = strategies[strategy];\n        if (!config.isActive) revert StrategyNotActive(strategy);\n\n        // Read strategy's current total assets\n        uint256 currentAssets;\n        try IStrategy(strategy).totalAssets() returns (uint256 assets) {\n            currentAssets = assets;\n        } catch {\n            revert StrategyTotalAssetsReverted(strategy);\n        }\n\n        uint256 previousDebt = config.currentDebt;\n\n        // Health check: validate deviation bounds before applying profit/loss\n        if (healthCheckEnabled && previousDebt > 0) {\n            if (currentAssets > previousDebt) {\n                uint256 profitDelta = currentAssets - previousDebt;\n                uint256 maxAllowed = (previousDebt * maxProfitReportBps) / MAX_BPS;\n                if (profitDelta > maxAllowed) revert HealthCheckFailed(profitDelta, maxAllowed, false);\n            } else if (currentAssets < previousDebt) {\n                uint256 lossDelta = previousDebt - currentAssets;\n                uint256 maxAllowed = (previousDebt * maxLossReportBps) / MAX_BPS;\n                if (lossDelta > maxAllowed) revert HealthCheckFailed(lossDelta, maxAllowed, true);\n            }\n        }\n\n        if (currentAssets > previousDebt) {\n            // Profit detected \u2014 applied instantly to share price\n            profit = currentAssets - previousDebt;\n            config.currentDebt = currentAssets;\n            config.lastTotalAssets = currentAssets;\n            totalDebt += profit;\n        } else if (currentAssets < previousDebt) {\n            // Loss detected \u2014 applied instantly to share price\n            loss = previousDebt - currentAssets;\n            config.currentDebt = currentAssets;\n            config.lastTotalAssets = currentAssets;\n            totalDebt -= loss;\n\n            // F2 fix: trigger emergency shutdown if loss >= 50% of previous debt\n            if (previousDebt > 0 && (loss * MAX_BPS) / previousDebt >= MAX_LOSS_BPS) {\n                emergencyShutdown = true;\n                emit EmergencyShutdownTriggered(strategy, loss, previousDebt);\n            }\n        } else {\n            // No change\n            config.lastTotalAssets = currentAssets;\n        }\n\n        emit StrategyReported(strategy, profit, loss, currentAssets);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            596,
+            596
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T16:58:32.306352",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability related to the health check being bypassed on the first report due to the `previousDebt` condition.",
+      "content_reasoning": "The content mentions the relevant functions (`addStrategy` and `processReport`) and variables (`currentDebt`, `previousDebt`, `totalAssets`) that are present in the code snippets.",
+      "functions_found": [
+        "addStrategy",
+        "processReport"
+      ],
+      "variables_found": [
+        "currentDebt",
+        "previousDebt",
+        "totalAssets"
+      ],
+      "patterns_found": [
+        "health check bypass",
+        "unbounded NAV inflation"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 85,
+      "reasoning": "The report lacks a tag that reflects the nature of the vulnerability, which is related to business logic and health checks.",
+      "suggested_tag": "Business Logic Error",
+      "alternative_tags": [
+        "Logic Flaw",
+        "Health Check Bypass"
+      ],
+      "correction_explanation": "A tag is necessary to categorize the vulnerability for better tracking and resolution."
+    },
+    "mando_classification": {
+      "primary_category": "G4",
+      "secondary_categories": [],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability is primarily a business logic issue where the health check mechanism fails, allowing for unbounded NAV inflation."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G1"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": false,
+      "reasoning": "The SCSVS category G4 is appropriate as it directly relates to the flawed business logic in the contract's health check implementation.",
+      "vulnerability_type": "Business logic flaw allowing unbounded NAV inflation"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-04-16T17:16:13.722901",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

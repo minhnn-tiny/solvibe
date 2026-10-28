@@ -1,0 +1,103 @@
+{
+  "id": "64637",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/gskril/wannabet-v2/blob/d7333369548874cb99e9648ea2424ac1e67cc23f/contracts/src/Bet.sol#L163-L176",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      163,
+      176
+    ]
+  ],
+  "filename": "64637_Bet.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 231,
+  "vulnerability_title": "Active and pending bets can be cancelled by anyone",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs",
+    "snippets": [
+      {
+        "code": "\n        // Transfer the winnings to the winner\n        IERC20(b.asset).transfer(winner, totalWinnings);\n\n        // Transfer the remainder to the treasury\n        uint256 remainder = IERC20(b.asset).balanceOf(address(this));\n        if (remainder > 0) {\n            IERC20(b.asset).transfer(_treasury, remainder);\n        }\n\n        // Update the bet\n        _bet.winner = winner;\n        _bet.status = IBet.Status.RESOLVED;\n    }\n\n    /// @dev Anybody can cancel an expired bet and send funds back to each party. The maker can cancel a pending bet.\n    function cancel() external {\n        IBet.Bet memory b = _bet;\n\n        // Can't cancel a bet that's already completed\n        if (b.status >= IBet.Status.RESOLVED) {\n            revert InvalidStatus();\n        } else {\n            // Pending or active bets at this point\n            // The maker can cancel a pending bet, so block them from cancelling an active bet\n            if (b.maker == msg.sender && b.status != IBet.Status.PENDING) {\n                revert InvalidStatus();\n            }\n        }\n\n        uint256 makerRefund = b.makerStake;\n        uint256 takerRefund = b.takerStake;\n\n        // If there is a pool, withdraw the funds from Aave first\n        if (address(_aavePool) != address(0)) {\n            uint256 aTokenBalance = IERC20(_aavePool.getReserveAToken(b.asset))\n                .balanceOf(address(this));\n            _aavePool.withdraw(b.asset, aTokenBalance, address(this));\n\n            makerRefund = _min(makerRefund, aTokenBalance);\n            takerRefund = _min(takerRefund, aTokenBalance - makerRefund);\n        }\n\n        // Transfer the funds back to the maker and taker",
+        "start_line": 163,
+        "end_line": 176,
+        "context_start_line": 148,
+        "context_end_line": 191,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T17:55:55.212381",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability where any address can cancel an active or pending bet, which is reflected in the code logic.",
+      "content_reasoning": "The content mentions the `cancel` function and the relevant variables and states that are present in the code, confirming the vulnerability.",
+      "functions_found": [
+        "cancel"
+      ],
+      "variables_found": [
+        "_bet",
+        "b.maker",
+        "b.status"
+      ],
+      "patterns_found": [
+        "access control issue",
+        "state management issue"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "There is no existing tag, and the issue is significant enough to warrant a specific tag related to access control vulnerabilities.",
+      "suggested_tag": "access_control",
+      "alternative_tags": [
+        "business_logic"
+      ],
+      "correction_explanation": "The vulnerability is primarily an access control issue, as it allows unauthorized cancellation of bets, which undermines the intended functionality."
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "secondary_categories": [],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability clearly falls under access control issues as it allows unauthorized users to cancel bets."
+    },
+    "scsvs_classification": {
+      "primary_category": "G5",
+      "primary_category_name": "Access control",
+      "secondary_categories": [
+        "G4"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": false,
+      "reasoning": "The MANDO classification is sufficient for this vulnerability, but SCSVS provides a more granular view of access control issues.",
+      "vulnerability_type": "Unauthorized cancellation of bets"
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-04-16T17:58:56.324494",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs"
+  }
+}

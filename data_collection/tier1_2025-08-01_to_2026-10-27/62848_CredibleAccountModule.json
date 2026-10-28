@@ -1,0 +1,137 @@
+{
+  "id": "62848",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/etherspot/etherspot-modular-accounts/blob/9019f2a78c36e74bdb1df4029672998cb4631162/src/modules/validators/CredibleAccountModule.sol#L759-L766",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      759,
+      766
+    ]
+  ],
+  "filename": "62848_CredibleAccountModule.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 785,
+  "vulnerability_title": "[H-01] `SessionKey` Owner Can Impersonate Another Session Key Owner for the Same Smart Wallet",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Since we only allow two functions to be called, `ERC20::approve()` and `CredibleAccountModule::claim()`, we should make sure that if the function is `claim()`, we check the `sessionKey` provided to match the `sessionKeySigner` for the message.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "- There is a Smart Wallet (SCW) that has two `sessionKey`s (SK1, SK2)\n- SK2 signed a message for making a `claim()` function, passing parameters as `sessionKey` equals `SK1`\n- `CredibleAccountModule::validateUserOp()` is called\n  - The `msg.sender` is the SCW | check passed\n  - The signed `sessionKey` is owned by that SCW | check passed\n  - We are calling `claim()` function on the `CredibleAccountModule` contract | check passed\n- validation will pass successfully, and the Smart Wallet will execute the transaction\n- Now executing `claim()` providing `sessionKey` as `SK1`\n- All checks will be passed, the sender will be the SCW, and it owns the `sessionKey`\n- This will end up claiming the SK1 tokens, without SK1 signing, but SK2 is the one who signed the message",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_validateSingleCall",
+        "start_line": 759,
+        "end_line": 766,
+        "code": "    function _validateSingleCall(bytes calldata _callData) internal view returns (bool) {\n        (address target,, bytes calldata execData) = ExecutionLib.decodeSingle(_callData[EXEC_OFFSET:]);\n        bytes4 selector = _validateSelector(bytes4(execData[0:4]));\n        if (selector == bytes4(0)) return false;\n        if (selector == IERC20.approve.selector) return true;\n        if (target != address(this)) return false; // If not approve call must call this contract\n        return true;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            759,
+            766
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:05:07.236351",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability related to session key validation in the Smart Wallet.",
+      "content_reasoning": "The content mentions the relevant functions and checks that are present in the code, specifically the `_validateSingleCall` function and its role in validating session keys.",
+      "functions_found": [
+        "_validateSingleCall",
+        "_validateSelector"
+      ],
+      "variables_found": [
+        "_callData",
+        "execData",
+        "target"
+      ],
+      "patterns_found": [
+        "authorization bypass",
+        "signature validation issue"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 85,
+      "reasoning": "The report lacks a tag that reflects the nature of the vulnerability, which is related to access control and authorization.",
+      "suggested_tag": "access_control",
+      "alternative_tags": [
+        "authorization_bypass"
+      ],
+      "correction_explanation": "A tag related to access control is appropriate as the vulnerability allows unauthorized access to session keys."
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "secondary_categories": [],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability directly relates to access control issues where session keys can be misused by unauthorized parties."
+    },
+    "scsvs_classification": {
+      "primary_category": "G5",
+      "primary_category_name": "Access control",
+      "secondary_categories": [
+        "G4"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "SCSVS provides a more granular classification that captures the specific nature of the access control issue in the context of business logic.",
+      "vulnerability_type": "Unauthorized access to session keys"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Added a check to ensure the session key used for signing matches the session key used in the claim function.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "_validateSingleCall",
+          "fixed_function_code": "function _validateSingleCall(bytes calldata _callData, address sessionKeySigner) internal view returns (bool) {\n        (address target,, bytes calldata execData) = ExecutionLib.decodeSingle(_callData[EXEC_OFFSET:]);\n        bytes4 selector = _validateSelector(bytes4(execData[0:4]));\n        if (selector == bytes4(0)) return false;\n        if (selector == IERC20.approve.selector) return true;\n        if (selector == CredibleAccountModule.claim.selector) {\n            // Ensure the session key signer matches the expected session key\n            require(sessionKeySigner == msg.sender, \"Invalid session key signer\");\n            return true;\n        }\n        if (target != address(this)) return false; // If not approve call must call this contract\n        return true;\n    }",
+          "reasoning": "This function now checks if the session key signer matches the expected session key when the claim function is called, preventing unauthorized access to session keys."
+        }
+      ],
+      "key_changes": [
+        "Added a parameter for sessionKeySigner to the function signature.",
+        "Included a require statement to validate the session key signer for the claim function."
+      ],
+      "security_improvements": [
+        "Mitigated the risk of unauthorized access to session keys.",
+        "Enhanced validation for function calls to ensure proper session key usage."
+      ],
+      "additional_recommendations": "Consider implementing additional logging for failed validation attempts to monitor potential attack vectors.",
+      "confidence": 90,
+      "fix_code": "function _validateSingleCall(bytes calldata _callData, address sessionKeySigner) internal view returns (bool) {\n        (address target,, bytes calldata execData) = ExecutionLib.decodeSingle(_callData[EXEC_OFFSET:]);\n        bytes4 selector = _validateSelector(bytes4(execData[0:4]));\n        if (selector == bytes4(0)) return false;\n        if (selector == IERC20.approve.selector) return true;\n        if (selector == CredibleAccountModule.claim.selector) {\n            // Ensure the session key signer matches the expected session key\n            require(sessionKeySigner == msg.sender, \"Invalid session key signer\");\n            return true;\n        }\n        if (target != address(this)) return false; // If not approve call must call this contract\n        return true;\n    }",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-04-25T00:31:27.848802"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-25T00:31:27.848824",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

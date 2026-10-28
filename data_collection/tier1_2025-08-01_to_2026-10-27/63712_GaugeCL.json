@@ -1,0 +1,112 @@
+{
+  "id": "63712",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-10-hybra-finance/blob/66c42f3c9754f1b38942c69ebc0d3e4c0f8fdeb2/ve33/contracts/CLGauge/GaugeCL.sol# L256",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      256,
+      256
+    ]
+  ],
+  "filename": "63712_GaugeCL.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 371,
+  "vulnerability_title": "[M-05] Rollover rewards are permanently lost due to flawed `rewardRate` calculation",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "The `rewardRate` calculation should include the `rollover` amount to ensure the emission rate matches the total rewards available for distribution. This change guarantees that all `rollover` rewards are correctly accounted for and eventually distributed.\nIn `GaugeCL.sol`:\n```\n\n-   rewardRate = rewardAmount / epochTimeRemaining;\n+   rewardRate = totalRewardAmount / epochTimeRemaining;\n    clPool.syncReward({\n        rewardRate: rewardRate,\n        rewardReserve: totalRewardAmount,\n        periodFinish: epochEndTimestamp })\n```",
+    "fix_code_blocks": [
+      "-   rewardRate = rewardAmount / epochTimeRemaining;\n+   rewardRate = totalRewardAmount / epochTimeRemaining;\n    clPool.syncReward({\n        rewardRate: rewardRate,\n        rewardReserve: totalRewardAmount,\n        periodFinish: epochEndTimestamp })"
+    ]
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "*Please refer to the [original submission](https://code4rena.com/audits/2025-10-hybra-finance/submissions/S-356) to view the coded proof of concept.*\n\n**[Hybra Finance mitigated](https://github.com/code-423n4/2025-11-hybra-finance-mitigation?tab=readme-ov-file# mitigations-of-high--medium-severity-issues):**\n\n> fix - S-36 ClaimFees Steals Staking Rewards\n> fix - S-841 rollover rewardRate calcuate\n> fix - S-645 Missing unchecked block in Gauge Dependent Library Will Cause Freezing of Reward Calculations\n\n**Status:** Mitigation confirmed. Full details in the [mitigation review reports from niffylord, rayss, and ZanyBonzy](https://code4rena.com/audits/2025-11-hybra-finance-mitigation-review/submissions/S-21).\n\n---",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "notifyRewardAmount",
+        "start_line": 238,
+        "end_line": 288,
+        "code": "\n    function notifyRewardAmount(address token, uint256 rewardAmount) external nonReentrant\n        isNotEmergency onlyDistribution returns (uint256 currentRate) {\n        require(token == address(rewardToken), \"Invalid reward token\");\n\n        // Update global reward growth before processing new rewards\n        clPool.updateRewardsGrowthGlobal();\n\n        // Calculate time remaining until next epoch begins\n        uint256 epochTimeRemaining = HybraTimeLibrary.epochNext(block.timestamp) - block.timestamp;\n        uint256 epochEndTimestamp = block.timestamp + epochTimeRemaining;\n\n        // Include any rolled over rewards from previous period\n        uint256 totalRewardAmount = rewardAmount + clPool.rollover();\n\n        // Check if we are starting a new reward period or continuing existing one\n        if (block.timestamp >= _periodFinish) {\n            // New period: distribute rewards over remaining epoch time\n            rewardRate = rewardAmount / epochTimeRemaining;\n            clPool.syncReward({\n                rewardRate: rewardRate,\n                rewardReserve: totalRewardAmount,\n                periodFinish: epochEndTimestamp\n            });\n        } else {\n            // Existing period: add new rewards to pending distribution\n            uint256 pendingRewards = epochTimeRemaining * rewardRate;\n            rewardRate = (rewardAmount + pendingRewards) / epochTimeRemaining;\n            clPool.syncReward({\n                rewardRate: rewardRate,\n                rewardReserve: totalRewardAmount + pendingRewards,\n                periodFinish: epochEndTimestamp\n            });\n        }\n\n        // Store reward rate for current epoch tracking\n        rewardRateByEpoch[HybraTimeLibrary.epochStart(block.timestamp)] = rewardRate;\n\n        // Transfer reward tokens from distributor to gauge\n        rewardToken.safeTransferFrom(DISTRIBUTION, address(this), rewardAmount);\n\n        // Verify contract has sufficient balance to support calculated reward rate\n        uint256 contractBalance = rewardToken.balanceOf(address(this));\n        require(rewardRate <= contractBalance / epochTimeRemaining, \"Insufficient balance for reward rate\");\n\n        // Update period finish time and return current rate\n        _periodFinish = epochEndTimestamp;\n        currentRate = rewardRate;\n\n        emit RewardAdded(rewardAmount);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            256,
+            256
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:07:53.842872",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of miscalculating the `rewardRate`, leading to the loss of rollover rewards.",
+      "content_reasoning": "The content mentions the `notifyRewardAmount()` function and the relevant variables and logic that are present in the extracted code.",
+      "functions_found": [
+        "notifyRewardAmount"
+      ],
+      "variables_found": [
+        "rewardAmount",
+        "rewardRate",
+        "totalRewardAmount",
+        "epochTimeRemaining"
+      ],
+      "patterns_found": [
+        "mathematical calculation error",
+        "reward distribution logic"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 90,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to reflect the nature of the vulnerability.",
+      "suggested_tag": "reward_calculation_error",
+      "alternative_tags": [
+        "fund_loss",
+        "reward_distribution_issue"
+      ],
+      "correction_explanation": "The issue pertains to a flaw in the reward calculation logic, which should be tagged accordingly."
+    },
+    "mando_classification": {
+      "primary_category": "arithmetic",
+      "secondary_categories": [],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability involves a mathematical operation that leads to incorrect calculations affecting the reward distribution."
+    },
+    "scsvs_classification": {
+      "primary_category": "G7",
+      "primary_category_name": "Arithmetic",
+      "secondary_categories": [
+        "C8"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more detailed classification, particularly highlighting the arithmetic issue and its impact on the liquidity pool.",
+      "vulnerability_type": "Incorrect reward rate calculation leading to permanent loss of funds"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-04-25T12:43:08.786542",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

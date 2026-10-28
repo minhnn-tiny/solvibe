@@ -1,0 +1,124 @@
+{
+  "id": "64924",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-11-brix-money/blob/main/src/token/wiTRY/crosschain/UnstakeMessenger.sol# L120",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      120,
+      120
+    ],
+    [
+      266,
+      266
+    ]
+  ],
+  "filename": "64924_UnstakeMessenger.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 335,
+  "vulnerability_title": "[M-03] Incompatibility with Account Abstraction and Multisigs due to enforced address symmetry in cross chain unstaking",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Update the `unstake` function in `UnstakeMessenger` to accept an optional `_recipient` parameter. This allows users to specify the destination address on the Hub chain.\n```\n\n- function unstake(uint256 returnTripAllocation, address _recipient) external payable nonReentrant returns (bytes32 guid) {\n+ function unstake(uint256 returnTripAllocation) external payable nonReentrant returns (bytes32 guid) {\n    if (peers[hubEid] == bytes32(0)) revert HubNotConfigured();\n    if (returnTripAllocation == 0) revert InvalidReturnTripAllocation();\n\n    address targetUser = _recipient == address(0) ? msg.sender : _recipient;\n\n    bytes memory extraOptions = OptionsBuilder.newOptions();\n\n    UnstakeMessage memory message = UnstakeMessage({\n-        user: msg.sender,\n+        user: targetUser,\n        extraOptions: extraOptions\n    });\n\n    bytes memory payload = abi.encode(MSG_TYPE_UNSTAKE, message);\n    ...\n}\n```",
+    "fix_code_blocks": [
+      "- function unstake(uint256 returnTripAllocation, address _recipient) external payable nonReentrant returns (bytes32 guid) {\n+ function unstake(uint256 returnTripAllocation) external payable nonReentrant returns (bytes32 guid) {\n    if (peers[hubEid] == bytes32(0)) revert HubNotConfigured();\n    if (returnTripAllocation == 0) revert InvalidReturnTripAllocation();\n\n    address targetUser = _recipient == address(0) ? msg.sender : _recipient;\n\n    bytes memory extraOptions = OptionsBuilder.newOptions();\n\n    UnstakeMessage memory message = UnstakeMessage({\n-        user: msg.sender,\n+        user: targetUser,\n        extraOptions: extraOptions\n    });\n\n    bytes memory payload = abi.encode(MSG_TYPE_UNSTAKE, message);\n    ...\n}"
+    ]
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "Add this PoC to `UnstakeMessenger.t.sol`:\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-11-brix-money/submissions/S-624)\n\nLogs:\n```\n\nforge test --match-test test_POC_HardcodedRecipient_Prevents_Multisig_Migration -vvv\n[\u2806] Compiling...\n[\u2806] Compiling 1 files with Solc 0.8.20\n[\u2830] Solc 0.8.20 finished in 18.04s\nCompiler run successful with warnings:\nWarning (2018): Function state mutability can be restricted to view\n   --> test/crosschainTests/crosschain/UnstakeMessenger.t.sol:246:5:\n    |\n246 |     function test_Constructor_InitializesCorrectly() public {\n    |     ^ (Relevant source part starts here and spans across multiple lines).\n\nRan 1 test for test/crosschainTests/crosschain/UnstakeMessenger.t.sol:UnstakeMessengerTest\n[PASS] test_POC_HardcodedRecipient_Prevents_Multisig_Migration() (gas: 491951)\nLogs:\n  -------------------------------------------------------\n  [POC] Testing Forced Address Symmetry Vulnerability\n  -------------------------------------------------------\n  Sender (Spoke Chain):     0xE8B00b2fe39c1A1CF00DE5de5C14ac3A8db2B7eE\n  Desired Recipient (Hub):  0x0eF6C1d0dbEd6836E84DF31f29B33C4EBDf71B4a\n  Actual Forced Recipient:  0xE8B00b2fe39c1A1CF00DE5de5C14ac3A8db2B7eE\n  -------------------------------------------------------\n\nSuite result: ok. 1 passed; 0 failed; 0 skipped; finished in 2.66ms (816.20\u00b5s CPU time)\n\nRan 1 test suite in 59.29ms (2.66ms CPU time): 1 tests passed, 0 failed, 0 skipped (1 total tests)\n```\n\n---",
+    "poc_code_blocks": [
+      "forge test --match-test test_POC_HardcodedRecipient_Prevents_Multisig_Migration -vvv\n[\u2806] Compiling...\n[\u2806] Compiling 1 files with Solc 0.8.20\n[\u2830] Solc 0.8.20 finished in 18.04s\nCompiler run successful with warnings:\nWarning (2018): Function state mutability can be restricted to view\n   --> test/crosschainTests/crosschain/UnstakeMessenger.t.sol:246:5:\n    |\n246 |     function test_Constructor_InitializesCorrectly() public {\n    |     ^ (Relevant source part starts here and spans across multiple lines).\n\nRan 1 test for test/crosschainTests/crosschain/UnstakeMessenger.t.sol:UnstakeMessengerTest\n[PASS] test_POC_HardcodedRecipient_Prevents_Multisig_Migration() (gas: 491951)\nLogs:\n  -------------------------------------------------------\n  [POC] Testing Forced Address Symmetry Vulnerability\n  -------------------------------------------------------\n  Sender (Spoke Chain):     0xE8B00b2fe39c1A1CF00DE5de5C14ac3A8db2B7eE\n  Desired Recipient (Hub):  0x0eF6C1d0dbEd6836E84DF31f29B33C4EBDf71B4a\n  Actual Forced Recipient:  0xE8B00b2fe39c1A1CF00DE5de5C14ac3A8db2B7eE\n  -------------------------------------------------------\n\nSuite result: ok. 1 passed; 0 failed; 0 skipped; finished in 2.66ms (816.20\u00b5s CPU time)\n\nRan 1 test suite in 59.29ms (2.66ms CPU time): 1 tests passed, 0 failed, 0 skipped (1 total tests)"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "unstake",
+        "start_line": 108,
+        "end_line": 151,
+        "code": "    function unstake(uint256 returnTripAllocation) external payable nonReentrant returns (bytes32 guid) {\n        // Validate hub peer configured\n        bytes32 hubPeer = peers[hubEid];\n        if (hubPeer == bytes32(0)) revert HubNotConfigured();\n\n        // Validate returnTripAllocation\n        if (returnTripAllocation == 0) revert InvalidReturnTripAllocation();\n\n        // Build return trip options (valid TYPE_3 header)\n        bytes memory extraOptions = OptionsBuilder.newOptions();\n\n        // Encode UnstakeMessage with msg.sender as user (prevents spoofing)\n        UnstakeMessage memory message = UnstakeMessage({user: msg.sender, extraOptions: extraOptions});\n        bytes memory payload = abi.encode(MSG_TYPE_UNSTAKE, message);\n\n        // Build options WITH native value forwarding for return trip execution\n        // casting to 'uint128' is safe because returnTripAllocation value will be less than 2^128\n        // forge-lint: disable-next-line(unsafe-typecast)\n        bytes memory callerOptions =\n            OptionsBuilder.newOptions().addExecutorLzReceiveOption(LZ_RECEIVE_GAS, uint128(returnTripAllocation));\n        bytes memory options = _combineOptions(hubEid, MSG_TYPE_UNSTAKE, callerOptions);\n\n        // Quote with native drop included (single quote with fixed returnTripAllocation)\n        MessagingFee memory fee = _quote(hubEid, payload, options, false);\n\n        // Validate caller sent enough\n        if (msg.value < fee.nativeFee) {\n            revert InsufficientFee(fee.nativeFee, msg.value);\n        }\n\n        // Automatic refund to msg.sender\n        MessagingReceipt memory receipt = _lzSend(\n            hubEid,\n            payload,\n            options,\n            fee,\n            payable(msg.sender) // Refund excess to user\n        );\n        guid = receipt.guid;\n\n        emit UnstakeRequested(msg.sender, hubEid, fee.nativeFee, msg.value - fee.nativeFee, guid);\n\n        return guid;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            120,
+            120
+          ]
+        ]
+      },
+      {
+        "code": "        require(newBufferBPS <= 5000, \"Buffer too high (max 50%)\");\n\n        uint256 oldBuffer = feeBufferBPS;\n        feeBufferBPS = newBufferBPS;\n\n        emit FeeBufferUpdated(oldBuffer, newBufferBPS);\n    }\n\n    /**\n     * @notice Allow contract to receive ETH refunds from LayerZero\n     * @dev Required because endpoint.send() refunds to address(this)\n     */\n    receive() external payable {\n        // Accept LayerZero refunds silently\n        // Owner can rescue if needed\n    }\n\n    /**\n     * @notice Rescue tokens accidentally sent to this contract\n     * @dev Only callable by owner. Can rescue both ERC20 tokens and native ETH\n     *      Use address(0) for rescuing ETH\n     * @param token The token address to rescue (use address(0) for ETH)\n     * @param to The address to send rescued tokens to\n     * @param amount The amount to rescue\n     */\n    function rescueToken(address token, address to, uint256 amount) external onlyOwner nonReentrant {\n        if (to == address(0)) revert ZeroAddress();\n        if (amount == 0) revert ZeroAmount();\n\n        if (token == address(0)) {\n            // Rescue ETH",
+        "start_line": 266,
+        "end_line": 266,
+        "context_start_line": 251,
+        "context_end_line": 281,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:35.178451",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of enforced address symmetry in the unstake function, which is present in the extracted code.",
+      "content_reasoning": "The content mentions the unstake function and the hardcoded use of msg.sender as the recipient, which matches the extracted code.",
+      "functions_found": [
+        "unstake",
+        "_handleUnstake"
+      ],
+      "variables_found": [
+        "msg.sender",
+        "user"
+      ],
+      "patterns_found": [
+        "hardcoded recipient address"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "Access Control",
+      "tag_present": true,
+      "tag_correct": false,
+      "confidence": 80,
+      "reasoning": "The issue is not primarily about access control but about address handling and compatibility with different wallet types.",
+      "suggested_tag": "Business Logic",
+      "alternative_tags": [
+        "Cross-Chain"
+      ],
+      "correction_explanation": "The vulnerability is more about business logic related to address handling in cross-chain operations rather than access control."
+    },
+    "mando_classification": {
+      "primary_category": null,
+      "secondary_categories": [],
+      "confidence": 60,
+      "mando_applicable": false,
+      "reasoning": "The MANDO categories do not specifically cover issues related to address handling and cross-chain compatibility, which are the core of this vulnerability."
+    },
+    "scsvs_classification": {
+      "primary_category": "I4",
+      "primary_category_name": "Cross-Chain",
+      "secondary_categories": [
+        "G4"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue is specific to cross-chain operations and address handling, which is well-categorized under SCSVS's Cross-Chain category.",
+      "vulnerability_type": "Address handling issue in cross-chain unstaking leading to potential asset loss for certain wallet types."
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-03-20T15:34:06.666202",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

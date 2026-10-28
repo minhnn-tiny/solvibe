@@ -1,0 +1,93 @@
+{
+  "id": "c4-2026-01-olas-H-04",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/valory-xyz/autonolas-tokenomics/blob/bbec5ac12721a62672fb7a5ffba5c40f5a46d8cb/contracts/oracles/BalancerPriceOracle.sol#L84-L128",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      84,
+      128
+    ]
+  ],
+  "filename": "c4-2026-01-olas-H-04_BalancerPriceOracle.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 157,
+  "vulnerability_title": "[H-04] Incorrect TWAP calculation in BalancerPriceOracle allows price manipulation and breaks oracle guarantees",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Implement a proper TWAP calculation that accumulates actual prices weighted by time. For this you can use the observation pattern similar to UniswapV3 where observations (timeStamp, priceCumulative) are saved in a circular buffer. Let a keeper call updatePrice on a regular basis to ensure continues data. Also consider implementing a TWAP time range (e.g. 15 minutes) to ensure a proper time frame for the result.\n\nThe update function and the getPrice functions could look like this:\n\n```\nfunction update() external {\n    uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;\n\n    if (timeElapsed > 0) {\n        // Get spot price from Balancer pool\n        uint256 spotPrice = getBalancerSpotPrice();\n\n        // Update accumulator\n        priceAccumulator += spotPrice * timeElapsed;\n        lastUpdateTimestamp = block.timestamp;\n\n        // Store observation\n        observations.push(Observation({\n            timestamp: block.timestamp,\n            priceCumulative: priceAccumulator\n        }));\n    }\n}\n\nfunction getTWAP() public view returns (uint256) {\n    uint256 currentTime = block.timestamp;\n    uint256 targetTime = currentTime - PERIOD;\n\n    // Find observation closest to targetTime\n    Observation memory oldObservation = findObservation(targetTime);\n\n    uint256 priceDelta = priceAccumulator - oldObservation.priceCumulative;\n    uint256 timeDelta = currentTime - oldObservation.timestamp;\n\n    return priceDelta / timeDelta;\n}\n```",
+    "fix_code_blocks": [
+      "function update() external {\n    uint256 timeElapsed = block.timestamp - lastUpdateTimestamp;\n\n    if (timeElapsed > 0) {\n        // Get spot price from Balancer pool\n        uint256 spotPrice = getBalancerSpotPrice();\n\n        // Update accumulator\n        priceAccumulator += spotPrice * timeElapsed;\n        lastUpdateTimestamp = block.timestamp;\n\n        // Store observation\n        observations.push(Observation({\n            timestamp: block.timestamp,\n            priceCumulative: priceAccumulator\n        }));\n    }\n}\n\nfunction getTWAP() public view returns (uint256) {\n    uint256 currentTime = block.timestamp;\n    uint256 targetTime = currentTime - PERIOD;\n\n    // Find observation closest to targetTime\n    Observation memory oldObservation = findObservation(targetTime);\n\n    uint256 priceDelta = priceAccumulator - oldObservation.priceCumulative;\n    uint256 timeDelta = currentTime - oldObservation.timestamp;\n\n    return priceDelta / timeDelta;\n}"
+    ]
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "getPoolTokens",
+        "start_line": 5,
+        "end_line": 157,
+        "code": "    function getPoolTokens(bytes32 poolId) external view\n        returns (address[] memory tokens, uint256[] memory balances, uint256 lastChangeBlock);\n}\n\n/// @title BalancerPriceOracle - a smart contract oracle for Balancer V2 pools\n/// @dev This contract acts as an oracle for a specific Balancer V2 pool. It allows:\n///      1) Updating the price by any caller\n///      2) Getting the price by any caller\n///      3) Validating slippage against the oracle\ncontract BalancerPriceOracle {\n    event PriceUpdated(address indexed sender, uint256 currentPrice, uint256 cumulativePrice);\n\n    struct PriceSnapshot {\n        // Time-weighted cumulative price\n        uint256 cumulativePrice;\n        // Timestamp of the last update\n        uint256 lastUpdated;\n        // Most recent calculated average price\n        uint256 averagePrice;\n    }\n\n    // Snapshot history struct\n    PriceSnapshot public snapshotHistory;\n\n    // Maximum allowed update slippage in %\n    uint256 public immutable maxSlippage;\n    // Minimum update time period in seconds\n    uint256 public immutable minUpdateTimePeriod;\n    // LP token direction\n    uint256 public immutable direction;\n    // Second token address in pool\n    address public immutable secondToken;\n    // OLAS token address\n    address public immutable olas;\n    // Balancer vault address\n    address public immutable balancerVault;\n    // Balancer pool Id\n    bytes32 public immutable balancerPoolId;\n\n    constructor(\n        address _olas,\n        address _secondToken,\n        uint256 _maxSlippage,\n        uint256 _minUpdateTimePeriod,\n        address _balancerVault,\n        bytes32 _balancerPoolId\n    ) {\n        require(_maxSlippage < 100, \"Slippage must be less than 100%\");\n\n        olas = _olas;\n        secondToken = _secondToken;\n        maxSlippage = _maxSlippage;\n        minUpdateTimePeriod = _minUpdateTimePeriod;\n        balancerVault = _balancerVault;\n        balancerPoolId = _balancerPoolId;\n\n        // Get token direction\n        (address[] memory tokens, , ) = IVault(balancerVault).getPoolTokens(_balancerPoolId);\n        if (tokens[0] != _secondToken) {\n            direction = 1;\n        }\n\n        // Initialize price snapshot\n        updatePrice();\n    }\n\n    /// @dev Gets the current OLAS token price in 1e18 format.\n    function getPrice() public view returns (uint256) {\n        (, uint256[] memory balances, ) = IVault(balancerVault).getPoolTokens(balancerPoolId);\n        // Native token\n        uint256 balanceIn = balances[direction];\n        // OLAS\n        uint256 balanceOut = balances[(direction + 1) % 2];\n\n        return (balanceOut * 1e18) / balanceIn;\n    }\n\n    /// @dev Updates the time-weighted average price.\n    /// @notice This implementation only accounts for the first price update in a block.\n    function updatePrice() public returns (bool) {\n        uint256 currentPrice = getPrice();\n        require(currentPrice > 0, \"Price must be non-zero\");\n\n        PriceSnapshot storage snapshot = snapshotHistory;\n\n        if (snapshot.lastUpdated == 0) {\n            // Initialize snapshot\n            snapshot.cumulativePrice = 0;\n            snapshot.averagePrice = currentPrice;\n            snapshot.lastUpdated = block.timestamp;\n            emit PriceUpdated(msg.sender, currentPrice, 0);\n            return true;\n        }\n\n        // Check if update is too soon\n        if (block.timestamp < snapshotHistory.lastUpdated + minUpdateTimePeriod) {\n            return false;\n        }\n\n        // This implementation only accounts for the first price update in a block.\n        // Calculate elapsed time since the last update\n        uint256 elapsedTime = block.timestamp - snapshot.lastUpdated;\n\n        // Update cumulative price with the previous average over the elapsed time\n        snapshot.cumulativePrice += snapshot.averagePrice * elapsedTime;\n\n        // Update the average price to reflect the current price\n        uint256 averagePrice = (snapshot.cumulativePrice + (currentPrice * elapsedTime)) /\n            ((snapshot.cumulativePrice / snapshot.averagePrice) + elapsedTime);\n\n        // Check if price deviation is too high\n        if (currentPrice < averagePrice - (averagePrice * maxSlippage / 100) ||\n            currentPrice > averagePrice + (averagePrice * maxSlippage / 100))\n        {\n            return false;\n        }\n\n        snapshot.averagePrice = averagePrice;\n        snapshot.lastUpdated = block.timestamp;\n\n        emit PriceUpdated(msg.sender, currentPrice, snapshot.cumulativePrice);\n\n        return true;\n    }\n\n    /// @dev Validates Current price against a TWAP according to slippage tolerance.\n    /// @param slippage Acceptable slippage tolerance.\n    function validatePrice(uint256 slippage) external view returns (bool) {\n        require(slippage <= maxSlippage, \"Slippage overflow\");\n\n        PriceSnapshot memory snapshot = snapshotHistory;\n\n        // Ensure there is historical price data\n        if (snapshot.lastUpdated == 0) return false;\n\n        // Calculate elapsed time\n        uint256 elapsedTime = block.timestamp - snapshot.lastUpdated;\n        // Require at least one block since last update\n        if (elapsedTime == 0) return false;\n\n        // Compute time-weighted average price\n        uint256 timeWeightedAverage = (snapshot.cumulativePrice + (snapshot.averagePrice * elapsedTime)) /\n            ((snapshot.cumulativePrice / snapshot.averagePrice) + elapsedTime);\n\n        uint256 tradePrice = getPrice();\n\n        // Validate against slippage thresholds\n        uint256 lowerBound = (timeWeightedAverage * (100 - slippage)) / 100;\n        uint256 upperBound = (timeWeightedAverage * (100 + slippage)) / 100;\n\n        return tradePrice >= lowerBound && tradePrice <= upperBound;\n    }\n}",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            84,
+            128
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:42:22.364218",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "updatePrice adds snapshot.averagePrice times elapsedTime to snapshot.cumulativePrice and then estimates total time as cumulativePrice divided by averagePrice, which is exactly the code quoted in the finding. The new average is then used for the slippage check and stored.",
+      "functions_found": [
+        "updatePrice",
+        "validatePrice"
+      ],
+      "variables_found": [
+        "snapshot.cumulativePrice",
+        "snapshot.averagePrice",
+        "averagePrice",
+        "currentPrice",
+        "minUpdateTimePeriod"
+      ],
+      "patterns_found": [
+        "cumulative price accumulates the previous average instead of the observed price",
+        "total time estimated by dividing cumulativePrice by averagePrice"
+      ],
+      "issues": [
+        "`lastPrice` does not occur in the code; it is the finding's name for the observed price the formula should use."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": "arithmetic",
+      "mando_applicable": true
+    },
+    "scsvs_classification": {
+      "primary_category": "C3",
+      "primary_category_name": "Oracle",
+      "vulnerability_type": "incorrect TWAP formula in oracle update"
+    },
+    "fix_code_source": "provided"
+  }
+}

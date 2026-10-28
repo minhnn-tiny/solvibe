@@ -1,0 +1,70 @@
+# The L2 Processor doesn’t correctly redirect the tokens of failed deposits
+
+## Summary
+
+*No summary available*
+
+## GitHub Source Code
+
+- **Link**: https://github.com/solodit/solodit_content/blob/main/reports/CODESPECT/2025-10-21-Olas.md
+- **Valid**: ✓ Yes
+
+## Content
+
+**Files:** [`DefaultStakingProcessorL2.sol`](https://github.com/LemonTreeTechnologies/olas-lst/blob/e9d19b7fb08288f829cba8243d91e80ebde745a6/contracts/l2/bridging/DefaultStakingProcessorL2.sol#L278)
+
+**Description:**
+
+When the process would fail during the bridging, the L2 Processor queues it for later execution. More specifically, if the L2 Processor is paused or the low-level stake call to the Staking Proxy fails the funds should go to the Collector contract under the operation `UNSTAKE_RETIRED`, so they return back to the L1 `UnstakeRelayer`. The Collector is not supposed to handle STAKE operations. However this is not the case, as the L2 Processor calls the Collector’s `topUpBalance(...)` function with STAKE as the operation:
+
+```solidity
+function redeem(bytes32 batchHash, address target, uint256 amount, bytes32 operation) external {
+    // ...
+
+    if (operation == STAKE) {
+        // Get the current contract OLAS balance
+        uint256 olasBalance = IToken(olas).balanceOf(address(this));
+        if (olasBalance >= amount) {
+            // Approve OLAS for stakingManager
+            IToken(olas).approve(stakingManager, amount);
+        } else {
+            // OLAS balance is not enough for redeem
+            revert InsufficientBalance(olasBalance, amount);
+        }
+
+        // If request was queued due to insufficient balance - continue with the stake
+        if (requestStatus == RequestStatus.INSUFFICIENT_OLAS_BALANCE) {
+            IStakingManager(stakingManager).stake(target, amount, operation);
+        } else {
+            // Approve OLAS for collector to initiate L1 transfer for corresponding operation by agents
+            IToken(olas).approve(collector, amount);
+
+            // Request top-up by Collector for a specific unstake operation
+            ICollector(collector).topUpBalance(amount, operation);
+        }
+```
+
+**Impact:** Tokens are not correctly directed back to the L1 `UnstakeRelayer` contract.
+
+**Recommendation(s):** Consider making the following changes:
+
+```diff
+ function redeem(bytes32 batchHash, address target, uint256 amount, bytes32 operation) external {
+     // ...
+
+     // If request was queued due to insufficient balance - continue with the stake
+     if (requestStatus == RequestStatus.INSUFFICIENT_OLAS_BALANCE) {
+         IStakingManager(stakingManager).stake(target, amount, operation);
+     } else {
+         // Approve OLAS for collector to initiate L1 transfer for corresponding operation by agents
+         IToken(olas).approve(collector, amount);
+
+         // Request top-up by Collector for a specific unstake operation
+-        ICollector(collector).topUpBalance(amount, operation);
++        ICollector(collector).topUpBalance(amount, UNSTAKE_RETIRED);
+     }
+```
+
+**Status:** Fixed
+
+**Client response:** This is related to issue 07: [High] Users are able to request to unstake before their stake gets completed in L2, and must be actioned together accordingly. PR with fix: [https://github.com/kupermind/olas-lst/pull/43](https://github.com/kupermind/olas-lst/pull/43)

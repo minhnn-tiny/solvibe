@@ -1,0 +1,160 @@
+{
+  "id": "63716",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-10-hybra-finance/blob/main/ve33/contracts/GaugeManager.sol# L165-L189",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      165,
+      189
+    ],
+    [
+      185,
+      189
+    ],
+    [
+      197,
+      201
+    ],
+    [
+      239,
+      246
+    ],
+    [
+      165,
+      189
+    ],
+    [
+      239,
+      246
+    ]
+  ],
+  "filename": "63716_GaugeManager.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 556,
+  "vulnerability_title": "[M-09] CL gauge accepts unverified pools, allowing malicious pool to brick distribution",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_createGauge",
+        "start_line": 164,
+        "end_line": 210,
+        "code": "\n    function _createGauge(address _pool, uint256 _gaugeType) internal returns (address _gauge, address _internal_bribe, address _external_bribe) {\n        require(_gaugeType < _factoriesData.pairFactories.length, \"GAUGETYPE\");\n        require(gauges[_pool] == address(0x0), \"DNE\");\n        require(_pool.code.length > 0, \"CODELEN\");\n        bool isPair;\n        address _factory = _factoriesData.pairFactories[_gaugeType];\n        address _gaugeFactory = _factoriesData.gaugeFactories[_gaugeType];\n        require(_factory != address(0), \"ZA\");\n        require(_gaugeFactory != address(0), \"ZA\");\n        \n\n        address tokenA = address(0);\n        address tokenB = address(0);\n        (tokenA) = IPairInfo(_pool).token0();\n        (tokenB) = IPairInfo(_pool).token1();\n\n        // for future implementation add isPair() in factory\n        if(_gaugeType == 0){\n            isPair = IPairFactory(_factory).isPair(_pool);\n        } \n        if(_gaugeType == 1) {\n            // removed due to code size\n            // require(_pool_hyper == _pool_factory, 'wrong tokens');    \n            isPair = true;\n        }\n\n        require(ITokenHandler(tokenHandler).isWhitelisted(tokenA) && ITokenHandler(tokenHandler).isWhitelisted(tokenB), \"!WHITELISTED\");\n        require(ITokenHandler(tokenHandler).isConnector(tokenA) || ITokenHandler(tokenHandler).isConnector(tokenB), \"!CONNECTOR\");\n        require(isPair, \"!POOL\");\n        require(tokenA != address(0) && tokenB != address(0), \"!TOKENS\");\n\n        (_internal_bribe, _external_bribe) = _deployBribes(_pool, tokenA, tokenB, _gaugeType);\n        // create gauge\n        if(_gaugeType == 0) {\n            _gauge = IGaugeFactory(_gaugeFactory).createGauge(base, _ve, _pool, address(this), _internal_bribe, _external_bribe, isPair);\n        }\n        if(_gaugeType == 1) {\n            _gauge = IGaugeFactoryCL(_gaugeFactory).createGauge(base, _ve, _pool, address(this), _internal_bribe, _external_bribe, isPair, nfpm);\n            isCLGauge[_gauge] = true;\n            ICLPool(_pool).setGaugeAndPositionManager(_gauge, nfpm);\n        }\n        // approve spending for $the\n        IERC20(base).approve(_gauge, type(uint256).max);\n        _saveBribeData(_pool, _gauge, _internal_bribe, _external_bribe);\n        emit GaugeCreated(_gauge, msg.sender, _internal_bribe, _external_bribe, _pool);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            165,
+            189
+          ],
+          [
+            185,
+            189
+          ],
+          [
+            197,
+            201
+          ],
+          [
+            165,
+            189
+          ]
+        ]
+      },
+      {
+        "function_name": "_deployBribes",
+        "start_line": 226,
+        "end_line": 245,
+        "code": "    \n    function _deployBribes(address _pool, address tokenA, address tokenB, uint256 _gaugeType) private returns (address _internal_bribe, address _external_bribe) \n    {\n        // create internal and external bribe\n        address _owner = IPermissionsRegistry(permissionRegistry).hybraTeamMultisig();\n        string memory _internalType;\n        string memory _extrenalType;\n        if(_gaugeType == 0) {\n            _internalType =  string.concat(\"Hybra LP Fees: \", IERC20(_pool).symbol() );\n            _extrenalType = string.concat(\"Hybra Bribes: \", IERC20(_pool).symbol() );\n        }\n        if(_gaugeType == 1) {\n            string memory poolStr = addressToString(_pool);\n            _internalType = string.concat(\"Hybra LP Fees: \", poolStr);\n            _extrenalType = string.concat(\"Hybra Bribes: \", poolStr);\n        }\n        \n        _internal_bribe = IBribeFactory(bribefactory).createBribe(_owner, tokenA, tokenB, _internalType);\n        _external_bribe = IBribeFactory(bribefactory).createBribe(_owner, tokenA, tokenB, _extrenalType);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            239,
+            246
+          ],
+          [
+            239,
+            246
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:07:59.252062",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability related to the lack of validation for CL pools in the code.",
+      "content_reasoning": "The content mentions specific functions and variables that exist in the code, particularly the `_createGauge` function and the handling of `_gaugeType`.",
+      "functions_found": [
+        "_createGauge",
+        "_deployBribes"
+      ],
+      "variables_found": [
+        "_pool",
+        "_gaugeType",
+        "isPair"
+      ],
+      "patterns_found": [
+        "lack of validation",
+        "trusting unverified contracts"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to reflect the vulnerability.",
+      "suggested_tag": "Denial of Service",
+      "alternative_tags": [
+        "Access Control",
+        "Smart Contract Logic"
+      ],
+      "correction_explanation": "The vulnerability leads to a denial of service due to the potential for a malicious pool to halt reward distribution."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability allows for a denial of service due to the operational liveness risk caused by the malicious gauge."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G5"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is primarily related to the business logic of gauge creation and validation, and access control is also relevant.",
+      "vulnerability_type": "Lack of validation for contract origins leading to potential denial of service."
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-04-25T18:17:54.939800",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

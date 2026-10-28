@@ -1,0 +1,186 @@
+{
+  "id": "62854",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/eth-infinitism/account-abstraction/blob/7af70c8993a6f42973f520ae0752386a5032abe7/contracts/core/EntryPoint.sol#L314-L359",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      314,
+      359
+    ],
+    [
+      726,
+      726
+    ],
+    [
+      472,
+      472
+    ]
+  ],
+  "filename": "62854_EntryPoint.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 800,
+  "vulnerability_title": "[M-04] The `_postOp()` Function in `GasTank` Is Not Handling Gas Penalty in Calculations",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "We should subtract the amount of total `preFunding` we made from the `totalGasUsed`, and then apply the penalty increase. But this can only occur if we have the actual prefunding we did. In the context, we pass `preChargeNative`, but it is not the same as the actual `preFund`, we should either make another variable for prefunding, or make preChargeNative the same as prefunding",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "- UserA submitted a transaction where he made callGasLimit 1,000,000 and `postOp()` gasLimit is 100,000\n- actualGas used for his tx was `100,000`\n- EntryPoint when calling `postOp()` passed the actual gas, which is `100,000`\n- When calculating `totalGasCostWei`, we used the actual gas and added the preconfigured postOp cost\n- postOp gasCost was as the gasLimit (100,000), so no significant penalty will occur\n- In the EntryPoint, the actualGas will be increased by `10%` for the not used gas for the call, which is `1,000,000 - 100,000 = 900,000`, so it will be `90,000` gas increased, which will be multiplied by the gasCost.\n- The Paymaster will end paying this amount without taking it from the user",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "innerHandleOp",
+        "start_line": 314,
+        "end_line": 360,
+        "code": "    function innerHandleOp(\n        bytes memory callData,\n        UserOpInfo memory opInfo,\n        bytes calldata context\n    ) external returns (uint256 actualGasCost) {\n        uint256 preGas = gasleft();\n        require(msg.sender == address(this), \"AA92 internal call only\");\n        MemoryUserOp memory mUserOp = opInfo.mUserOp;\n\n        uint256 callGasLimit = mUserOp.callGasLimit;\n        unchecked {\n            // handleOps was called with gas limit too low. abort entire bundle.\n            if (\n                gasleft() * 63 / 64 <\n                callGasLimit +\n                mUserOp.paymasterPostOpGasLimit +\n                INNER_GAS_OVERHEAD\n            ) {\n                assembly (\"memory-safe\") {\n                    mstore(0, INNER_OUT_OF_GAS)\n                    revert(0, 32)\n                }\n            }\n        }\n\n        IPaymaster.PostOpMode mode = IPaymaster.PostOpMode.opSucceeded;\n        if (callData.length > 0) {\n            bool success = Exec.call(mUserOp.sender, 0, callData, callGasLimit);\n            if (!success) {\n                bytes memory result = Exec.getReturnData(REVERT_REASON_MAX_LEN);\n                if (result.length > 0) {\n                    emit UserOperationRevertReason(\n                        opInfo.userOpHash,\n                        mUserOp.sender,\n                        mUserOp.nonce,\n                        result\n                    );\n                }\n                mode = IPaymaster.PostOpMode.opReverted;\n            }\n        }\n\n        unchecked {\n            uint256 actualGas = preGas - gasleft() + opInfo.preOpGas;\n            return _postExecution(mode, opInfo, context, actualGas);\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            314,
+            359
+          ]
+        ]
+      },
+      {
+        "function_name": "_postExecution",
+        "start_line": 685,
+        "end_line": 750,
+        "code": "    function _postExecution(\n        IPaymaster.PostOpMode mode,\n        UserOpInfo memory opInfo,\n        bytes memory context,\n        uint256 actualGas\n    ) private returns (uint256 actualGasCost) {\n        uint256 preGas = gasleft();\n        unchecked {\n            address refundAddress;\n            MemoryUserOp memory mUserOp = opInfo.mUserOp;\n            uint256 gasPrice = getUserOpGasPrice(mUserOp);\n\n            address paymaster = mUserOp.paymaster;\n            if (paymaster == address(0)) {\n                refundAddress = mUserOp.sender;\n            } else {\n                refundAddress = paymaster;\n                if (context.length > 0) {\n                    actualGasCost = actualGas * gasPrice;\n                    if (mode != IPaymaster.PostOpMode.postOpReverted) {\n                        try IPaymaster(paymaster).postOp{\n                            gas: mUserOp.paymasterPostOpGasLimit\n                        }(mode, context, actualGasCost, gasPrice)\n                        // solhint-disable-next-line no-empty-blocks\n                        {} catch {\n                            bytes memory reason = Exec.getReturnData(REVERT_REASON_MAX_LEN);\n                            revert PostOpReverted(reason);\n                        }\n                    }\n                }\n            }\n            actualGas += preGas - gasleft();\n\n            // Calculating a penalty for unused execution gas\n            {\n                uint256 executionGasLimit = mUserOp.callGasLimit + mUserOp.paymasterPostOpGasLimit;\n                uint256 executionGasUsed = actualGas - opInfo.preOpGas;\n                // this check is required for the gas used within EntryPoint and not covered by explicit gas limits\n                if (executionGasLimit > executionGasUsed) {\n                    uint256 unusedGas = executionGasLimit - executionGasUsed;\n                    uint256 unusedGasPenalty = (unusedGas * PENALTY_PERCENT) / 100;\n                    actualGas += unusedGasPenalty;\n                }\n            }\n\n            actualGasCost = actualGas * gasPrice;\n            uint256 prefund = opInfo.prefund;\n            if (prefund < actualGasCost) {\n                if (mode == IPaymaster.PostOpMode.postOpReverted) {\n                    actualGasCost = prefund;\n                    emitPrefundTooLow(opInfo);\n                    emitUserOperationEvent(opInfo, false, actualGasCost, actualGas);\n                } else {\n                    assembly (\"memory-safe\") {\n                        mstore(0, INNER_REVERT_LOW_PREFUND)\n                        revert(0, 32)\n                    }\n                }\n            } else {\n                uint256 refund = prefund - actualGasCost;\n                _incrementDeposit(refundAddress, refund);\n                bool success = mode == IPaymaster.PostOpMode.opSucceeded;\n                emitUserOperationEvent(opInfo, success, actualGasCost, actualGas);\n            }\n        } // unchecked\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            726,
+            726
+          ]
+        ]
+      },
+      {
+        "function_name": "_validateAccountPrepayment",
+        "start_line": 465,
+        "end_line": 507,
+        "code": "    function _validateAccountPrepayment(\n        uint256 opIndex,\n        PackedUserOperation calldata op,\n        UserOpInfo memory opInfo,\n        uint256 requiredPrefund,\n        uint256 verificationGasLimit\n    )\n        internal\n        returns (\n            uint256 validationData\n        )\n    {\n        unchecked {\n            MemoryUserOp memory mUserOp = opInfo.mUserOp;\n            address sender = mUserOp.sender;\n            _createSenderIfNeeded(opIndex, opInfo, op.initCode);\n            address paymaster = mUserOp.paymaster;\n            uint256 missingAccountFunds = 0;\n            if (paymaster == address(0)) {\n                uint256 bal = balanceOf(sender);\n                missingAccountFunds = bal > requiredPrefund\n                    ? 0\n                    : requiredPrefund - bal;\n            }\n            try\n                IAccount(sender).validateUserOp{\n                    gas: verificationGasLimit\n                }(op, opInfo.userOpHash, missingAccountFunds)\n            returns (uint256 _validationData) {\n                validationData = _validationData;\n            } catch {\n                revert FailedOpWithRevert(opIndex, \"AA23 reverted\", Exec.getReturnData(REVERT_REASON_MAX_LEN));\n            }\n            if (paymaster == address(0)) {\n                DepositInfo storage senderInfo = deposits[sender];\n                uint256 deposit = senderInfo.deposit;\n                if (requiredPrefund > deposit) {\n                    revert FailedOp(opIndex, \"AA21 didn't pay prefund\");\n                }\n                senderInfo.deposit = deposit - requiredPrefund;\n            }\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            472,
+            472
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:05:14.586366",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of the gas penalty not being handled correctly, which is evident in the provided code snippets.",
+      "content_reasoning": "The content mentions relevant functions and variables that exist in the code, specifically `_postExecution()` and `actualGas`, which are central to the vulnerability described.",
+      "functions_found": [
+        "innerHandleOp",
+        "_postExecution"
+      ],
+      "variables_found": [
+        "actualGas",
+        "prefund",
+        "callGasLimit"
+      ],
+      "patterns_found": [
+        "incorrect gas calculation",
+        "penalty application"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 85,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to reflect the nature of the vulnerability.",
+      "suggested_tag": "Gas Calculation Issue",
+      "alternative_tags": [
+        "Gas Penalty Mismanagement"
+      ],
+      "correction_explanation": "A tag is necessary to categorize the vulnerability for better tracking and resolution."
+    },
+    "mando_classification": {
+      "primary_category": "arithmetic",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability involves incorrect arithmetic operations related to gas calculations, which fits the arithmetic category."
+    },
+    "scsvs_classification": {
+      "primary_category": "G10",
+      "primary_category_name": "Gas usage & limitations",
+      "secondary_categories": [
+        "G4"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more specific classification for issues related to gas usage and limitations, which is central to the vulnerability.",
+      "vulnerability_type": "Incorrect gas penalty calculation leading to financial loss for the Paymaster."
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Adjusted gas penalty calculation to subtract pre-funding from total gas used before applying penalties.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "innerHandleOp",
+          "fixed_function_code": "function innerHandleOp(\n        bytes memory callData,\n        UserOpInfo memory opInfo,\n        bytes calldata context\n    ) external returns (uint256 actualGasCost) {\n        uint256 preGas = gasleft();\n        require(msg.sender == address(this), \"AA92 internal call only\");\n        MemoryUserOp memory mUserOp = opInfo.mUserOp;\n\n        uint256 callGasLimit = mUserOp.callGasLimit;\n        unchecked {\n            // handleOps was called with gas limit too low. abort entire bundle.\n            if (\n                gasleft() * 63 / 64 <\n                callGasLimit +\n                mUserOp.paymasterPostOpGasLimit +\n                INNER_GAS_OVERHEAD\n            ) {\n                assembly (\"memory-safe\") {\n                    mstore(0, INNER_OUT_OF_GAS)\n                    revert(0, 32)\n                }\n            }\n        }\n\n        IPaymaster.PostOpMode mode = IPaymaster.PostOpMode.opSucceeded;\n        if (callData.length > 0) {\n            bool success = Exec.call(mUserOp.sender, 0, callData, callGasLimit);\n            if (!success) {\n                bytes memory result = Exec.getReturnData(REVERT_REASON_MAX_LEN);\n                if (result.length > 0) {\n                    emit UserOperationRevertReason(\n                        opInfo.userOpHash,\n                        mUserOp.sender,\n                        mUserOp.nonce,\n                        result\n                    );\n                }\n                mode = IPaymaster.PostOpMode.opReverted;\n            }\n        }\n\n        unchecked {\n            uint256 actualGas = preGas - gasleft() + opInfo.preOpGas;\n            return _postExecution(mode, opInfo, context, actualGas, opInfo.prefund);\n        }\n    }",
+          "reasoning": "This function now passes the actual prefund to the _postExecution function, ensuring accurate calculations for gas penalties."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "_postExecution",
+          "fixed_function_code": "function _postExecution(\n        IPaymaster.PostOpMode mode,\n        UserOpInfo memory opInfo,\n        bytes memory context,\n        uint256 actualGas,\n        uint256 prefund\n    ) private returns (uint256 actualGasCost) {\n        uint256 preGas = gasleft();\n        unchecked {\n            address refundAddress;\n            MemoryUserOp memory mUserOp = opInfo.mUserOp;\n            uint256 gasPrice = getUserOpGasPrice(mUserOp);\n\n            address paymaster = mUserOp.paymaster;\n            if (paymaster == address(0)) {\n                refundAddress = mUserOp.sender;\n            } else {\n                refundAddress = paymaster;\n                if (context.length > 0) {\n                    actualGasCost = actualGas * gasPrice;\n                    if (mode != IPaymaster.PostOpMode.postOpReverted) {\n                        try IPaymaster(paymaster).postOp{\n                            gas: mUserOp.paymasterPostOpGasLimit\n                        }(mode, context, actualGasCost, gasPrice)\n                        // solhint-disable-next-line no-empty-blocks\n                        {} catch {\n                            bytes memory reason = Exec.getReturnData(REVERT_REASON_MAX_LEN);\n                            revert PostOpReverted(reason);\n                        }\n                    }\n                }\n            }\n            actualGas += preGas - gasleft();\n\n            // Calculating a penalty for unused execution gas\n            {\n                uint256 executionGasLimit = mUserOp.callGasLimit + mUserOp.paymasterPostOpGasLimit;\n                uint256 executionGasUsed = actualGas - opInfo.preOpGas;\n                // this check is required for the gas used within EntryPoint and not covered by explicit gas limits\n                if (executionGasLimit > executionGasUsed) {\n                    uint256 unusedGas = executionGasLimit - executionGasUsed;\n                    uint256 unusedGasPenalty = (unusedGas * PENALTY_PERCENT) / 100;\n                    actualGas += unusedGasPenalty;\n                }\n            }\n\n            actualGasCost = actualGas * gasPrice;\n            if (prefund < actualGasCost) {\n                if (mode == IPaymaster.PostOpMode.postOpReverted) {\n                    actualGasCost = prefund;\n                    emitPrefundTooLow(opInfo);\n                    emitUserOperationEvent(opInfo, false, actualGasCost, actualGas);\n                } else {\n                    assembly (\"memory-safe\") {\n                        mstore(0, INNER_REVERT_LOW_PREFUND)\n                        revert(0, 32)\n                    }\n                }\n            } else {\n                uint256 refund = prefund - actualGasCost;\n                _incrementDeposit(refundAddress, refund);\n                bool success = mode == IPaymaster.PostOpMode.opSucceeded;\n                emitUserOperationEvent(opInfo, success, actualGasCost, actualGas);\n            }\n        } // unchecked\n    }",
+          "reasoning": "This function now correctly calculates the gas penalty by subtracting the prefund from the total gas used before applying any penalties, preventing financial loss for the Paymaster."
+        },
+        {
+          "snippet_index": 3,
+          "function_name": "_validateAccountPrepayment",
+          "fixed_function_code": "function _validateAccountPrepayment(\n        uint256 opIndex,\n        PackedUserOperation calldata op,\n        UserOpInfo memory opInfo,\n        uint256 requiredPrefund,\n        uint256 verificationGasLimit\n    )\n        internal\n        returns (\n            uint256 validationData\n        ) {\n        unchecked {\n            MemoryUserOp memory mUserOp = opInfo.mUserOp;\n            address sender = mUserOp.sender;\n            _createSenderIfNeeded(opIndex, opInfo, op.initCode);\n            address paymaster = mUserOp.paymaster;\n            uint256 missingAccountFunds = 0;\n            if (paymaster == address(0)) {\n                uint256 bal = balanceOf(sender);\n                missingAccountFunds = bal > requiredPrefund\n                    ? 0\n                    : requiredPrefund - bal;\n            }\n            try\n                IAccount(sender).validateUserOp{\n                    gas: verificationGasLimit\n                }(op, opInfo.userOpHash, missingAccountFunds)\n            returns (uint256 _validationData) {\n                validationData = _validationData;\n            } catch {\n                revert FailedOpWithRevert(opIndex, \"AA23 reverted\", Exec.getReturnData(REVERT_REASON_MAX_LEN));\n            }\n            if (paymaster == address(0)) {\n                DepositInfo storage senderInfo = deposits[sender];\n                uint256 deposit = senderInfo.deposit;\n                if (requiredPrefund > deposit) {\n                    revert FailedOp(opIndex, \"AA21 didn't pay prefund\");\n                }\n                senderInfo.deposit = deposit - requiredPrefund;\n            }\n        }\n    }",
+          "reasoning": "This function remains unchanged as it does not directly relate to the gas penalty calculation, but it ensures that the prefund checks are still valid."
+        }
+      ],
+      "key_changes": [
+        "Added prefund parameter to _postExecution to ensure accurate gas penalty calculations.",
+        "Adjusted gas penalty calculation logic to subtract prefund from total gas used.",
+        "Ensured that the innerHandleOp function passes the correct prefund value."
+      ],
+      "security_improvements": [
+        "Reduced risk of financial loss for the Paymaster by ensuring accurate gas penalty calculations.",
+        "Improved overall gas management and cost handling in user operations."
+      ],
+      "additional_recommendations": "Consider implementing additional checks for gas limits and user operation validations to further enhance security.",
+      "confidence": 90,
+      "fix_code": "function innerHandleOp(\n        bytes memory callData,\n        UserOpInfo memory opInfo,\n        bytes calldata context\n    ) external returns (uint256 actualGasCost) {\n        uint256 preGas = gasleft();\n        require(msg.sender == address(this), \"AA92 internal call only\");\n        MemoryUserOp memory mUserOp = opInfo.mUserOp;\n\n        uint256 callGasLimit = mUserOp.callGasLimit;\n        unchecked {\n            // handleOps was called with gas limit too low. abort entire bundle.\n            if (\n                gasleft() * 63 / 64 <\n                callGasLimit +\n                mUserOp.paymasterPostOpGasLimit +\n                INNER_GAS_OVERHEAD\n            ) {\n                assembly (\"memory-safe\") {\n                    mstore(0, INNER_OUT_OF_GAS)\n                    revert(0, 32)\n                }\n            }\n        }\n\n        IPaymaster.PostOpMode mode = IPaymaster.PostOpMode.opSucceeded;\n        if (callData.length > 0) {\n            bool success = Exec.call(mUserOp.sender, 0, callData, callGasLimit);\n            if (!success) {\n                bytes memory result = Exec.getReturnData(REVERT_REASON_MAX_LEN);\n                if (result.length > 0) {\n                    emit UserOperationRevertReason(\n                        opInfo.userOpHash,\n                        mUserOp.sender,\n                        mUserOp.nonce,\n                        result\n                    );\n                }\n                mode = IPaymaster.PostOpMode.opReverted;\n            }\n        }\n\n        unchecked {\n            uint256 actualGas = preGas - gasleft() + opInfo.preOpGas;\n            return _postExecution(mode, opInfo, context, actualGas, opInfo.prefund);\n        }\n    }\n\nfunction _postExecution(\n        IPaymaster.PostOpMode mode,\n        UserOpInfo memory opInfo,\n        bytes memory context,\n        uint256 actualGas,\n        uint256 prefund\n    ) private returns (uint256 actualGasCost) {\n        uint256 preGas = gasleft();\n        unchecked {\n            address refundAddress;\n            MemoryUserOp memory mUserOp = opInfo.mUserOp;\n            uint256 gasPrice = getUserOpGasPrice(mUserOp);\n\n            address paymaster = mUserOp.paymaster;\n            if (paymaster == address(0)) {\n                refundAddress = mUserOp.sender;\n            } else {\n                refundAddress = paymaster;\n                if (context.length > 0) {\n                    actualGasCost = actualGas * gasPrice;\n                    if (mode != IPaymaster.PostOpMode.postOpReverted) {\n                        try IPaymaster(paymaster).postOp{\n                            gas: mUserOp.paymasterPostOpGasLimit\n                        }(mode, context, actualGasCost, gasPrice)\n                        // solhint-disable-next-line no-empty-blocks\n                        {} catch {\n                            bytes memory reason = Exec.getReturnData(REVERT_REASON_MAX_LEN);\n                            revert PostOpReverted(reason);\n                        }\n                    }\n                }\n            }\n            actualGas += preGas - gasleft();\n\n            // Calculating a penalty for unused execution gas\n            {\n                uint256 executionGasLimit = mUserOp.callGasLimit + mUserOp.paymasterPostOpGasLimit;\n                uint256 executionGasUsed = actualGas - opInfo.preOpGas;\n                // this check is required for the gas used within EntryPoint and not covered by explicit gas limits\n                if (executionGasLimit > executionGasUsed) {\n                    uint256 unusedGas = executionGasLimit - executionGasUsed;\n                    uint256 unusedGasPenalty = (unusedGas * PENALTY_PERCENT) / 100;\n                    actualGas += unusedGasPenalty;\n                }\n            }\n\n            actualGasCost = actualGas * gasPrice;\n            if (prefund < actualGasCost) {\n                if (mode == IPaymaster.PostOpMode.postOpReverted) {\n                    actualGasCost = prefund;\n                    emitPrefundTooLow(opInfo);\n                    emitUserOperationEvent(opInfo, false, actualGasCost, actualGas);\n                } else {\n                    assembly (\"memory-safe\") {\n                        mstore(0, INNER_REVERT_LOW_PREFUND)\n                        revert(0, 32)\n                    }\n                }\n            } else {\n                uint256 refund = prefund - actualGasCost;\n                _incrementDeposit(refundAddress, refund);\n                bool success = mode == IPaymaster.PostOpMode.opSucceeded;\n                emitUserOperationEvent(opInfo, success, actualGasCost, actualGas);\n            }\n        } // unchecked\n    }\n\nfunction _validateAccountPrepayment(\n        uint256 opIndex,\n        PackedUserOperation calldata op,\n        UserOpInfo memory opInfo,\n        uint256 requiredPrefund,\n        uint256 verificationGasLimit\n    )\n        internal\n        returns (\n            uint256 validationData\n        ) {\n        unchecked {\n            MemoryUserOp memory mUserOp = opInfo.mUserOp;\n            address sender = mUserOp.sender;\n            _createSenderIfNeeded(opIndex, opInfo, op.initCode);\n            address paymaster = mUserOp.paymaster;\n            uint256 missingAccountFunds = 0;\n            if (paymaster == address(0)) {\n                uint256 bal = balanceOf(sender);\n                missingAccountFunds = bal > requiredPrefund\n                    ? 0\n                    : requiredPrefund - bal;\n            }\n            try\n                IAccount(sender).validateUserOp{\n                    gas: verificationGasLimit\n                }(op, opInfo.userOpHash, missingAccountFunds)\n            returns (uint256 _validationData) {\n                validationData = _validationData;\n            } catch {\n                revert FailedOpWithRevert(opIndex, \"AA23 reverted\", Exec.getReturnData(REVERT_REASON_MAX_LEN));\n            }\n            if (paymaster == address(0)) {\n                DepositInfo storage senderInfo = deposits[sender];\n                uint256 deposit = senderInfo.deposit;\n                if (requiredPrefund > deposit) {\n                    revert FailedOp(opIndex, \"AA21 didn't pay prefund\");\n                }\n                senderInfo.deposit = deposit - requiredPrefund;\n            }\n        }\n    }",
+      "expected_fixed_blocks": 3,
+      "returned_fixed_blocks": 3,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-04-24T23:34:13.157174"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-24T23:34:13.157197",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

@@ -1,0 +1,143 @@
+{
+  "id": "64856",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/launchpad/Launchpad.sol# L569-L587",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      569,
+      587
+    ]
+  ],
+  "filename": "64856_Launchpad.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 617,
+  "vulnerability_title": "[H-08] CREATE2 address of the uniswap pair used by `LaunchPad` does not match address of pair deployed by `GTELaunchpadV2PairFactory`",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Re-factor the code so that the `Launchpad::pairFor` function returns an address matching that used by the factory.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-6)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "pairFor",
+        "start_line": 569,
+        "end_line": 587,
+        "code": "    function pairFor(address factory, address tokenA, address tokenB) internal view returns (IUniswapV2Pair pair) {\n        (address token0, address token1) = sortTokens(tokenA, tokenB);\n        pair = IUniswapV2Pair(\n            address(\n                uint160(\n                    uint256(\n                        keccak256(\n                            abi.encodePacked(\n                                hex\"ff\",\n                                factory,\n                                keccak256(abi.encodePacked(token0, token1)),\n                                uniV2InitCodeHash // init code hash\n                            )\n                        )\n                    )\n                )\n            )\n        );\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            569,
+            587
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:09.069478",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue with the `pairFor` function not matching the address used by the factory, leading to potential transaction reverts.",
+      "content_reasoning": "The extracted code contains the `pairFor` function, which is responsible for calculating the pair address using a different salt than the factory, as described in the report.",
+      "functions_found": [
+        "pairFor"
+      ],
+      "variables_found": [
+        "pair",
+        "factory",
+        "tokenA",
+        "tokenB",
+        "uniV2InitCodeHash"
+      ],
+      "patterns_found": [
+        "incorrect address calculation",
+        "CREATE2 address mismatch"
+      ],
+      "issues": [
+        "Address mismatch due to incorrect salt in CREATE2 calculation"
+      ]
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged to reflect the nature of the vulnerability.",
+      "suggested_tag": "incorrect_address_calculation",
+      "alternative_tags": [
+        "address_mismatch",
+        "CREATE2_issue"
+      ],
+      "correction_explanation": "The issue is primarily about incorrect address calculation due to mismatched parameters in the CREATE2 process."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The issue can lead to a denial of service as transactions revert and the system becomes stuck in a bonding state."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "C8"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability arises from incorrect business logic in address calculation, affecting liquidity pool operations.",
+      "vulnerability_type": "Incorrect address calculation leading to transaction reverts and system lock"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves ensuring that the pair address calculation matches the address used by the factory by using the factory's createPair function to get the correct address.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "pairFor",
+          "fixed_function_code": "function pairFor(address factory, address tokenA, address tokenB) internal view returns (IUniswapV2Pair pair) {\n    (address token0, address token1) = sortTokens(tokenA, tokenB);\n    pair = IUniswapV2Pair(IGTELaunchpadV2PairFactory(factory).getPair(token0, token1));\n}",
+          "reasoning": "This fix addresses the vulnerability by using the factory's getPair function to retrieve the correct pair address, ensuring consistency with the factory's deployed pair addresses."
+        }
+      ],
+      "key_changes": [
+        "Replaced manual address calculation with factory's getPair function",
+        "Ensured consistency with factory-deployed pair addresses",
+        "Removed reliance on hardcoded init code hash"
+      ],
+      "security_improvements": [
+        "Prevents address mismatch issues",
+        "Reduces risk of transaction reverts due to incorrect pair address",
+        "Improves system reliability by preventing bonding state lock"
+      ],
+      "additional_recommendations": "Ensure that the factory contract's getPair function is correctly implemented and audited to prevent any further inconsistencies.",
+      "confidence": 95,
+      "fix_code": "function pairFor(address factory, address tokenA, address tokenB) internal view returns (IUniswapV2Pair pair) {\n    (address token0, address token1) = sortTokens(tokenA, tokenB);\n    pair = IUniswapV2Pair(IGTELaunchpadV2PairFactory(factory).getPair(token0, token1));\n}",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:23:25.944726"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:23:25.944739",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

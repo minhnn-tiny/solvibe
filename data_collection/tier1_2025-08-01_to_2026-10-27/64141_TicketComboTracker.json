@@ -1,0 +1,147 @@
+{
+  "id": "64141",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-11-megapot/blob/f0a7297d59c376e38b287b2c56740617dbbfbdc7/contracts/lib/TicketComboTracker.sol# L157-L160",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      157,
+      160
+    ],
+    [
+      1626,
+      1626
+    ],
+    [
+      250,
+      263
+    ]
+  ],
+  "filename": "64141_TicketComboTracker.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 344,
+  "vulnerability_title": "[H-02] Unoptimized subset matches counting implementation will exceed tx gas limit on base chain",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "1. `subsets` can be cached in the following way:\n```\n\ndiff --git a/contracts/lib/TicketComboTracker.sol b/contracts/lib/TicketComboTracker.sol\nindex 3545a8a..36b1c02 100644\n--- a/contracts/lib/TicketComboTracker.sol\n+++ b/contracts/lib/TicketComboTracker.sol\n@@ -153,10 +153,13 @@ library TicketComboTracker {\n     {\n         matches = new uint256[]((_tracker.normalTiers+1)*2);\n         dupMatches = new uint256[]((_tracker.normalTiers+1)*2);\n\n+        uint256[][] memory subsetsArr = new uint256[][](_tracker.normalTiers);\n+        for (uint i; i<_tracker.normalTiers; i++) {\n+            subsetsArr[i] = Combinations.generateSubsets(_normalBallsBitVector, i + 1);\n+        }\n         for (uint8 i = 1; i <= _tracker.bonusballMax; i++) {\n             for (uint8 k = 1; k <= _tracker.normalTiers; k++) {\n-                uint256[] memory subsets = Combinations.generateSubsets(_normalBallsBitVector, k);\n+                uint256[] memory subsets = subsetsArr[k - 1];\n                 for (uint256 l = 0; l < subsets.length; l++) {\n                     if (i == _bonusball) {\n                         matches[(k*2)+1] += _tracker.comboCounts[i][subsets[l]].count;\n```\n\n2. Define a hardcoded limit of `bonusballMax`\n\nExpand for detailed Proof of Concept",
+    "fix_code_blocks": [
+      "diff --git a/contracts/lib/TicketComboTracker.sol b/contracts/lib/TicketComboTracker.sol\nindex 3545a8a..36b1c02 100644\n--- a/contracts/lib/TicketComboTracker.sol\n+++ b/contracts/lib/TicketComboTracker.sol\n@@ -153,10 +153,13 @@ library TicketComboTracker {\n     {\n         matches = new uint256[]((_tracker.normalTiers+1)*2);\n         dupMatches = new uint256[]((_tracker.normalTiers+1)*2);\n\n+        uint256[][] memory subsetsArr = new uint256[][](_tracker.normalTiers);\n+        for (uint i; i<_tracker.normalTiers; i++) {\n+            subsetsArr[i] = Combinations.generateSubsets(_normalBallsBitVector, i + 1);\n+        }\n         for (uint8 i = 1; i <= _tracker.bonusballMax; i++) {\n             for (uint8 k = 1; k <= _tracker.normalTiers; k++) {\n-                uint256[] memory subsets = Combinations.generateSubsets(_normalBallsBitVector, k);\n+                uint256[] memory subsets = subsetsArr[k - 1];\n                 for (uint256 l = 0; l < subsets.length; l++) {\n                     if (i == _bonusball) {\n                         matches[(k*2)+1] += _tracker.comboCounts[i][subsets[l]].count;"
+    ]
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "The following POC shows that, for 16M USD pool, entropy callback gas consumption will exceed 25M tx gas limit on base chain.\n```\n\nimport { ethers } from \"hardhat\";\nimport DeployHelper from \"@utils/deploys\";\n\nimport { getWaffleExpect, getAccounts } from \"@utils/test/index\";\nimport { ether, usdc } from \"@utils/common\";\nimport { Account } from \"@utils/test\";\n\nimport { PRECISE_UNIT } from \"@utils/constants\";\n\nimport {\n  GuaranteedMinimumPayoutCalculator,\n  Jackpot,\n  JackpotBridgeManager,\n  JackpotLPManager,\n  JackpotTicketNFT,\n  MockDepository,\n  ReentrantUSDCMock,\n  ScaledEntropyProviderMock,\n} from \"@utils/contracts\";\nimport {\n  Address,\n  JackpotSystemFixture,\n  RelayTxData,\n  Ticket,\n} from \"@utils/types\";\nimport { deployJackpotSystem } from \"@utils/test/jackpotFixture\";\nimport {\n  calculatePackedTicket,\n  calculateTicketId,\n  generateClaimTicketSignature,\n  generateClaimWinningsSignature,\n} from \"@utils/protocolUtils\";\nimport { ADDRESS_ZERO } from \"@utils/constants\";\nimport {\n  takeSnapshot,\n  SnapshotRestorer,\n  time,\n} from \"@nomicfoundation/hardhat-toolbox/network-helpers\";\n\nconst expect = getWaffleExpect();\n\ndescribe(\"C4\", () => {\n  let owner: Account;\n  let buyerOne: Account;\n  let buyerTwo: Account;\n  let referrerOne: Account;\n  let referrerTwo: Account;\n  let referrerThree: Account;\n  let solver: Account;\n\n  let jackpotSystem: JackpotSystemFixture;\n  let jackpot: Jackpot;\n  let jackpotNFT: JackpotTicketNFT;\n  let jackpotLPManager: JackpotLPManager;\n  let payoutCalculator: GuaranteedMinimumPayoutCalculator;\n  let usdcMock: ReentrantUSDCMock;\n  let entropyProvider: ScaledEntropyProviderMock;\n  let snapshot: SnapshotRestorer;\n  let jackpotBridgeManager: JackpotBridgeManager;\n  let mockDepository: MockDepository;\n\n  beforeEach(async () => {\n    [\n      owner,\n      buyerOne,\n      buyerTwo,\n      referrerOne,\n      referrerTwo,\n      referrerThree,\n      solver,\n    ] = await getAccounts();\n\n    jackpotSystem = await deployJackpotSystem();\n    jackpot = jackpotSystem.jackpot;\n    jackpotNFT = jackpotSystem.jackpotNFT;\n    jackpotLPManager = jackpotSystem.jackpotLPManager;\n    payoutCalculator = jackpotSystem.payoutCalculator;\n    usdcMock = jackpotSystem.usdcMock;\n    entropyProvider = jackpotSystem.entropyProvider;\n\n    await jackpot\n      .connect(owner.wallet)\n      .initialize(\n        usdcMock.getAddress(),\n        await jackpotLPManager.getAddress(),\n        await jackpotNFT.getAddress(),\n        entropyProvider.getAddress(),\n        await payoutCalculator.getAddress(),\n      );\n    const governancePoolCap = usdc(16000000);\n    await jackpot.connect(owner.wallet).initializeLPDeposits(governancePoolCap);\n\n    await usdcMock\n      .connect(owner.wallet)\n      .approve(jackpot.getAddress(), governancePoolCap);\n    await jackpot.connect(owner.wallet).lpDeposit(governancePoolCap);\n\n    await jackpot\n      .connect(owner.wallet)\n      .initializeJackpot(\n        BigInt(await time.latest()) +\n          BigInt(jackpotSystem.deploymentParams.drawingDurationInSeconds),\n      );\n\n    jackpotBridgeManager =\n      await jackpotSystem.deployer.deployJackpotBridgeManager(\n        await jackpot.getAddress(),\n        await jackpotNFT.getAddress(),\n        await usdcMock.getAddress(),\n        \"MegapotBridgeManager\",\n        \"1.0.0\",\n      );\n\n    mockDepository = await jackpotSystem.deployer.deployMockDepository(\n      await usdcMock.getAddress(),\n    );\n\n    snapshot = await takeSnapshot();\n  });\n\n  beforeEach(async () => {\n    await snapshot.restore();\n  });\n\n  describe(\"PoC\", async () => {\n    it(\"demonstrates the C4 submission's validity\", async () => {\n      await time.increase(\n        jackpotSystem.deploymentParams.drawingDurationInSeconds,\n      );\n      const drawingState = await jackpot.getDrawingState(1);\n      console.log(\"drawingState.bonusballMax\", drawingState.bonusballMax);\n      const value =\n        jackpotSystem.deploymentParams.entropyFee +\n        (jackpotSystem.deploymentParams.entropyBaseGasLimit +\n          jackpotSystem.deploymentParams.entropyVariableGasLimit *\n            drawingState.bonusballMax) *\n          10_000_000n;\n      await jackpot.runJackpot({ value });\n      const winningNumbers = [[6n, 7n, 8n, 9n, 10n], [11n]];\n      await entropyProvider.randomnessCallback(winningNumbers);\n    });\n  });\n});\n```\n\nConsole output:\n```\n\n$ hardhat test ./test/poc/C4PoC.spec.ts\n\nC4\n    PoC\ndrawingState.bonusballMax 129n\n      \u2714 demonstrates the C4 submission's validity (1088ms)\n...\n|  ScaledEntropyProviderMock          \u00b7                                                                                   \u2502\n\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\n|      randomnessCallback             \u00b7              -  \u00b7            -  \u00b7     25,834,562  \u00b7             1  \u00b7           -  \u2502\n```\n\nAfter applying the mitigation:\n```\n\n$ hardhat test ./test/poc/C4PoC.spec.ts\n\nC4\n    PoC\ndrawingState.bonusballMax 129n\n...\n|  ScaledEntropyProviderMock          \u00b7                                                                                   \u2502\n\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\n|      randomnessCallback             \u00b7              -  \u00b7            -  \u00b7     15,769,995  \u00b7             1  \u00b7           -  \u2502\n```\n\n---",
+    "poc_code_blocks": [
+      "import { ethers } from \"hardhat\";\nimport DeployHelper from \"@utils/deploys\";\n\nimport { getWaffleExpect, getAccounts } from \"@utils/test/index\";\nimport { ether, usdc } from \"@utils/common\";\nimport { Account } from \"@utils/test\";\n\nimport { PRECISE_UNIT } from \"@utils/constants\";\n\nimport {\n  GuaranteedMinimumPayoutCalculator,\n  Jackpot,\n  JackpotBridgeManager,\n  JackpotLPManager,\n  JackpotTicketNFT,\n  MockDepository,\n  ReentrantUSDCMock,\n  ScaledEntropyProviderMock,\n} from \"@utils/contracts\";\nimport {\n  Address,\n  JackpotSystemFixture,\n  RelayTxData,\n  Ticket,\n} from \"@utils/types\";\nimport { deployJackpotSystem } from \"@utils/test/jackpotFixture\";\nimport {\n  calculatePackedTicket,\n  calculateTicketId,\n  generateClaimTicketSignature,\n  generateClaimWinningsSignature,\n} from \"@utils/protocolUtils\";\nimport { ADDRESS_ZERO } from \"@utils/constants\";\nimport {\n  takeSnapshot,\n  SnapshotRestorer,\n  time,\n} from \"@nomicfoundation/hardhat-toolbox/network-helpers\";\n\nconst expect = getWaffleExpect();\n\ndescribe(\"C4\", () => {\n  let owner: Account;\n  let buyerOne: Account;\n  let buyerTwo: Account;\n  let referrerOne: Account;\n  let referrerTwo: Account;\n  let referrerThree: Account;\n  let solver: Account;\n\n  let jackpotSystem: JackpotSystemFixture;\n  let jackpot: Jackpot;\n  let jackpotNFT: JackpotTicketNFT;\n  let jackpotLPManager: JackpotLPManager;\n  let payoutCalculator: GuaranteedMinimumPayoutCalculator;\n  let usdcMock: ReentrantUSDCMock;\n  let entropyProvider: ScaledEntropyProviderMock;\n  let snapshot: SnapshotRestorer;\n  let jackpotBridgeManager: JackpotBridgeManager;\n  let mockDepository: MockDepository;\n\n  beforeEach(async () => {\n    [\n      owner,\n      buyerOne,\n      buyerTwo,\n      referrerOne,\n      referrerTwo,\n      referrerThree,\n      solver,\n    ] = await getAccounts();\n\n    jackpotSystem = await deployJackpotSystem();\n    jackpot = jackpotSystem.jackpot;\n    jackpotNFT = jackpotSystem.jackpotNFT;\n    jackpotLPManager = jackpotSystem.jackpotLPManager;\n    payoutCalculator = jackpotSystem.payoutCalculator;\n    usdcMock = jackpotSystem.usdcMock;\n    entropyProvider = jackpotSystem.entropyProvider;\n\n    await jackpot\n      .connect(owner.wallet)\n      .initialize(\n        usdcMock.getAddress(),\n        await jackpotLPManager.getAddress(),\n        await jackpotNFT.getAddress(),\n        entropyProvider.getAddress(),\n        await payoutCalculator.getAddress(),\n      );\n    const governancePoolCap = usdc(16000000);\n    await jackpot.connect(owner.wallet).initializeLPDeposits(governancePoolCap);\n\n    await usdcMock\n      .connect(owner.wallet)\n      .approve(jackpot.getAddress(), governancePoolCap);\n    await jackpot.connect(owner.wallet).lpDeposit(governancePoolCap);\n\n    await jackpot\n      .connect(owner.wallet)\n      .initializeJackpot(\n        BigInt(await time.latest()) +\n          BigInt(jackpotSystem.deploymentParams.drawingDurationInSeconds),\n      );\n\n    jackpotBridgeManager =\n      await jackpotSystem.deployer.deployJackpotBridgeManager(\n        await jackpot.getAddress(),\n        await jackpotNFT.getAddress(),\n        await usdcMock.getAddress(),\n        \"MegapotBridgeManager\",\n        \"1.0.0\",\n      );\n\n    mockDepository = await jackpotSystem.deployer.deployMockDepository(\n      await usdcMock.getAddress(),\n    );\n\n    snapshot = await takeSnapshot();\n  });\n\n  beforeEach(async () => {\n    await snapshot.restore();\n  });\n\n  describe(\"PoC\", async () => {\n    it(\"demonstrates the C4 submission's validity\", async () => {\n      await time.increase(\n        jackpotSystem.deploymentParams.drawingDurationInSeconds,\n      );\n      const drawingState = await jackpot.getDrawingState(1);\n      console.log(\"drawingState.bonusballMax\", drawingState.bonusballMax);\n      const value =\n        jackpotSystem.deploymentParams.entropyFee +\n        (jackpotSystem.deploymentParams.entropyBaseGasLimit +\n          jackpotSystem.deploymentParams.entropyVariableGasLimit *\n            drawingState.bonusballMax) *\n          10_000_000n;\n      await jackpot.runJackpot({ value });\n      const winningNumbers = [[6n, 7n, 8n, 9n, 10n], [11n]];\n      await entropyProvider.randomnessCallback(winningNumbers);\n    });\n  });\n});",
+      "$ hardhat test ./test/poc/C4PoC.spec.ts\n\nC4\n    PoC\ndrawingState.bonusballMax 129n\n      \u2714 demonstrates the C4 submission's validity (1088ms)\n...\n|  ScaledEntropyProviderMock          \u00b7                                                                                   \u2502\n\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\n|      randomnessCallback             \u00b7              -  \u00b7            -  \u00b7     25,834,562  \u00b7             1  \u00b7           -  \u2502",
+      "$ hardhat test ./test/poc/C4PoC.spec.ts\n\nC4\n    PoC\ndrawingState.bonusballMax 129n\n...\n|  ScaledEntropyProviderMock          \u00b7                                                                                   \u2502\n\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7|\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\n|      randomnessCallback             \u00b7              -  \u00b7            -  \u00b7     15,769,995  \u00b7             1  \u00b7           -  \u2502"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_countSubsetMatches",
+        "start_line": 144,
+        "end_line": 171,
+        "code": "\n    function _countSubsetMatches(\n        Tracker storage _tracker,\n        uint256 _normalBallsBitVector,\n        uint8 _bonusball\n    )\n        private\n        view\n        returns (uint256[] memory matches, uint256[] memory dupMatches)\n    {\n        matches = new uint256[]((_tracker.normalTiers+1)*2);\n        dupMatches = new uint256[]((_tracker.normalTiers+1)*2);\n        \n        for (uint8 i = 1; i <= _tracker.bonusballMax; i++) {\n            for (uint8 k = 1; k <= _tracker.normalTiers; k++) {\n                uint256[] memory subsets = Combinations.generateSubsets(_normalBallsBitVector, k);\n                for (uint256 l = 0; l < subsets.length; l++) {\n                    if (i == _bonusball) {\n                        matches[(k*2)+1] += _tracker.comboCounts[i][subsets[l]].count;\n                        dupMatches[k*2+1] += _tracker.comboCounts[i][subsets[l]].dupCount;\n                    } else {\n                        matches[(k*2)] += _tracker.comboCounts[i][subsets[l]].count;\n                        dupMatches[k*2] += _tracker.comboCounts[i][subsets[l]].dupCount;\n                    }\n                }\n            }\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            157,
+            160
+          ]
+        ]
+      },
+      {
+        "function_name": "countTierMatchesWithBonusball",
+        "start_line": 250,
+        "end_line": 270,
+        "code": "    function countTierMatchesWithBonusball(\n        Tracker storage _tracker,\n        uint8[] memory _normalBalls,\n        uint8 _bonusball\n    )\n        internal\n        view\n        returns (uint256 winningTicket, uint256[] memory uniqueResult, uint256[] memory dupResult)\n    {\n        uint256 set = toNormalsBitVector(_normalBalls, _tracker.normalMax);\n        winningTicket = set | (1 << (_bonusball + _tracker.normalMax));\n\n        // Step 1: Count all subset matches across all bonusballs\n        (uint256[] memory matches, uint256[] memory dupMatches) = _countSubsetMatches(_tracker, set, _bonusball);\n        \n        // Step 2: Apply inclusion-exclusion principle to remove double counting\n        (uniqueResult, dupResult) = _applyInclusionExclusionPrinciple(_tracker, matches, dupMatches);\n        \n        // Step 3: Calculate bonusball-only matches (no normal balls matched)\n        _calculateBonusballOnlyMatches(_tracker, _bonusball, uniqueResult, dupResult);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            250,
+            263
+          ]
+        ]
+      },
+      {
+        "code": "",
+        "start_line": 1626,
+        "end_line": 1626,
+        "context_start_line": 1611,
+        "context_end_line": 344,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T17:55:28.287472",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the expensive calculation leading to gas limit issues, which is evident in the provided code snippets.",
+      "content_reasoning": "The content mentions specific functions and variables that exist in the code, such as `_countSubsetMatches`, `_normalBallsBitVector`, and `bonusballMax`, which are directly related to the described vulnerability.",
+      "functions_found": [
+        "_countSubsetMatches",
+        "countTierMatchesWithBonusball"
+      ],
+      "variables_found": [
+        "_normalBallsBitVector",
+        "_bonusball",
+        "_tracker"
+      ],
+      "patterns_found": [
+        "unbounded loops",
+        "gas limit issues"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 90,
+      "reasoning": "The report lacks a tag that reflects the nature of the vulnerability, which is related to gas limit issues due to unoptimized calculations.",
+      "suggested_tag": "Gas Limit Exceeded",
+      "alternative_tags": [
+        "Denial of Service",
+        "Gas Optimization"
+      ],
+      "correction_explanation": "A tag should be added to indicate the specific issue of gas limit exhaustion, which is critical for understanding the vulnerability."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability clearly falls under denial of service due to the potential for resource exhaustion caused by unbounded loops leading to gas limit exceedance."
+    },
+    "scsvs_classification": {
+      "primary_category": "G10",
+      "primary_category_name": "Gas usage & limitations",
+      "secondary_categories": [
+        "G8"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "SCSVS provides a more granular classification that specifically addresses gas usage issues, which is the core of the vulnerability. The primary category G10 directly relates to the gas limit problem, while G8 relates to denial of service.",
+      "vulnerability_type": "Gas limit exceeded due to unoptimized calculations"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-04-16T18:00:33.374336",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

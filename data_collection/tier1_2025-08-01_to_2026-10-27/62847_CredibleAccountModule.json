@@ -1,0 +1,159 @@
+{
+  "id": "62847",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/etherspot/etherspot-modular-accounts/blob/9019f2a78c36e74bdb1df4029672998cb4631162/src/modules/validators/CredibleAccountModule.sol#L763",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      763,
+      763
+    ],
+    [
+      780,
+      780
+    ]
+  ],
+  "filename": "62847_CredibleAccountModule.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 785,
+  "vulnerability_title": "[C-01] `SessionKey` Owner Can Drain the Smart Wallet",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "In `_validateSingleCall()`, we should extract the spender address and check that it is approving the `CredibleAccountModule` address to be the spender. The same should be made for `_validateBatchCall()` by checking that the Execution that is calling approve is with `callData`, making the `CredibleAccountModule` address as the spender.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "- SCW has a `sessionKey` activated\n- The SCW give that `sessionKey` the ability to claim `100 USDT` and `1 WETH`\n- The SCW owns USDT, WETH, WBTC, and USDC\n- The `sessionKey` enters its active period\n- The `sessionKey` made a transaction for calling approve USDT for the full balance, WETH, WBTC, USDC, USDT\n- He approved for himself, where he made himself the spender\n- Transactions have been executed on SCW\n- The `sessionkey` took all the SCW balance for himself",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_validateSingleCall",
+        "start_line": 759,
+        "end_line": 766,
+        "code": "    function _validateSingleCall(bytes calldata _callData) internal view returns (bool) {\n        (address target,, bytes calldata execData) = ExecutionLib.decodeSingle(_callData[EXEC_OFFSET:]);\n        bytes4 selector = _validateSelector(bytes4(execData[0:4]));\n        if (selector == bytes4(0)) return false;\n        if (selector == IERC20.approve.selector) return true;\n        if (target != address(this)) return false; // If not approve call must call this contract\n        return true;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            763,
+            763
+          ]
+        ]
+      },
+      {
+        "function_name": "_validateBatchCall",
+        "start_line": 775,
+        "end_line": 784,
+        "code": "    function _validateBatchCall(bytes calldata _callData) internal view returns (bool) {\n        Execution[] calldata execs = ExecutionLib.decodeBatch(_callData[EXEC_OFFSET:]);\n        for (uint256 i; i < execs.length; ++i) {\n            bytes4 selector = _validateSelector(bytes4(execs[i].callData[0:4]));\n            if (selector == bytes4(0)) return false;\n            if (selector == IERC20.approve.selector) continue;\n            if (execs[i].target != address(this)) return false; // If not approve call must call this contract\n        }\n        return true;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            780,
+            780
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:05:06.176541",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability related to the `sessionKey` owner being able to drain the smart wallet due to insufficient checks in the approval process.",
+      "content_reasoning": "The content mentions the specific functions `_validateSingleCall()` and `_validateBatchCall()` that are directly related to the vulnerability described in the report.",
+      "functions_found": [
+        "_validateSingleCall",
+        "_validateBatchCall"
+      ],
+      "variables_found": [],
+      "patterns_found": [
+        "lack of spender check",
+        "approval without restrictions"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to indicate the nature of the vulnerability.",
+      "suggested_tag": "access_control",
+      "alternative_tags": [
+        "token_management",
+        "authorization_issue"
+      ],
+      "correction_explanation": "The vulnerability is primarily related to access control issues where the `sessionKey` can approve tokens without proper checks."
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "secondary_categories": [],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability is primarily about authorization issues where the `sessionKey` can approve tokens without restrictions, leading to potential token theft."
+    },
+    "scsvs_classification": {
+      "primary_category": "G5",
+      "primary_category_name": "Access control",
+      "secondary_categories": [
+        "G4"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": false,
+      "reasoning": "The SCSVS category G5 is appropriate as it directly addresses the access control issues present in the code.",
+      "vulnerability_type": "Improper access control allowing unauthorized token approvals"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Added checks to ensure that the CredibleAccountModule is approved as the spender for token approvals.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "_validateSingleCall",
+          "fixed_function_code": "function _validateSingleCall(bytes calldata _callData) internal view returns (bool) {\n        (address target,, bytes calldata execData) = ExecutionLib.decodeSingle(_callData[EXEC_OFFSET:]);\n        bytes4 selector = _validateSelector(bytes4(execData[0:4]));\n        if (selector == bytes4(0)) return false;\n        if (selector == IERC20.approve.selector) {\n            address spender = abi.decode(execData[4:], (address)); // Extract spender address\n            if (spender != address(this)) return false; // Ensure CredibleAccountModule is the spender\n            return true;\n        }\n        if (target != address(this)) return false; // If not approve call must call this contract\n        return true;\n    }",
+          "reasoning": "This function now checks that the spender in the approve call is the CredibleAccountModule, preventing unauthorized token approvals."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "_validateBatchCall",
+          "fixed_function_code": "function _validateBatchCall(bytes calldata _callData) internal view returns (bool) {\n        Execution[] calldata execs = ExecutionLib.decodeBatch(_callData[EXEC_OFFSET:]);\n        for (uint256 i; i < execs.length; ++i) {\n            bytes4 selector = _validateSelector(bytes4(execs[i].callData[0:4]));\n            if (selector == bytes4(0)) return false;\n            if (selector == IERC20.approve.selector) {\n                address spender = abi.decode(execs[i].callData[4:], (address)); // Extract spender address\n                if (spender != address(this)) return false; // Ensure CredibleAccountModule is the spender\n                continue;\n            }\n            if (execs[i].target != address(this)) return false; // If not approve call must call this contract\n        }\n        return true;\n    }",
+          "reasoning": "This function now checks that each spender in the batch approve calls is the CredibleAccountModule, preventing unauthorized token approvals."
+        }
+      ],
+      "key_changes": [
+        "Added checks to ensure the spender in approve calls is the CredibleAccountModule.",
+        "Extracted spender address from the call data in both functions.",
+        "Ensured that only the CredibleAccountModule can be approved as a spender."
+      ],
+      "security_improvements": [
+        "Mitigated risk of unauthorized token draining by enforcing proper approval checks.",
+        "Enhanced access control for token approval functions."
+      ],
+      "additional_recommendations": "Consider implementing a role-based access control mechanism for sensitive functions to further enhance security.",
+      "confidence": 95,
+      "fix_code": "function _validateSingleCall(bytes calldata _callData) internal view returns (bool) {\n        (address target,, bytes calldata execData) = ExecutionLib.decodeSingle(_callData[EXEC_OFFSET:]);\n        bytes4 selector = _validateSelector(bytes4(execData[0:4]));\n        if (selector == bytes4(0)) return false;\n        if (selector == IERC20.approve.selector) {\n            address spender = abi.decode(execData[4:], (address)); // Extract spender address\n            if (spender != address(this)) return false; // Ensure CredibleAccountModule is the spender\n            return true;\n        }\n        if (target != address(this)) return false; // If not approve call must call this contract\n        return true;\n    }\n\nfunction _validateBatchCall(bytes calldata _callData) internal view returns (bool) {\n        Execution[] calldata execs = ExecutionLib.decodeBatch(_callData[EXEC_OFFSET:]);\n        for (uint256 i; i < execs.length; ++i) {\n            bytes4 selector = _validateSelector(bytes4(execs[i].callData[0:4]));\n            if (selector == bytes4(0)) return false;\n            if (selector == IERC20.approve.selector) {\n                address spender = abi.decode(execs[i].callData[4:], (address)); // Extract spender address\n                if (spender != address(this)) return false; // Ensure CredibleAccountModule is the spender\n                continue;\n            }\n            if (execs[i].target != address(this)) return false; // If not approve call must call this contract\n        }\n        return true;\n    }",
+      "expected_fixed_blocks": 2,
+      "returned_fixed_blocks": 2,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-04-25T23:45:42.891612"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-25T23:45:42.891632",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

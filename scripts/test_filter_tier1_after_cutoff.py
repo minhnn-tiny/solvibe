@@ -1,4 +1,4 @@
-from filter_tier1_after_cutoff import failed_checks, linked_month
+from filter_tier1_after_cutoff import failed_checks, finding_date, in_range, linked_month
 
 
 def test_linked_month():
@@ -15,3 +15,16 @@ def test_failed_checks():
               problem_code={"has_problem_code": True}, validation={"content_code_consistency": {"consistent": True}})
     assert failed_checks(ok) == []
     assert failed_checks({**ok, "has_pragma": False, "validation": {}}) == ["has_pragma", "consistent"]
+
+
+def test_finding_date():
+    assert finding_date({"id": "x", "report_date": "2026-03-13"}, {}) == ("2026-03-13", "report file name")
+    assert finding_date({"id": "y", "report_date": "2025-11", "source": "code4rena"}, {})[1] == "contest month in report URL"
+    assert finding_date({"id": 1, "report_date": {}, "source_link": "a/2025-10-hybra"}, {}) == ("2025-10", "month in link")
+    assert finding_date({"id": 2, "report_date": {}, "source_link": "b/no-date"}, {"2": "2025-11-03"})[0] == "2025-11-03"
+    assert finding_date({"id": 3, "report_date": {}}, {}) == (None, "")
+
+
+def test_in_range():
+    assert in_range("2025-08", "2025-08-01", "2026-10-27") and in_range("2026-10-27", "2025-08-01", "2026-10-27")
+    assert not in_range("2025-07-31", "2025-08-01", "2026-10-27") and not in_range("2026-11", "2025-08-01", "2026-10-27")

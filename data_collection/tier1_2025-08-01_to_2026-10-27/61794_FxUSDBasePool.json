@@ -1,0 +1,189 @@
+{
+  "id": "61794",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/AladdinDAO/fx-protocol-contracts/blob/56a47eab8d10334e479df83a2b13a8b68ce390e9/contracts/core/FxUSDBasePool.sol#L165-L174",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      165,
+      174
+    ],
+    [
+      165,
+      174
+    ],
+    [
+      226,
+      226
+    ],
+    [
+      246,
+      246
+    ],
+    [
+      257,
+      257
+    ],
+    [
+      307,
+      307
+    ]
+  ],
+  "filename": "61794_FxUSDBasePool.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 685,
+  "vulnerability_title": "Stale Value of totalStableToken Used in Stability Pool",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "previewDeposit",
+        "start_line": 226,
+        "end_line": 243,
+        "code": "  function previewDeposit(\n    address tokenIn,\n    uint256 amountTokenToDeposit\n  ) public view override onlyValidToken(tokenIn) returns (uint256 amountSharesOut) {\n    uint256 price = getStableTokenPriceWithScale();\n    uint256 amountUSD = amountTokenToDeposit;\n    if (tokenIn == stableToken) {\n      amountUSD = (amountUSD * price) / PRECISION;\n    }\n\n    uint256 _totalSupply = totalSupply();\n    if (_totalSupply == 0) {\n      amountSharesOut = amountUSD;\n    } else {\n      uint256 totalUSD = totalYieldToken + (totalStableToken * price) / PRECISION;\n      amountSharesOut = (amountUSD * _totalSupply) / totalUSD;\n    }\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            226,
+            226
+          ]
+        ]
+      },
+      {
+        "function_name": "previewRedeem",
+        "start_line": 246,
+        "end_line": 254,
+        "code": "  function previewRedeem(\n    uint256 amountSharesToRedeem\n  ) external view returns (uint256 amountYieldOut, uint256 amountStableOut) {\n    uint256 cachedTotalYieldToken = totalYieldToken;\n    uint256 cachedTotalStableToken = totalStableToken;\n    uint256 cachedTotalSupply = totalSupply();\n    amountYieldOut = (amountSharesToRedeem * cachedTotalYieldToken) / cachedTotalSupply;\n    amountStableOut = (amountSharesToRedeem * cachedTotalStableToken) / cachedTotalSupply;\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            246,
+            246
+          ]
+        ]
+      },
+      {
+        "function_name": "nav",
+        "start_line": 257,
+        "end_line": 266,
+        "code": "  function nav() external view returns (uint256) {\n    uint256 _totalSupply = totalSupply();\n    if (_totalSupply == 0) {\n      return PRECISION;\n    } else {\n      uint256 stablePrice = getStableTokenPriceWithScale();\n      uint256 yieldPrice = IPegKeeper(pegKeeper).getFxUSDPrice();\n      return (totalYieldToken * yieldPrice + totalStableToken * stablePrice) / _totalSupply;\n    }\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            257,
+            257
+          ]
+        ]
+      },
+      {
+        "function_name": "deposit",
+        "start_line": 295,
+        "end_line": 312,
+        "code": "  function deposit(\n    address receiver,\n    address tokenIn,\n    uint256 amountTokenToDeposit,\n    uint256 minSharesOut\n  ) external override nonReentrant onlyValidToken(tokenIn) sync returns (uint256 amountSharesOut) {\n    if (amountTokenToDeposit == 0) revert ErrDepositZeroAmount();\n\n    // we are very sure every token is normal token, so no fot check here.\n    IERC20(tokenIn).safeTransferFrom(_msgSender(), address(this), amountTokenToDeposit);\n\n    amountSharesOut = _deposit(tokenIn, amountTokenToDeposit);\n    if (amountSharesOut < minSharesOut) revert ErrInsufficientSharesOut();\n\n    _mint(receiver, amountSharesOut);\n\n    emit Deposit(_msgSender(), receiver, tokenIn, amountTokenToDeposit, amountSharesOut);\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            307,
+            307
+          ]
+        ]
+      },
+      {
+        "code": "   * Modifiers *\n   *************/\n\n  modifier onlyValidToken(address token) {\n    if (token != stableToken && token != yieldToken) {\n      revert ErrInvalidTokenIn();\n    }\n    _;\n  }\n\n  modifier onlyPegKeeper() {\n    if (_msgSender() != pegKeeper) revert ErrorCallerNotPegKeeper();\n    _;\n  }\n\n  modifier sync() {\n    {\n      // we only manage stable token\n      Allocation memory b = allocations[stableToken];\n      if (b.strategy != address(0)) {\n        totalStableToken = IStrategy(b.strategy).totalSupply() + IERC20(stableToken).balanceOf(address(this));\n      }\n    }\n    _;\n  }\n\n  /***************\n   * Constructor *\n   ***************/\n\n  constructor(\n    address _poolManager,\n    address _pegKeeper,\n    address _yieldToken,\n    address _stableToken,\n    bytes32 _Chainlink_USDC_USD_Spot\n  ) {\n    poolManager = _poolManager;\n    pegKeeper = _pegKeeper;\n    yieldToken = _yieldToken;",
+        "start_line": 165,
+        "end_line": 174,
+        "context_start_line": 150,
+        "context_end_line": 189,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "   * Modifiers *\n   *************/\n\n  modifier onlyValidToken(address token) {\n    if (token != stableToken && token != yieldToken) {\n      revert ErrInvalidTokenIn();\n    }\n    _;\n  }\n\n  modifier onlyPegKeeper() {\n    if (_msgSender() != pegKeeper) revert ErrorCallerNotPegKeeper();\n    _;\n  }\n\n  modifier sync() {\n    {\n      // we only manage stable token\n      Allocation memory b = allocations[stableToken];\n      if (b.strategy != address(0)) {\n        totalStableToken = IStrategy(b.strategy).totalSupply() + IERC20(stableToken).balanceOf(address(this));\n      }\n    }\n    _;\n  }\n\n  /***************\n   * Constructor *\n   ***************/\n\n  constructor(\n    address _poolManager,\n    address _pegKeeper,\n    address _yieldToken,\n    address _stableToken,\n    bytes32 _Chainlink_USDC_USD_Spot\n  ) {\n    poolManager = _poolManager;\n    pegKeeper = _pegKeeper;\n    yieldToken = _yieldToken;",
+        "start_line": 165,
+        "end_line": 174,
+        "context_start_line": 150,
+        "context_end_line": 189,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:01:09.574473",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of using stale values of `totalStableToken` in the `previewDeposit`, `previewRedeem`, and `nav` functions.",
+      "content_reasoning": "The content mentions the relevant functions and variables, and the described patterns of using outdated values are present in the code.",
+      "functions_found": [
+        "previewDeposit",
+        "previewRedeem",
+        "nav"
+      ],
+      "variables_found": [
+        "totalStableToken"
+      ],
+      "patterns_found": [
+        "stale value usage"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 85,
+      "reasoning": "There is no existing tag, and the issue is significant enough to warrant a specific tag.",
+      "suggested_tag": "Stale Value",
+      "alternative_tags": [
+        "Data Integrity",
+        "Business Logic"
+      ],
+      "correction_explanation": "A tag indicating stale value usage would help in identifying this specific type of vulnerability."
+    },
+    "mando_classification": {
+      "primary_category": "G7",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": true,
+      "reasoning": "The issue relates to mathematical operations and the potential for incorrect calculations due to stale data."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G7",
+        "C8"
+      ],
+      "confidence": 85,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more detailed classification of the business logic issues and arithmetic concerns related to stale values.",
+      "vulnerability_type": "Incorrect calculations due to stale data"
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-04-25T06:12:55.989455",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

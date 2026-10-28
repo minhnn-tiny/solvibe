@@ -1,0 +1,134 @@
+{
+  "id": "64867",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/main/contracts/launchpad/Launchpad.sol# L287",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      287,
+      287
+    ]
+  ],
+  "filename": "64867_Launchpad.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 617,
+  "vulnerability_title": "[M-24] Launchpad slippage is not enforced properly during token graduation",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Consider calculating and checking the price per token the user is willing to pay and the price per token bought instead.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-80)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "buy",
+        "start_line": 272,
+        "end_line": 305,
+        "code": "    function buy(BuyData calldata buyData)\n        external\n        nonReentrant\n        onlyBondingActive(buyData.token)\n        onlySenderOrOperator(buyData.account, SpotOperatorRoles.LAUNCHPAD_FILL)\n        returns (uint256 amountOutBaseActual, uint256 amountInQuote)\n    {\n        IUniswapV2Pair pair = _assertValidRecipient(buyData.recipient, buyData.token);\n        LaunchData memory data = _launches[buyData.token];\n\n        (amountOutBaseActual, data.active) = _checkGraduation(buyData.token, data, buyData.amountOutBase);\n\n        amountInQuote = data.curve.buy(buyData.token, amountOutBaseActual);\n\n        if (data.active && amountInQuote == 0) revert DustAttackInvalid();\n        if (amountInQuote > buyData.maxAmountInQuote) revert SlippageToleranceExceeded();\n\n        buyData.token.safeTransfer(buyData.recipient, amountOutBaseActual);\n        address(data.quote).safeTransferFrom(buyData.account, address(this), amountInQuote);\n\n        _emitSwapEvent({\n            account: buyData.account,\n            token: buyData.token,\n            baseAmount: amountOutBaseActual,\n            quoteAmount: amountInQuote,\n            isBuy: true,\n            curve: data.curve\n        });\n\n        // If graduated, handle AMM setup and remaining swap\n        if (!data.active) {\n            (amountOutBaseActual, amountInQuote) = _graduate(buyData, pair, data, amountOutBaseActual, amountInQuote);\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            287,
+            287
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:21.818223",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of ineffective slippage protection when transitioning from the bonding curve to a secondary market.",
+      "content_reasoning": "The code snippet includes the logic for checking slippage against the bonding curve but not for the total purchase, which matches the described vulnerability.",
+      "functions_found": [
+        "buy"
+      ],
+      "variables_found": [
+        "amountInQuote",
+        "buyData.maxAmountInQuote"
+      ],
+      "patterns_found": [
+        "ineffective slippage check"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "No existing tag is present, but a tag related to business logic or slippage issues should be added.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "slippage"
+      ],
+      "correction_explanation": "The issue is primarily related to business logic flaws in handling slippage during token purchases."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 70,
+      "mando_applicable": false,
+      "reasoning": "The MANDO categories do not specifically cover business logic issues related to slippage and token purchases."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue is a business logic flaw where the slippage protection mechanism does not account for the transition to a secondary market, leading to potential overpayment.",
+      "vulnerability_type": "Ineffective slippage protection during token purchase"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves calculating the effective price per token and ensuring it does not exceed the user's maximum acceptable price per token, thereby enforcing slippage protection even during token graduation.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "buy",
+          "fixed_function_code": "function buy(BuyData calldata buyData)\n        external\n        nonReentrant\n        onlyBondingActive(buyData.token)\n        onlySenderOrOperator(buyData.account, SpotOperatorRoles.LAUNCHPAD_FILL)\n        returns (uint256 amountOutBaseActual, uint256 amountInQuote)\n    {\n        IUniswapV2Pair pair = _assertValidRecipient(buyData.recipient, buyData.token);\n        LaunchData memory data = _launches[buyData.token];\n\n        (amountOutBaseActual, data.active) = _checkGraduation(buyData.token, data, buyData.amountOutBase);\n\n        amountInQuote = data.curve.buy(buyData.token, amountOutBaseActual);\n\n        if (data.active && amountInQuote == 0) revert DustAttackInvalid();\n\n        // Calculate the effective price per token\n        uint256 effectivePricePerToken = amountInQuote / amountOutBaseActual;\n        uint256 maxPricePerToken = buyData.maxAmountInQuote / buyData.amountOutBase;\n\n        // Check if the effective price per token exceeds the user's maximum acceptable price\n        if (effectivePricePerToken > maxPricePerToken) revert SlippageToleranceExceeded();\n\n        buyData.token.safeTransfer(buyData.recipient, amountOutBaseActual);\n        address(data.quote).safeTransferFrom(buyData.account, address(this), amountInQuote);\n\n        _emitSwapEvent({\n            account: buyData.account,\n            token: buyData.token,\n            baseAmount: amountOutBaseActual,\n            quoteAmount: amountInQuote,\n            isBuy: true,\n            curve: data.curve\n        });\n\n        // If graduated, handle AMM setup and remaining swap\n        if (!data.active) {\n            (amountOutBaseActual, amountInQuote) = _graduate(buyData, pair, data, amountOutBaseActual, amountInQuote);\n        }\n    }",
+          "reasoning": "This fix ensures that the effective price per token is calculated and compared against the user's maximum acceptable price per token. This prevents transactions from succeeding if the user receives fewer tokens than expected at a higher price, thus enforcing slippage protection even when the bonding curve's supply is exhausted and the token graduates to a secondary market."
+        }
+      ],
+      "key_changes": [
+        "Calculate effective price per token",
+        "Compare effective price with user's maximum acceptable price",
+        "Enforce slippage protection during token graduation"
+      ],
+      "security_improvements": [
+        "Enhanced slippage protection",
+        "Prevention of unexpected high-cost transactions",
+        "Improved user trust in transaction outcomes"
+      ],
+      "additional_recommendations": "Consider implementing additional logging for slippage-related reverts to aid in debugging and user feedback.",
+      "confidence": 95,
+      "fix_code": "function buy(BuyData calldata buyData)\n        external\n        nonReentrant\n        onlyBondingActive(buyData.token)\n        onlySenderOrOperator(buyData.account, SpotOperatorRoles.LAUNCHPAD_FILL)\n        returns (uint256 amountOutBaseActual, uint256 amountInQuote)\n    {\n        IUniswapV2Pair pair = _assertValidRecipient(buyData.recipient, buyData.token);\n        LaunchData memory data = _launches[buyData.token];\n\n        (amountOutBaseActual, data.active) = _checkGraduation(buyData.token, data, buyData.amountOutBase);\n\n        amountInQuote = data.curve.buy(buyData.token, amountOutBaseActual);\n\n        if (data.active && amountInQuote == 0) revert DustAttackInvalid();\n\n        // Calculate the effective price per token\n        uint256 effectivePricePerToken = amountInQuote / amountOutBaseActual;\n        uint256 maxPricePerToken = buyData.maxAmountInQuote / buyData.amountOutBase;\n\n        // Check if the effective price per token exceeds the user's maximum acceptable price\n        if (effectivePricePerToken > maxPricePerToken) revert SlippageToleranceExceeded();\n\n        buyData.token.safeTransfer(buyData.recipient, amountOutBaseActual);\n        address(data.quote).safeTransferFrom(buyData.account, address(this), amountInQuote);\n\n        _emitSwapEvent({\n            account: buyData.account,\n            token: buyData.token,\n            baseAmount: amountOutBaseActual,\n            quoteAmount: amountInQuote,\n            isBuy: true,\n            curve: data.curve\n        });\n\n        // If graduated, handle AMM setup and remaining swap\n        if (!data.active) {\n            (amountOutBaseActual, amountInQuote) = _graduate(buyData, pair, data, amountOutBaseActual, amountInQuote);\n        }\n    }",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:23:52.256616"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:23:52.256628",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

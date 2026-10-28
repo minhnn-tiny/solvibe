@@ -1,0 +1,110 @@
+{
+  "id": "c4-2025-08-flare-fasset-M-01",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-flare/blob/main/contracts/assetManager/library/LiquidationPaymentStrategy.sol#L37-L39",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      37,
+      39
+    ],
+    [
+      37,
+      39
+    ],
+    [
+      217,
+      217
+    ]
+  ],
+  "filename": "c4-2025-08-flare-fasset-M-01_LiquidationPaymentStrategy.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 69,
+  "vulnerability_title": "[M-01] Vault owner is incetivized to not switch invalid collateral token, during liquidation",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "In case the collateral token becomes invalid, liquidation should still require payments from the vault based on the same `vaultFactor` logic, rather than shifting the entire burden to the pool. This ensures agents remain properly incentivized to update their collateral token when governance decisions invalidate one.\n\n**[Flare mitigated](https://github.com/code-423n4/2025-10-flare-mitigation?tab=readme-ov-file#mitigation-of-high--medium-severity-issues):**\n\n> Token deprecation and agent vault token switching have been removed.\n\n**Status:** Mitigation confirmed. Full details in reports from [givn](https://code4rena.com/audits/2025-10-flare-fasset-mitigation-review/submissions/S-3), [rvierdiiev](https://code4rena.com/audits/2025-10-flare-fasset-mitigation-review/submissions/S-1), and [farman1094](https://code4rena.com/audits/2025-10-flare-fasset-mitigation-review/submissions/S-7).",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "currentLiquidationFactorBIPS",
+        "start_line": 18,
+        "end_line": 53,
+        "code": "    function currentLiquidationFactorBIPS(\n        Agent.State storage _agent,\n        uint256 _vaultCR,\n        uint256 _poolCR\n    )\n        internal view\n        returns (uint256 _c1FactorBIPS, uint256 _poolFactorBIPS)\n    {\n        AssetManagerSettings.Data storage settings = Globals.getSettings();\n        uint256 step = _currentLiquidationStep(_agent);\n        uint256 factorBIPS = settings.liquidationCollateralFactorBIPS[step];\n        // All premiums are expressed as factor BIPS.\n        // Current algorithm for splitting payment: use liquidationCollateralFactorBIPS for vault collateral and\n        // pay the rest from pool. If any factor exceeds the CR of that collateral, pay that collateral at\n        // its CR and pay more of the other. If both collaterals exceed CR, limit both to their CRs.\n        _c1FactorBIPS = Math.min(settings.liquidationFactorVaultCollateralBIPS[step], factorBIPS);\n        // prevent paying with invalid token (if there is enough of the other tokens)\n        CollateralTypeInt.Data storage vaultCollateral = _agent.getVaultCollateral();\n        CollateralTypeInt.Data storage poolCollateral = _agent.getPoolCollateral();\n        if (!vaultCollateral.isValid() && poolCollateral.isValid()) {\n            // vault collateral invalid - pay everything with pool collateral\n            _c1FactorBIPS = 0;\n        } else if (vaultCollateral.isValid() && !poolCollateral.isValid()) {\n            // pool collateral - pay everything with vault collateral\n            _c1FactorBIPS = factorBIPS;\n        }\n        // never exceed CR of tokens\n        if (_c1FactorBIPS > _vaultCR) {\n            _c1FactorBIPS = _vaultCR;\n        }\n        _poolFactorBIPS = factorBIPS - _c1FactorBIPS;\n        if (_poolFactorBIPS > _poolCR) {\n            _poolFactorBIPS = _poolCR;\n            _c1FactorBIPS = Math.min(factorBIPS - _poolFactorBIPS, _vaultCR);\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            37,
+            39
+          ],
+          [
+            37,
+            39
+          ]
+        ]
+      },
+      {
+        "code": "",
+        "start_line": 217,
+        "end_line": 217,
+        "context_start_line": 202,
+        "context_end_line": 69,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:41:55.867715",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 70,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "currentLiquidationFactorBIPS sets the vault share to zero when the vault collateral is invalid and the pool collateral is valid, so the pool pays the whole liquidation (lines 37-39). This is the rule the finding links to and builds its argument on. The cap that limits the agent's share of the pool payment is in LiquidationFacet.sol, so the second half of the argument cannot be checked here.",
+      "functions_found": [
+        "currentLiquidationFactorBIPS"
+      ],
+      "variables_found": [
+        "_c1FactorBIPS",
+        "_poolFactorBIPS",
+        "vaultCollateral",
+        "poolCollateral"
+      ],
+      "patterns_found": [
+        "vault share set to zero when the vault collateral is invalid, so the pool pays everything"
+      ],
+      "issues": [
+        "The cap that makes the vault cover only half of the pool's payment is in LiquidationFacet.sol line 217, not in this file.",
+        "`vaultFactor` and `poolFactor` are the finding's names for `_c1FactorBIPS` and `_poolFactorBIPS`; the literal names do not occur in the file."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": null,
+      "mando_applicable": false
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "vulnerability_type": "liquidation payment rule removes the incentive to replace invalid collateral"
+    },
+    "fix_code_source": "none"
+  }
+}

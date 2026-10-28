@@ -1,0 +1,136 @@
+{
+  "id": "62853",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/etherspot/etherspot-modular-accounts/blob/9019f2a78c36e74bdb1df4029672998cb4631162/src/invoice_manager/InvoiceManager.sol#L153",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      153,
+      153
+    ]
+  ],
+  "filename": "62853_InvoiceManager.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 619,
+  "vulnerability_title": "[M-03] Solver Offboarding Can Block Invoice Settlement",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "When offboarding solvers, check if they have pending invoices in `solverInvoices`. If pending invoices exist, block new invoice assignments but allow settlement of existing ones. Once all outstanding invoices are settled, remove the solver completely.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "settleInvoice",
+        "start_line": 147,
+        "end_line": 180,
+        "code": "    function settleInvoice(address _sessionKey) external onlySettlerOrLinkedWallet(_sessionKey) nonReentrant {\n        Invoice storage invoice = invoices[_sessionKey];\n        if (invoice.createdAt == 0) revert IM_InvoiceNotFound();\n\n        bytes32 bidHash = invoice.data.bidHash;\n        address solver = invoice.data.solver;\n        if (!_isSolverActive(solver)) revert SM_SolverInactive();\n\n        InvoiceTokenData[] storage tokens = invoiceTokenData[_sessionKey];\n        uint256 tokensLength = tokens.length;\n        uint256 invoicePulseFee = invoice.pulseFee;\n\n        for (uint256 i; i < tokensLength; ++i) {\n            if (tokens[i].creditedAmount != tokens[i].amount) {\n                revert IM_InvoiceNotFullyCredited(\n                    _sessionKey, tokens[i].token, tokens[i].amount, tokens[i].creditedAmount\n                );\n            }\n        }\n\n        // Process token transfers in a separate internal function to reduce stack depth\n        _processTokenTransfers(_sessionKey, solver, tokens, tokensLength, invoicePulseFee);\n\n        // Update solver stats\n        _incrementSolverSettlements(solver);\n\n        // Clean up data\n        delete bidHashToSessionKey[bidHash];\n        delete invoices[_sessionKey];\n        delete invoiceTokenData[_sessionKey];\n        _removeSolverInvoice(solver, _sessionKey);\n\n        emit InvoiceSettled(_sessionKey, bidHash, solver);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            153,
+            153
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:05:13.150545",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of the solver's activity being checked at settlement time, which is reflected in the code where `_isSolverActive(solver)` is called.",
+      "content_reasoning": "The content mentions the `settleInvoice()` function and the relevant variables and checks that are present in the extracted code.",
+      "functions_found": [
+        "settleInvoice",
+        "_isSolverActive"
+      ],
+      "variables_found": [
+        "invoice",
+        "solver",
+        "tokens"
+      ],
+      "patterns_found": [
+        "activity check at settlement",
+        "revert on inactive solver"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 85,
+      "reasoning": "The report lacks a tag that reflects the nature of the vulnerability, which is related to business logic and potential denial of service due to frozen funds.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "denial_of_service"
+      ],
+      "correction_explanation": "A tag related to business logic is appropriate as the issue arises from the design of the invoice settlement process."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability can lead to a denial of service as it prevents the settlement of invoices, effectively freezing funds."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G8"
+      ],
+      "confidence": 85,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more granular classification, particularly highlighting the business logic flaw that leads to potential denial of service.",
+      "vulnerability_type": "Business logic flaw causing frozen funds"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves checking for pending invoices before allowing a solver to be offboarded, ensuring that existing invoices can still be settled even if the solver is inactive.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "settleInvoice",
+          "fixed_function_code": "function settleInvoice(address _sessionKey) external onlySettlerOrLinkedWallet(_sessionKey) nonReentrant {\n        Invoice storage invoice = invoices[_sessionKey];\n        if (invoice.createdAt == 0) revert IM_InvoiceNotFound();\n\n        bytes32 bidHash = invoice.data.bidHash;\n        address solver = invoice.data.solver;\n        // Check if the solver is inactive but allow settlement if there are pending invoices\n        if (!_isSolverActive(solver) && !hasPendingInvoices(solver)) revert SM_SolverInactive();\n\n        InvoiceTokenData[] storage tokens = invoiceTokenData[_sessionKey];\n        uint256 tokensLength = tokens.length;\n        uint256 invoicePulseFee = invoice.pulseFee;\n\n        for (uint256 i; i < tokensLength; ++i) {\n            if (tokens[i].creditedAmount != tokens[i].amount) {\n                revert IM_InvoiceNotFullyCredited(\n                    _sessionKey, tokens[i].token, tokens[i].amount, tokens[i].creditedAmount\n                );\n            }\n        }\n\n        // Process token transfers in a separate internal function to reduce stack depth\n        _processTokenTransfers(_sessionKey, solver, tokens, tokensLength, invoicePulseFee);\n\n        // Update solver stats\n        _incrementSolverSettlements(solver);\n\n        // Clean up data\n        delete bidHashToSessionKey[bidHash];\n        delete invoices[_sessionKey];\n        delete invoiceTokenData[_sessionKey];\n        _removeSolverInvoice(solver, _sessionKey);\n\n        emit InvoiceSettled(_sessionKey, bidHash, solver);\n    }",
+          "reasoning": "This function now checks if the solver is inactive but allows settlement if there are pending invoices, preventing funds from being frozen."
+        }
+      ],
+      "key_changes": [
+        "Added a check for pending invoices before allowing settlement if the solver is inactive."
+      ],
+      "security_improvements": [
+        "Ensured that funds can still be settled even if the solver is inactive, preventing freezing of funds.",
+        "Improved the logic to handle solver offboarding more gracefully."
+      ],
+      "additional_recommendations": "Implement a function to check for pending invoices associated with a solver to enhance the offboarding process.",
+      "confidence": 90,
+      "fix_code": "function settleInvoice(address _sessionKey) external onlySettlerOrLinkedWallet(_sessionKey) nonReentrant {\n        Invoice storage invoice = invoices[_sessionKey];\n        if (invoice.createdAt == 0) revert IM_InvoiceNotFound();\n\n        bytes32 bidHash = invoice.data.bidHash;\n        address solver = invoice.data.solver;\n        // Check if the solver is inactive but allow settlement if there are pending invoices\n        if (!_isSolverActive(solver) && !hasPendingInvoices(solver)) revert SM_SolverInactive();\n\n        InvoiceTokenData[] storage tokens = invoiceTokenData[_sessionKey];\n        uint256 tokensLength = tokens.length;\n        uint256 invoicePulseFee = invoice.pulseFee;\n\n        for (uint256 i; i < tokensLength; ++i) {\n            if (tokens[i].creditedAmount != tokens[i].amount) {\n                revert IM_InvoiceNotFullyCredited(\n                    _sessionKey, tokens[i].token, tokens[i].amount, tokens[i].creditedAmount\n                );\n            }\n        }\n\n        // Process token transfers in a separate internal function to reduce stack depth\n        _processTokenTransfers(_sessionKey, solver, tokens, tokensLength, invoicePulseFee);\n\n        // Update solver stats\n        _incrementSolverSettlements(solver);\n\n        // Clean up data\n        delete bidHashToSessionKey[bidHash];\n        delete invoices[_sessionKey];\n        delete invoiceTokenData[_sessionKey];\n        _removeSolverInvoice(solver, _sessionKey);\n\n        emit InvoiceSettled(_sessionKey, bidHash, solver);\n    }",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-04-25T03:28:55.134339"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-25T03:28:55.134361",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

@@ -1,0 +1,184 @@
+{
+  "id": "64142",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-11-megapot/blob/f0a7297d59c376e38b287b2c56740617dbbfbdc7/contracts/JackpotLPManager.sol# L378",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      378,
+      378
+    ],
+    [
+      391,
+      391
+    ],
+    [
+      1469,
+      1476
+    ],
+    [
+      142,
+      142
+    ],
+    [
+      371,
+      392
+    ]
+  ],
+  "filename": "64142_JackpotLPManager.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 539,
+  "vulnerability_title": "[H-03] LP pool cap may be exceeded on drawing settlement",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Enforce the same cap to `newLPValue` calculation.\n\nExpand for detailed Proof of Concept",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "I acknowledge that POC should be put in `C4PoC.spec.ts`.\n\nHowever, I prepared POC in foundry due to the following reasons:\n\n* When I tried to demonstrate invariant break with `C4PoC.spec.ts`, the test reverts without providing any helpful message, in spite of my best effort\n* At the time of submission, my signal is 75, so I don\u2019t have to follow mandatory POC rule, so I decided to do what\u2019s best for protocol team and me\n\nFirst, follow the guide in this [secret gist](https://gist.github.com/g-lightspeed/d0f0ac49c6125cbde69ee3c6f4069105)\n\nThen, put the following into `test/POC.t.sol`:\n```\n\npragma solidity ^0.8.28;\n\nimport \"forge-std/Test.sol\";\nimport {IJackpot} from \"contracts/interfaces/IJackpot.sol\";\nimport {IJackpotLPManager} from \"contracts/interfaces/IJackpotLPManager.sol\";\nimport {Jackpot} from \"contracts/Jackpot.sol\";\nimport {JackpotTicketNFT} from \"contracts/JackpotTicketNFT.sol\";\nimport {JackpotLPManager} from \"contracts/JackpotLPManager.sol\";\nimport {JackpotBridgeManager} from \"contracts/JackpotBridgeManager.sol\";\nimport {GuaranteedMinimumPayoutCalculator} from \"contracts/GuaranteedMinimumPayoutCalculator.sol\";\nimport {ScaledEntropyProvider} from \"contracts/ScaledEntropyProvider.sol\";\nimport {USDCMock} from \"contracts/mocks/USDCMock.sol\";\nimport {ScaledEntropyProviderMock} from \"contracts/mocks/ScaledEntropyProviderMock.sol\";\nimport {BaseTest} from \"test/BaseTest.t.sol\";\n\ncontract POC is BaseTest {\n    address buyer = makeAddr(\"buyer\");\n\n    function setUp() public override {\n        super.setUp();\n        // normalBallMax is overridden to 15, but the vulnerability is not limited to small ball numbers\n        // POC uses smaller normal ball number to reduce the iteration\n        deploymentParams.normalBallMax = 15;\n        // Safe limit: C(15, 3) * (255 - 15) * 0.7 / 0.8 = 630630\n        // Governance Cap: 630000\n        deploymentParams.governancePoolCap = 630000e6;\n        _deployJackpot();\n\n        vm.startPrank(admin);\n        jackpot.initializeLPDeposits(deploymentParams.governancePoolCap);\n        uint256 lpPoolCap = _calculateLpPoolCap();\n        // LP pool equals to the cap\n        deal(address(USDC), address(admin), lpPoolCap);\n        USDC.approve(address(jackpot), lpPoolCap);\n        jackpot.lpDeposit(lpPoolCap);\n        jackpot.initializeJackpot(DRAWING_DURATION_IN_SECONDS);\n        vm.stopPrank();\n\n        {\n            // buyer purchases 10000 tickets\n            vm.startPrank(buyer);\n            vm.pauseGasMetering();\n            uint8[] memory normals = new uint8[](NORMAL_BALL_COUNT);\n            for (uint256 i; i < NORMAL_BALL_COUNT; i++) {\n                normals[i] = uint8(i + 1); // normals: 1,2,3,4,5\n            }\n            uint8 bonus = uint8(NORMAL_BALL_COUNT + 1); // bonus: 6\n            for (uint256 i; i < 100; i++) {\n                _buyTickets(buyer, normals, bonus, 100);\n            }\n            vm.resumeGasMetering();\n            vm.stopPrank();\n        }\n    }\n\n    function testSubmissionValidity() external {\n        skip(DRAWING_DURATION_IN_SECONDS);\n        _runJackpot();\n        uint8[NORMAL_BALL_COUNT] memory normalWinnings = [6, 7, 8, 9, 10];\n        uint8 bonusWinning = 11;\n        // there is no winner, all ticket sale goes to LP profit\n        _declareWinningNumbers(normalWinnings, bonusWinning);\n\n        Jackpot.DrawingState memory drawingState = jackpot.getDrawingState(2);\n        // Invariant broken: lpPoolTotal > governancePoolCap\n        IJackpotLPManager.LPDrawingState memory lpDrawingState = jackpotLPManager.getLPDrawingState(2);\n        assertGt(lpDrawingState.lpPoolTotal, deploymentParams.governancePoolCap);\n        assertGt(lpDrawingState.lpPoolTotal, jackpotLPManager.lpPoolCap());\n        // Invariant broken: bonusballMax > 255 - normalBallMax\n        assertGt(drawingState.bonusballMax, MAX_BIT_VECTOR_SIZE - deploymentParams.normalBallMax);\n        {\n            uint8[] memory normals = new uint8[](NORMAL_BALL_COUNT);\n            for (uint256 i; i < NORMAL_BALL_COUNT; i++) {\n                normals[i] = uint8(i + 1); // normals: 1,2,3,4,5\n            }\n            uint8 bonus = drawingState.bonusballMax; // bonus: 244\n            uint256 usdcAmount = deploymentParams.ticketPrice;\n            deal(address(USDC), buyer, usdcAmount);\n            vm.startPrank(buyer);\n            USDC.approve(address(jackpot), usdcAmount);\n            IJackpot.Ticket[] memory tickets = new IJackpot.Ticket[](1);\n            tickets[0] = IJackpot.Ticket({normals: normals, bonusball: bonus});\n            address[] memory referrers = new address[](0);\n            uint256[] memory referralSplit = new uint256[](0);\n            // max bonus ball purchase reverts due to overflow\n            vm.expectRevert(abi.encodeWithSignature(\"Panic(uint256)\", 0x11));\n            jackpot.buyTickets(tickets, buyer, referrers, referralSplit, \"test\");\n            vm.stopPrank();\n        }\n    }\n}\n```\n\nThen run `forge test --mt testSubmissionValidity --via-ir` to run the POC.\n\n---",
+    "poc_code_blocks": [
+      "pragma solidity ^0.8.28;\n\nimport \"forge-std/Test.sol\";\nimport {IJackpot} from \"contracts/interfaces/IJackpot.sol\";\nimport {IJackpotLPManager} from \"contracts/interfaces/IJackpotLPManager.sol\";\nimport {Jackpot} from \"contracts/Jackpot.sol\";\nimport {JackpotTicketNFT} from \"contracts/JackpotTicketNFT.sol\";\nimport {JackpotLPManager} from \"contracts/JackpotLPManager.sol\";\nimport {JackpotBridgeManager} from \"contracts/JackpotBridgeManager.sol\";\nimport {GuaranteedMinimumPayoutCalculator} from \"contracts/GuaranteedMinimumPayoutCalculator.sol\";\nimport {ScaledEntropyProvider} from \"contracts/ScaledEntropyProvider.sol\";\nimport {USDCMock} from \"contracts/mocks/USDCMock.sol\";\nimport {ScaledEntropyProviderMock} from \"contracts/mocks/ScaledEntropyProviderMock.sol\";\nimport {BaseTest} from \"test/BaseTest.t.sol\";\n\ncontract POC is BaseTest {\n    address buyer = makeAddr(\"buyer\");\n\n    function setUp() public override {\n        super.setUp();\n        // normalBallMax is overridden to 15, but the vulnerability is not limited to small ball numbers\n        // POC uses smaller normal ball number to reduce the iteration\n        deploymentParams.normalBallMax = 15;\n        // Safe limit: C(15, 3) * (255 - 15) * 0.7 / 0.8 = 630630\n        // Governance Cap: 630000\n        deploymentParams.governancePoolCap = 630000e6;\n        _deployJackpot();\n\n        vm.startPrank(admin);\n        jackpot.initializeLPDeposits(deploymentParams.governancePoolCap);\n        uint256 lpPoolCap = _calculateLpPoolCap();\n        // LP pool equals to the cap\n        deal(address(USDC), address(admin), lpPoolCap);\n        USDC.approve(address(jackpot), lpPoolCap);\n        jackpot.lpDeposit(lpPoolCap);\n        jackpot.initializeJackpot(DRAWING_DURATION_IN_SECONDS);\n        vm.stopPrank();\n\n        {\n            // buyer purchases 10000 tickets\n            vm.startPrank(buyer);\n            vm.pauseGasMetering();\n            uint8[] memory normals = new uint8[](NORMAL_BALL_COUNT);\n            for (uint256 i; i < NORMAL_BALL_COUNT; i++) {\n                normals[i] = uint8(i + 1); // normals: 1,2,3,4,5\n            }\n            uint8 bonus = uint8(NORMAL_BALL_COUNT + 1); // bonus: 6\n            for (uint256 i; i < 100; i++) {\n                _buyTickets(buyer, normals, bonus, 100);\n            }\n            vm.resumeGasMetering();\n            vm.stopPrank();\n        }\n    }\n\n    function testSubmissionValidity() external {\n        skip(DRAWING_DURATION_IN_SECONDS);\n        _runJackpot();\n        uint8[NORMAL_BALL_COUNT] memory normalWinnings = [6, 7, 8, 9, 10];\n        uint8 bonusWinning = 11;\n        // there is no winner, all ticket sale goes to LP profit\n        _declareWinningNumbers(normalWinnings, bonusWinning);\n\n        Jackpot.DrawingState memory drawingState = jackpot.getDrawingState(2);\n        // Invariant broken: lpPoolTotal > governancePoolCap\n        IJackpotLPManager.LPDrawingState memory lpDrawingState = jackpotLPManager.getLPDrawingState(2);\n        assertGt(lpDrawingState.lpPoolTotal, deploymentParams.governancePoolCap);\n        assertGt(lpDrawingState.lpPoolTotal, jackpotLPManager.lpPoolCap());\n        // Invariant broken: bonusballMax > 255 - normalBallMax\n        assertGt(drawingState.bonusballMax, MAX_BIT_VECTOR_SIZE - deploymentParams.normalBallMax);\n        {\n            uint8[] memory normals = new uint8[](NORMAL_BALL_COUNT);\n            for (uint256 i; i < NORMAL_BALL_COUNT; i++) {\n                normals[i] = uint8(i + 1); // normals: 1,2,3,4,5\n            }\n            uint8 bonus = drawingState.bonusballMax; // bonus: 244\n            uint256 usdcAmount = deploymentParams.ticketPrice;\n            deal(address(USDC), buyer, usdcAmount);\n            vm.startPrank(buyer);\n            USDC.approve(address(jackpot), usdcAmount);\n            IJackpot.Ticket[] memory tickets = new IJackpot.Ticket[](1);\n            tickets[0] = IJackpot.Ticket({normals: normals, bonusball: bonus});\n            address[] memory referrers = new address[](0);\n            uint256[] memory referralSplit = new uint256[](0);\n            // max bonus ball purchase reverts due to overflow\n            vm.expectRevert(abi.encodeWithSignature(\"Panic(uint256)\", 0x11));\n            jackpot.buyTickets(tickets, buyer, referrers, referralSplit, \"test\");\n            vm.stopPrank();\n        }\n    }\n}"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "processDrawingSettlement",
+        "start_line": 371,
+        "end_line": 392,
+        "code": "    function processDrawingSettlement(\n        uint256 _drawingId,\n        uint256 _lpEarnings,\n        uint256 _userWinnings,\n        uint256 _protocolFeeAmount\n    ) external onlyJackpot() returns (uint256 newLPValue, uint256 newAccumulator) {\n        LPDrawingState storage currentLP = lpDrawingState[_drawingId];\n        uint256 postDrawLpValue = currentLP.lpPoolTotal + _lpEarnings - _userWinnings - _protocolFeeAmount;\n\n        // Note: we don't need to update the accumulator for the first drawing (0) since it's already set to PRECISE_UNIT\n        if (_drawingId > 0) {\n            // When setting for drawingId we need to use the accumulator from the previous drawing. If LP was 0 in previous\n            // drawing then we need to set the accumulator to PRECISE_UNIT to avoid division by zero.\n            newAccumulator = currentLP.lpPoolTotal == 0 ? PRECISE_UNIT :\n                (drawingAccumulator[_drawingId - 1] * postDrawLpValue) / currentLP.lpPoolTotal;\n            drawingAccumulator[_drawingId] = newAccumulator;\n        }\n        \n        // Convert pending withdrawals to usdc to calculate the new lp value\n        uint256 withdrawalsInUSDC = currentLP.pendingWithdrawals * newAccumulator / PRECISE_UNIT;\n        newLPValue = postDrawLpValue + currentLP.pendingDeposits - withdrawalsInUSDC;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            378,
+            378
+          ],
+          [
+            391,
+            391
+          ],
+          [
+            371,
+            392
+          ]
+        ]
+      },
+      {
+        "code": "",
+        "start_line": 1469,
+        "end_line": 1469,
+        "context_start_line": 1454,
+        "context_end_line": 539,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "     * - Jackpot address must not be zero address\n     * @custom:effects\n     * - Sets jackpot contract reference\n     * - Sets deployer as owner\n     * @custom:security\n     * - Zero address validation for jackpot contract\n     */\n    constructor(IJackpot _jackpot) Ownable(msg.sender) {\n        if (_jackpot == IJackpot(address(0))) revert ZeroAddress();\n        jackpot = _jackpot;\n    }\n\n    // =============================================================\n    //                          EXTERNAL FUNCTIONS\n    // =============================================================\n\n    /**\n     * @notice Initializes the LP system with the first accumulator value\n     * @dev Sets up the initial accumulator value for share calculations. Called during Jackpot initialization.\n     * @custom:requirements\n     * - Only Jackpot contract can call\n     * - Must not already be initialized\n     * @custom:effects\n     * - Sets drawingAccumulator[0] to PRECISE_UNIT\n     * - Enables LP deposit functionality\n     * @custom:security\n     * - Single initialization enforcement\n     * - Access restricted to Jackpot contract\n     */\n    function initializeLP() external onlyJackpot() {\n        drawingAccumulator[0] = PRECISE_UNIT;",
+        "start_line": 142,
+        "end_line": 142,
+        "context_start_line": 127,
+        "context_end_line": 157,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T17:55:29.659640",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability related to exceeding the LP pool cap during the drawing settlement process.",
+      "content_reasoning": "The content mentions specific functions and variables that are present in the extracted code, confirming the vulnerability.",
+      "functions_found": [
+        "processDrawingSettlement",
+        "_calculateLpPoolCap"
+      ],
+      "variables_found": [
+        "lpPoolTotal",
+        "pendingDeposits",
+        "governancePoolCap"
+      ],
+      "patterns_found": [
+        "pool cap enforcement",
+        "arithmetic overflow potential"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 90,
+      "reasoning": "The report lacks a tag that reflects the nature of the vulnerability, which is critical for categorization.",
+      "suggested_tag": "pool_cap_exceeded",
+      "alternative_tags": [
+        "arithmetic_overflow",
+        "denial_of_service"
+      ],
+      "correction_explanation": "A tag indicating the specific nature of the vulnerability (e.g., pool cap exceeded) would help in identifying and addressing similar issues in the future."
+    },
+    "mando_classification": {
+      "primary_category": "arithmetic",
+      "secondary_categories": [
+        "denial_of_service"
+      ],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability involves arithmetic operations that can lead to exceeding the pool cap, which is a mathematical issue, and it can also result in a denial of service due to unfair betting."
+    },
+    "scsvs_classification": {
+      "primary_category": "G7",
+      "primary_category_name": "Arithmetic",
+      "secondary_categories": [
+        "G4",
+        "C8"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "SCSVS provides a more granular classification that captures the arithmetic nature of the vulnerability and its implications on business logic and liquidity pools.",
+      "vulnerability_type": "Arithmetic overflow leading to pool cap violation and potential denial of service."
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix enforces the LP pool cap during the calculation of the new LP value to prevent exceeding the pool cap.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "processDrawingSettlement",
+          "fixed_function_code": "function processDrawingSettlement(\n        uint256 _drawingId,\n        uint256 _lpEarnings,\n        uint256 _userWinnings,\n        uint256 _protocolFeeAmount\n    ) external onlyJackpot() returns (uint256 newLPValue, uint256 newAccumulator) {\n        LPDrawingState storage currentLP = lpDrawingState[_drawingId];\n        uint256 postDrawLpValue = currentLP.lpPoolTotal + _lpEarnings - _userWinnings - _protocolFeeAmount;\n\n        // Enforce the LP pool cap\n        require(postDrawLpValue <= currentLP.lpPoolCap, \"LP pool cap exceeded\");\n\n        // Note: we don't need to update the accumulator for the first drawing (0) since it's already set to PRECISE_UNIT\n        if (_drawingId > 0) {\n            newAccumulator = currentLP.lpPoolTotal == 0 ? PRECISE_UNIT :\n                (drawingAccumulator[_drawingId - 1] * postDrawLpValue) / currentLP.lpPoolTotal;\n            drawingAccumulator[_drawingId] = newAccumulator;\n        }\n        \n        // Convert pending withdrawals to usdc to calculate the new lp value\n        uint256 withdrawalsInUSDC = currentLP.pendingWithdrawals * newAccumulator / PRECISE_UNIT;\n        newLPValue = postDrawLpValue + currentLP.pendingDeposits - withdrawalsInUSDC;\n    }",
+          "reasoning": "This function now includes a require statement to ensure that the calculated post-draw LP value does not exceed the defined LP pool cap, thus preventing the vulnerability of exceeding the pool cap."
+        }
+      ],
+      "key_changes": [
+        "Added require statement to enforce LP pool cap during new LP value calculation."
+      ],
+      "security_improvements": [
+        "Prevention of arithmetic overflow by enforcing limits on LP pool values.",
+        "Improved validation checks to ensure contract integrity."
+      ],
+      "additional_recommendations": "Consider implementing additional checks for user inputs and state changes to further enhance security.",
+      "confidence": 95,
+      "fix_code": "function processDrawingSettlement(\n        uint256 _drawingId,\n        uint256 _lpEarnings,\n        uint256 _userWinnings,\n        uint256 _protocolFeeAmount\n    ) external onlyJackpot() returns (uint256 newLPValue, uint256 newAccumulator) {\n        LPDrawingState storage currentLP = lpDrawingState[_drawingId];\n        uint256 postDrawLpValue = currentLP.lpPoolTotal + _lpEarnings - _userWinnings - _protocolFeeAmount;\n\n        // Enforce the LP pool cap\n        require(postDrawLpValue <= currentLP.lpPoolCap, \"LP pool cap exceeded\");\n\n        // Note: we don't need to update the accumulator for the first drawing (0) since it's already set to PRECISE_UNIT\n        if (_drawingId > 0) {\n            newAccumulator = currentLP.lpPoolTotal == 0 ? PRECISE_UNIT :\n                (drawingAccumulator[_drawingId - 1] * postDrawLpValue) / currentLP.lpPoolTotal;\n            drawingAccumulator[_drawingId] = newAccumulator;\n        }\n        \n        // Convert pending withdrawals to usdc to calculate the new lp value\n        uint256 withdrawalsInUSDC = currentLP.pendingWithdrawals * newAccumulator / PRECISE_UNIT;\n        newLPValue = postDrawLpValue + currentLP.pendingDeposits - withdrawalsInUSDC;\n    }",
+      "expected_fixed_blocks": 2,
+      "returned_fixed_blocks": 1,
+      "block_count_match": false,
+      "generated_by": "openai",
+      "generation_date": "2026-04-16T17:59:14.637718"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-16T17:59:14.637739",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

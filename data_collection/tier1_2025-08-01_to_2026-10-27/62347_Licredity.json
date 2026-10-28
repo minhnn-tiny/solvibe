@@ -1,0 +1,127 @@
+{
+  "id": "62347",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/Licredity/licredity-v1-core/blob/e8ae10a7d9f27529e39ca277bf56cef01a807817/src/Licredity.sol#L550-L558",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      550,
+      558
+    ],
+    [
+      93,
+      95
+    ]
+  ],
+  "filename": "62347_Licredity.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 915,
+  "vulnerability_title": "Proxy-Based self-liquidation creates bad debt for lenders",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "seize",
+        "start_line": 539,
+        "end_line": 635,
+        "code": "    function seize(uint256 positionId, address recipient) external returns (uint256 shortfall) {\n        Position storage position = positions[positionId];\n\n        // require(position.owner != address(0), PositionDoesNotExist());\n        if (position.owner == address(0)) {\n            assembly (\"memory-safe\") {\n                mstore(0x00, 0xf7b3b391) // 'PositionDoesNotExist()'\n                revert(0x1c, 0x04)\n            }\n        }\n\n        // prevents owner from purposely causing a position to be underwater then profit from seizing it\n        // side effect is that positions cannot be seized by owner contract, such as non-fungible position manager, which is acceptable\n        // require(position.owner != msg.sender, CannotSeizeOwnPosition());\n        if (position.owner == msg.sender) {\n            assembly (\"memory-safe\") {\n                mstore(0x00, 0x7c474390) // 'CannotSeizeOwnPosition()'\n                revert(0x1c, 0x04)\n            }\n        }\n\n        // ensure position health post seizure\n        Locker.register(bytes32(positionId));\n\n        (uint256 value, uint256 marginRequirement, uint256 debt, bool isHealthy) = _appraisePosition(position);\n\n        // require(!isHealthy, PositionIsHealthy());\n        assembly (\"memory-safe\") {\n            if iszero(iszero(isHealthy)) {\n                mstore(0x00, 0x4051037a) // 'PositionIsHealthy()'\n                revert(0x1c, 0x04)\n            }\n        }\n\n        uint256 topup;\n        // if the position is underwater, top it up to encourage seizure\n        // this represents a bad debt to the protocol, and is socialized among all debt holders\n        if (value < debt) {\n            topup = _deficitToTopup(debt - value);\n\n            _mint(address(this), topup);\n            position.addFungible(Fungible.wrap(address(this)), topup);\n\n            // update total debt balance, and position's value and debt\n            uint256 newTotalDebtBalance;\n            assembly (\"memory-safe\") {\n                // newTotalDebtBalance = totalDebtBalance + topup;\n                newTotalDebtBalance := add(sload(totalDebtBalance.slot), topup)\n\n                // totalDebtBalance = newTotalDebtBalance;\n                sstore(totalDebtBalance.slot, newTotalDebtBalance)\n\n                // value = value + topup;\n                value := add(value, topup)\n            }\n            debt = position.debtShare.fullMulDivUp(newTotalDebtBalance, totalDebtShare);\n\n            // emit DepositFungible(positionId, Fungible.wrap(address(this)), topup);\n            assembly (\"memory-safe\") {\n                mstore(0x00, topup)\n                log3(\n                    0x00,\n                    0x20,\n                    0x035870714bdad9af06468d642c6278777f9a7342ca6c1855dd76f1795f2e495c,\n                    positionId,\n                    address()\n                )\n            }\n        }\n\n        // transfer ownership to recipient\n        position.setOwner(recipient);\n        // calculate shortfall, the amount needed to bring the position back to health\n        shortfall = value < debt + marginRequirement ? debt + marginRequirement - value : 0;\n\n        // emit SeizePosition(positionId, recipient, value, debt, marginRequirement, topup);\n        assembly (\"memory-safe\") {\n            let fmp := mload(0x40)\n            mstore(fmp, value)\n            mstore(add(fmp, 0x20), debt)\n            mstore(add(fmp, 0x40), marginRequirement)\n            mstore(add(fmp, 0x60), topup)\n\n            log3(\n                fmp,\n                0x80,\n                0xe4ead9e85a25cb8008cef34c4d0baa3da1bf7bdd99b1c8f40f9d2423969606a4,\n                positionId,\n                and(recipient, 0xffffffffffffffffffffffffffffffffffffffff)\n            )\n\n            mstore(fmp, 0)\n            mstore(add(fmp, 0x20), 0)\n            mstore(add(fmp, 0x40), 0)\n            mstore(add(fmp, 0x60), 0)\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            550,
+            558
+          ]
+        ]
+      },
+      {
+        "function_name": "unlock",
+        "start_line": 86,
+        "end_line": 110,
+        "code": "    function unlock(bytes calldata data) external returns (bytes memory result) {\n        Locker.unlock();\n\n        // accrue interest and update total debt balance\n        _collectInterest(false);\n\n        // callback to message sender, which must implement IUnlockCallback\n        result = IUnlockCallback(msg.sender).unlockCallback(data);\n\n        // ensure that every registered position is healthy\n        bytes32[] memory items = Locker.registeredItems();\n        for (uint256 i = 0; i < items.length; ++i) {\n            (,,, bool isHealthy) = _appraisePosition(positions[uint256(items[i])]);\n\n            // require(isHealthy, PositionIsUnhealthy());\n            assembly (\"memory-safe\") {\n                if iszero(isHealthy) {\n                    mstore(0x00, 0x5fba8098) // 'PositionIsUnhealthy()'\n                    revert(0x1c, 0x04)\n                }\n            }\n        }\n\n        Locker.lock();\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            93,
+            95
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:03:04.735688",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the vulnerability of self-liquidation through a proxy contract, which is evident in the provided code snippets.",
+      "content_reasoning": "The content mentions the `seize` function and the checks that are bypassed, which are present in the extracted code.",
+      "functions_found": [
+        "seize",
+        "unlock"
+      ],
+      "variables_found": [
+        "position",
+        "recipient",
+        "positionId"
+      ],
+      "patterns_found": [
+        "bypass of access control",
+        "self-liquidation exploit"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 85,
+      "reasoning": "There is no existing tag, and the vulnerability is significant enough to warrant a specific tag related to access control issues.",
+      "suggested_tag": "Access Control Vulnerability",
+      "alternative_tags": [
+        "Liquidation Exploit"
+      ],
+      "correction_explanation": "A tag is necessary to categorize the vulnerability related to access control and exploitation of liquidation mechanics."
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "secondary_categories": [],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability primarily revolves around access control issues where the owner can exploit the system through a proxy."
+    },
+    "scsvs_classification": {
+      "primary_category": "G5",
+      "primary_category_name": "Access control",
+      "secondary_categories": [
+        "G4"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "SCSVS provides a more granular classification, and G5 accurately captures the access control issues while G4 addresses the business logic flaws in the liquidation process.",
+      "vulnerability_type": "Access control bypass leading to self-liquidation exploit"
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-04-25T16:21:40.534501",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

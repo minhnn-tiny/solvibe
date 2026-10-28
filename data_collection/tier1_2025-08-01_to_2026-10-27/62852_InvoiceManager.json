@@ -1,0 +1,137 @@
+{
+  "id": "62852",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/etherspot/etherspot-modular-accounts/blob/9019f2a78c36e74bdb1df4029672998cb4631162/src/invoice_manager/InvoiceManager.sol#L605",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      605,
+      605
+    ]
+  ],
+  "filename": "62852_InvoiceManager.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 619,
+  "vulnerability_title": "[M-02] Solver Can Receive Zero Settlement When Fee Exceeds Token Amount",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Introduce a minimum amount validation at invoice creation to guarantee that `amount > expected fee`, ensuring solvers are never left unpaid.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "1. Create an invoice with `amount = 1` token unit.\n2. If `_calculateFeeForToken()` returns `5` units as the minimum fee, the contract enforces `pulseFee = 1`.\n3. Result: Solver receives `0`, fee receiver receives `1`.",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_processTokenTransfers",
+        "start_line": 588,
+        "end_line": 618,
+        "code": "    function _processTokenTransfers(\n        address _sessionKey,\n        address solver,\n        InvoiceTokenData[] storage tokens,\n        uint256 tokensLength,\n        uint256 invoicePulseFee\n    ) internal {\n        for (uint256 i; i < tokensLength; ++i) {\n            address token = tokens[i].token;\n            uint256 amount = tokens[i].amount;\n            uint256 contractBalance = IERC20(token).balanceOf(address(this));\n\n            if (contractBalance < amount) {\n                revert IM_InsufficientContractBalance(token, amount, contractBalance);\n            }\n\n            uint256 pulseFee = _calculateFeeForToken(token, invoicePulseFee);\n            if (pulseFee > amount) {\n                pulseFee = amount;\n            }\n            uint256 solverAmount = amount - pulseFee;\n\n            // Transfer tokens\n            if (pulseFee > 0) {\n                IERC20(token).safeTransfer(feeReceiver, pulseFee);\n            }\n            IERC20(token).safeTransfer(solver, solverAmount);\n\n            emit TokenPaid(_sessionKey, solver, token, amount, pulseFee, solverAmount);\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            605,
+            605
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:05:12.090416",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of the solver receiving zero payment due to the fee exceeding the token amount, which is reflected in the code.",
+      "content_reasoning": "The content mentions the relevant functions and variables, and the described vulnerable patterns are present in the code snippet.",
+      "functions_found": [
+        "_processTokenTransfers",
+        "_calculateFeeForToken"
+      ],
+      "variables_found": [
+        "pulseFee",
+        "amount",
+        "solverAmount"
+      ],
+      "patterns_found": [
+        "fee exceeding amount leading to zero payment"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to indicate the nature of the vulnerability.",
+      "suggested_tag": "payment_logic",
+      "alternative_tags": [
+        "fee_calculation",
+        "settlement_issue"
+      ],
+      "correction_explanation": "A tag related to payment logic or fee calculation would accurately reflect the issue described in the report."
+    },
+    "mando_classification": {
+      "primary_category": "arithmetic",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The issue relates to arithmetic operations where the fee calculation leads to unintended consequences, fitting the arithmetic category."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G7",
+        "C1"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is primarily a business logic issue where the fee calculation does not account for the token amount, and it also relates to token handling.",
+      "vulnerability_type": "Business logic flaw in payment settlement"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Added a check to ensure that the token amount is always greater than the expected fee before processing the transfer.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "_processTokenTransfers",
+          "fixed_function_code": "function _processTokenTransfers(\n        address _sessionKey,\n        address solver,\n        InvoiceTokenData[] storage tokens,\n        uint256 tokensLength,\n        uint256 invoicePulseFee\n    ) internal {\n        for (uint256 i; i < tokensLength; ++i) {\n            address token = tokens[i].token;\n            uint256 amount = tokens[i].amount;\n            uint256 contractBalance = IERC20(token).balanceOf(address(this));\n\n            if (contractBalance < amount) {\n                revert IM_InsufficientContractBalance(token, amount, contractBalance);\n            }\n\n            uint256 pulseFee = _calculateFeeForToken(token, invoicePulseFee);\n            // Ensure the amount is greater than the fee to prevent zero payment\n            require(amount > pulseFee, \"Token amount must be greater than the fee\");\n            uint256 solverAmount = amount - pulseFee;\n\n            // Transfer tokens\n            if (pulseFee > 0) {\n                IERC20(token).safeTransfer(feeReceiver, pulseFee);\n            }\n            IERC20(token).safeTransfer(solver, solverAmount);\n\n            emit TokenPaid(_sessionKey, solver, token, amount, pulseFee, solverAmount);\n        }\n    }",
+          "reasoning": "This function now includes a require statement that checks if the token amount is greater than the calculated fee before proceeding with the transfer. This prevents the scenario where the solver receives zero payment."
+        }
+      ],
+      "key_changes": [
+        "Added a require statement to ensure amount > pulseFee"
+      ],
+      "security_improvements": [
+        "Prevents zero payment to the solver by ensuring sufficient token amount",
+        "Improves overall payment logic by enforcing business rules"
+      ],
+      "additional_recommendations": "Consider implementing additional checks during invoice creation to validate the minimum token amount against expected fees.",
+      "confidence": 95,
+      "fix_code": "function _processTokenTransfers(\n        address _sessionKey,\n        address solver,\n        InvoiceTokenData[] storage tokens,\n        uint256 tokensLength,\n        uint256 invoicePulseFee\n    ) internal {\n        for (uint256 i; i < tokensLength; ++i) {\n            address token = tokens[i].token;\n            uint256 amount = tokens[i].amount;\n            uint256 contractBalance = IERC20(token).balanceOf(address(this));\n\n            if (contractBalance < amount) {\n                revert IM_InsufficientContractBalance(token, amount, contractBalance);\n            }\n\n            uint256 pulseFee = _calculateFeeForToken(token, invoicePulseFee);\n            // Ensure the amount is greater than the fee to prevent zero payment\n            require(amount > pulseFee, \"Token amount must be greater than the fee\");\n            uint256 solverAmount = amount - pulseFee;\n\n            // Transfer tokens\n            if (pulseFee > 0) {\n                IERC20(token).safeTransfer(feeReceiver, pulseFee);\n            }\n            IERC20(token).safeTransfer(solver, solverAmount);\n\n            emit TokenPaid(_sessionKey, solver, token, amount, pulseFee, solverAmount);\n        }\n    }",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-04-24T21:15:13.164784"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-24T21:15:13.164804",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

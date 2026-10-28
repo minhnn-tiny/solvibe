@@ -1,0 +1,130 @@
+{
+  "id": "65031",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-12-panoptic/blob/4ef958cbe0a136fac56138f55a64706d1db037de/contracts/types/OraclePack.sol# L64-L65",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      64,
+      65
+    ]
+  ],
+  "filename": "65031_OraclePack.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 636,
+  "vulnerability_title": "[M-04] Incorrect `UPPER_118BITS_MASK` mask in `OraclePackLibrary` causes unexpected clearing of `EMAs` and `lockMode` in `OraclePack`",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Increase the length of the `UPPER_118BITS_MASK` to 138 bits, ensuring that the `EMAs` and `lockMode` fields are not inadvertently cleared.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "Please add the following test content to a new file under `test/foundry/core/` (e.g., `test/foundry/core/poc_rebaseOraclePack.t.sol`) and execute it:\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-12-panoptic-next-core/submissions/S-185)\n\nOutput:\n```\n\nRan 1 test for test/foundry/core/poc_rebaseOraclePack.t.sol:Poc\n[PASS] test_poc_rebaseOraclePack() (gas: 2713130)\nSuite result: ok. 1 passed; 0 failed; 0 skipped; finished in 34.70s (420.68ms CPU time)\n```\n\n**[Panoptic mitigated](https://github.com/code-423n4/2026-02-panoptic-next-core-mitigation-round2?tab=readme-ov-file# mitigation-of-high--medium-severity-issues):**\n\n> Correct `UPPER_138BITS_MASK` to preserve `lockMode` and EMAs.\n\n**Status:** Mitigation confirmed. Full details in reports from [Valves](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review-round-2/submissions/S-1), [edoscoba](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review-round-2/submissions/S-3), and [Nyx](https://code4rena.com/audits/2026-02-panoptic-next-core-mitigation-review-round-2/submissions/S-5).\n\n---",
+    "poc_code_blocks": [
+      "Ran 1 test for test/foundry/core/poc_rebaseOraclePack.t.sol:Poc\n[PASS] test_poc_rebaseOraclePack() (gas: 2713130)\nSuite result: ok. 1 passed; 0 failed; 0 skipped; finished in 34.70s (420.68ms CPU time)"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs",
+    "snippets": [
+      {
+        "code": "// tick index it points to from least to greatest.\n//\n// rank:  0   1   2   3   4   5   6   7\n// slot: [7] [5] [3] [1] [0] [2] [4] [6]\n//       111 101 011 001 000 010 100 110\n//\n//\n//\nlibrary OraclePackLibrary {\n    /*//////////////////////////////////////////////////////////////\n                                ENCODING\n    //////////////////////////////////////////////////////////////*/\n\n    uint256 internal constant BITMASK_UINT22 = 0x3FFFFF;\n    uint256 internal constant BITMASK_UINT88 = 0xFFFFFFFFFFFFFFFFFFFFFF;\n    uint256 internal constant UPPER_118BITS_MASK =\n        0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC0000000000000000000000000000000;\n\n    uint256 internal constant LOCK_MODE_MASK = ~(uint256(3) << 118);\n    uint256 internal constant LOCK_MODE_ON = uint256(3) << 118;\n    uint256 internal constant LOCK_MODE_OFF = 0;\n\n    /// @notice Create a new `OraclePack` given the relevant parameters.\n    /// @param _currentEpoch The current epoch timestamp\n    /// @param _newOrderMap The new order map for the observations\n    /// @param _updatedEMAs The updated EMA values\n    /// @param _referenceTick The reference tick\n    /// @param _currentResiduals The current residual ticks\n    /// @param _latestResidual The latest residual tick\n    /// @param _lockMode The lock mode state\n    /// @return The new OraclePack\n    function storeOraclePack(",
+        "start_line": 64,
+        "end_line": 65,
+        "context_start_line": 49,
+        "context_end_line": 80,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:46.310625",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue with the incorrect mask length affecting the `EMAs` and `lockMode` fields.",
+      "content_reasoning": "The code snippet includes the `UPPER_118BITS_MASK` and the `rebaseOraclePack` function, which are directly related to the described vulnerability.",
+      "functions_found": [
+        "rebaseOraclePack"
+      ],
+      "variables_found": [
+        "UPPER_118BITS_MASK"
+      ],
+      "patterns_found": [
+        "incorrect mask length"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, which is necessary for categorization.",
+      "suggested_tag": "data_integrity",
+      "alternative_tags": [
+        "incorrect_mask"
+      ],
+      "correction_explanation": "The issue affects data integrity due to incorrect bit masking, which is critical for the correct operation of the contract."
+    },
+    "mando_classification": {
+      "primary_category": null,
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": false,
+      "reasoning": "The issue does not fit well into any of the MANDO categories, as it is more about data integrity and incorrect bit manipulation rather than the broader categories provided by MANDO."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "C3"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is related to incorrect business logic due to improper bit masking, which affects the integrity of the data stored in the contract. It also involves oracle data manipulation, making it relevant to the Oracle component category.",
+      "vulnerability_type": "Incorrect bit masking leading to data integrity issues"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves adjusting the bitmask length to ensure that only the intended bits are cleared, preserving the integrity of the EMAs and lockMode fields.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "OraclePackLibrary",
+          "fixed_function_code": "library OraclePackLibrary {\n    /*//////////////////////////////////////////////////////////////\n                                ENCODING\n    //////////////////////////////////////////////////////////////*/\n\n    uint256 internal constant BITMASK_UINT22 = 0x3FFFFF;\n    uint256 internal constant BITMASK_UINT88 = 0xFFFFFFFFFFFFFFFFFFFFFF;\n    uint256 internal constant UPPER_138BITS_MASK =\n        0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC0000000000000000000000000;\n\n    uint256 internal constant LOCK_MODE_MASK = ~(uint256(3) << 118);\n    uint256 internal constant LOCK_MODE_ON = uint256(3) << 118;\n    uint256 internal constant LOCK_MODE_OFF = 0;\n\n    /// @notice Create a new `OraclePack` given the relevant parameters.\n    /// @param _currentEpoch The current epoch timestamp\n    /// @param _newOrderMap The new order map for the observations\n    /// @param _updatedEMAs The updated EMA values\n    /// @param _referenceTick The reference tick\n    /// @param _currentResiduals The current residual ticks\n    /// @param _latestResidual The latest residual tick\n    /// @param _lockMode The lock mode state\n    /// @return The new OraclePack\n    function storeOraclePack(\n        uint256 _currentEpoch,\n        uint256 _newOrderMap,\n        uint256 _updatedEMAs,\n        uint256 _referenceTick,\n        uint256 _currentResiduals,\n        uint256 _latestResidual,\n        uint256 _lockMode\n    ) external pure returns (bytes32) {\n        // Implementation of the function\n    }\n}",
+          "reasoning": "The adjustment of the UPPER_118BITS_MASK to UPPER_138BITS_MASK ensures that only the intended bits are cleared, preventing accidental clearing of the EMAs and lockMode fields. This preserves the integrity of the OraclePack data."
+        }
+      ],
+      "key_changes": [
+        "Changed UPPER_118BITS_MASK to UPPER_138BITS_MASK to correctly clear only the intended bits.",
+        "Ensured that the EMAs and lockMode fields are not affected by the bitmask."
+      ],
+      "security_improvements": [
+        "Prevents unintended data corruption by ensuring correct bitmask length.",
+        "Maintains data integrity for critical fields like EMAs and lockMode."
+      ],
+      "additional_recommendations": "Regularly review and test bitmask operations to ensure they align with the intended data structure and logic.",
+      "confidence": 95,
+      "fix_code": "library OraclePackLibrary {\n    /*//////////////////////////////////////////////////////////////\n                                ENCODING\n    //////////////////////////////////////////////////////////////*/\n\n    uint256 internal constant BITMASK_UINT22 = 0x3FFFFF;\n    uint256 internal constant BITMASK_UINT88 = 0xFFFFFFFFFFFFFFFFFFFFFF;\n    uint256 internal constant UPPER_138BITS_MASK =\n        0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC0000000000000000000000000;\n\n    uint256 internal constant LOCK_MODE_MASK = ~(uint256(3) << 118);\n    uint256 internal constant LOCK_MODE_ON = uint256(3) << 118;\n    uint256 internal constant LOCK_MODE_OFF = 0;\n\n    /// @notice Create a new `OraclePack` given the relevant parameters.\n    /// @param _currentEpoch The current epoch timestamp\n    /// @param _newOrderMap The new order map for the observations\n    /// @param _updatedEMAs The updated EMA values\n    /// @param _referenceTick The reference tick\n    /// @param _currentResiduals The current residual ticks\n    /// @param _latestResidual The latest residual tick\n    /// @param _lockMode The lock mode state\n    /// @return The new OraclePack\n    function storeOraclePack(\n        uint256 _currentEpoch,\n        uint256 _newOrderMap,\n        uint256 _updatedEMAs,\n        uint256 _referenceTick,\n        uint256 _currentResiduals,\n        uint256 _latestResidual,\n        uint256 _lockMode\n    ) external pure returns (bytes32) {\n        // Implementation of the function\n    }\n}",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:35:03.934217"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:35:03.934229",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs"
+  }
+}

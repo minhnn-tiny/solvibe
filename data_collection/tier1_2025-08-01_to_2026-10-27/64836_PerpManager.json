@@ -1,0 +1,123 @@
+{
+  "id": "64836",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/main/contracts/perps/PerpManager.sol# L221",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      221,
+      221
+    ],
+    [
+      72,
+      72
+    ]
+  ],
+  "filename": "64836_PerpManager.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 399,
+  "vulnerability_title": "[M-01] Due to logical error when changing leverage the system also refunds the margin that should be backing the unrealized loss the account holds.",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Refactor the function `settleNewLeverage` to consider the account\u2019s uPnL as well. The uPnL should be taken into account only if its negative value indicates that there is unrealized loss owned by the account holder.\n```\n\n    function settleNewLeverage(\n        CollateralManager storage self,\n        address account,\n        uint256 subaccount,\n        int256 collateralDeltaFromBook,\n        int256 newMargin,\n        int256 fundingPayment,\n        int256 upnl\n    ) internal returns (int256 collateralDelta) {\n        int256 effectiveUpnl = upnl < 0 ? upnl : int256(0);\n\n        int256 currentMargin = self.margin[account][subaccount] + effectiveUpnl - fundingPayment;\n\n        int256 collateralDeltaFromPosition = newMargin - currentMargin;\n\n        collateralDelta = collateralDeltaFromPosition + collateralDeltaFromBook;\n\n        self.handleCollateralDelta(account, collateralDelta);\n\n        self.margin[account][subaccount] = newMargin;\n```\n\n---",
+    "fix_code_blocks": [
+      "function settleNewLeverage(\n        CollateralManager storage self,\n        address account,\n        uint256 subaccount,\n        int256 collateralDeltaFromBook,\n        int256 newMargin,\n        int256 fundingPayment,\n        int256 upnl\n    ) internal returns (int256 collateralDelta) {\n        int256 effectiveUpnl = upnl < 0 ? upnl : int256(0);\n\n        int256 currentMargin = self.margin[account][subaccount] + effectiveUpnl - fundingPayment;\n\n        int256 collateralDeltaFromPosition = newMargin - currentMargin;\n\n        collateralDelta = collateralDeltaFromPosition + collateralDeltaFromBook;\n\n        self.handleCollateralDelta(account, collateralDelta);\n\n        self.margin[account][subaccount] = newMargin;"
+    ]
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "setPositionLeverage",
+        "start_line": 220,
+        "end_line": 298,
+        "code": "\n    function setPositionLeverage(bytes32 asset, address account, uint256 subaccount, uint256 newLeverage)\n        external\n        onlySenderOrOperator(account, PerpsOperatorRoles.SET_LEVERAGE)\n        returns (int256 collateralDelta)\n    {\n        ClearingHouse storage clearingHouse = StorageLib.loadClearingHouse();\n        Market storage market = clearingHouse.market[asset];\n\n        MarketLib.assertActive(asset);\n        MarketLib.assertMaxLeverage(asset, newLeverage);\n\n        __UpdateLeverageCache__ memory cache;\n\n        // handle collateral delta for book oi\n        cache.currentLeverage = market.getPositionLeverage(account, subaccount);\n        cache.orderbookNotional = market.orderbookNotional[account][subaccount];\n\n        cache.newOrderbookMargin = cache.orderbookNotional.fullMulDiv(1e18, newLeverage);\n        cache.currentOrderbookMargin = cache.orderbookNotional.fullMulDiv(1e18, cache.currentLeverage);\n\n        cache.collateralDeltaFromBook = cache.newOrderbookMargin.toInt256() - cache.currentOrderbookMargin.toInt256();\n\n        // set new leverage before loading account\n        market.position[account][subaccount].leverage = newLeverage;\n\n        // empty position\n        if (market.position[account][subaccount].amount == 0) {\n            StorageLib.loadCollateralManager().handleCollateralDelta({\n                account: account,\n                collateralDelta: cache.collateralDeltaFromBook\n            });\n\n            // margin doesn't change on leverage update for empty positions\n            int256 margin = StorageLib.loadCollateralManager().getMarginBalance(account, subaccount);\n\n            emit PositionLeverageSet(\n                asset, account, subaccount, newLeverage, cache.collateralDeltaFromBook, margin, StorageLib.incNonce()\n            );\n\n            return cache.collateralDeltaFromBook;\n        }\n\n        // load account\n        (cache.assets, cache.positions) = clearingHouse.getAccount(account, subaccount);\n\n        // realize funding payment\n        cache.fundingPayment = ClearingHouseLib.realizeFundingPayment(cache.assets, cache.positions);\n\n        cache.newMargin = clearingHouse.getIntendedMargin(cache.assets, cache.positions);\n\n        // assert open margin requirement met\n        clearingHouse.assertOpenMarginRequired({\n            assets: cache.assets,\n            positions: cache.positions,\n            margin: cache.newMargin.toInt256()\n        });\n\n        clearingHouse.setPositions({\n            tradedAsset: \"\",\n            account: account,\n            subaccount: subaccount,\n            assets: cache.assets,\n            positions: cache.positions\n        });\n\n        // settle delta between new and prev margin & new and prev orderbook collateral\n        collateralDelta = StorageLib.loadCollateralManager().settleNewLeverage({\n            account: account,\n            subaccount: subaccount,\n            collateralDeltaFromBook: cache.collateralDeltaFromBook,\n            newMargin: cache.newMargin.toInt256(),\n            fundingPayment: cache.fundingPayment\n        });\n\n        emit PositionLeverageSet(\n            asset, account, subaccount, newLeverage, collateralDelta, cache.newMargin.toInt256(), StorageLib.incNonce()\n        );\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            221,
+            221
+          ]
+        ]
+      },
+      {
+        "code": "    constructor(address _accountManager, address _operatorHub) OperatorPanel(_operatorHub) {\n        accountManager = IAccountManager(_accountManager);\n        _disableInitializers();\n    }\n\n    IAccountManager immutable accountManager;\n\n    struct __UpdateLeverageCache__ {\n        DynamicArrayLib.DynamicArray assets;\n        Position[] positions;\n        int256 fundingPayment;\n        uint256 currentLeverage;\n        uint256 orderbookNotional;\n        uint256 newOrderbookMargin;\n        uint256 currentOrderbookMargin;\n        int256 collateralDeltaFromBook;\n        uint256 newMargin;\n    }\n\n    struct __MarginUpdateCache__ {\n        DynamicArrayLib.DynamicArray assets;\n        Position[] positions;\n        int256 fundingPayment;\n        uint256 intendedMargin;\n    }\n\n    modifier onlySenderOrOperator(address account, PerpsOperatorRoles requiredRole) {\n        OperatorStorageLib.getOperatorStorage().onlySenderOrOperator(account, requiredRole);\n        _;\n    }\n",
+        "start_line": 72,
+        "end_line": 72,
+        "context_start_line": 57,
+        "context_end_line": 87,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T16:58:28.234098",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the logical error in the `settleNewLeverage` function regarding the handling of unrealized profit and loss.",
+      "content_reasoning": "The content mentions the relevant functions and variables that are present in the extracted code, specifically the `settleNewLeverage` function and its parameters.",
+      "functions_found": [
+        "settleNewLeverage"
+      ],
+      "variables_found": [
+        "currentMargin",
+        "collateralDeltaFromPosition",
+        "newMargin"
+      ],
+      "patterns_found": [
+        "logical error in margin calculation",
+        "unrealized profit/loss handling"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 85,
+      "reasoning": "There is no existing tag, and the issue is significant enough to warrant a specific tag related to business logic errors.",
+      "suggested_tag": "business_logic_error",
+      "alternative_tags": [
+        "margin_calculation_issue"
+      ],
+      "correction_explanation": "A tag related to business logic errors is appropriate due to the nature of the vulnerability affecting financial calculations."
+    },
+    "mando_classification": {
+      "primary_category": "G7",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability involves a logical error in mathematical operations related to margin calculations, which fits under arithmetic issues."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G7"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more granular classification, particularly highlighting the business logic aspect of the vulnerability.",
+      "vulnerability_type": "Logical error in margin calculation affecting unrealized losses"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-04-16T17:12:43.037915",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

@@ -1,0 +1,211 @@
+{
+  "id": "65041",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-12-panoptic/blob/fe557748210a529ae414d7c487b6514be0d9e220/contracts/PanopticPool.sol# L1503-L1512",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      1503,
+      1512
+    ],
+    [
+      1091,
+      1093
+    ],
+    [
+      503,
+      507
+    ],
+    [
+      886,
+      886
+    ],
+    [
+      1091,
+      1091
+    ],
+    [
+      1099,
+      1106
+    ]
+  ],
+  "filename": "65041_PanopticPool.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 2156,
+  "vulnerability_title": "[M-14] State-price mismatch in liquidation",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Call `accrueInterest(liquidatee)` at the beginning of the `_liquidate` function in `PanopticPool.sol`. This ensures that both the global pool assets and the liquidatee\u2019s specific balance are updated and synchronized before any valuation occurs.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "Create PoC test file `test/foundry/audit/LiquidationMismatch.t.sol` and run `forge test --match-path test/foundry/audit/LiquidationMismatch.t.sol -vvv`:\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-12-panoptic-next-core/submissions/S-1032)\n\nConsole output:\n```\n\nLogs:\n  Valuation BEFORE Accrual:\n    Assets (Stale Price): 50000000000000000000\n    Interest (Fresh Debt): 1434795130794140900\n    Net Position Value:   48565204869205859100\n\nValuation AFTER Accrual:\n    Assets (Fresh Price): 48612850467710481715\n    Interest (Fresh Debt): 0\n    Net Position Value:   48612850467710481715\n\n[!] BUG CONFIRMED: Mismatch hidden value of: 47645598504622615\n  This discrepancy leads to overstated protocol losses and underpaid liquidators.\n```\n\n**Panoptic commented:**\n\n> We made the decision to maintain that protocol design choice (ie. the liquidator needs to call `collateralToken.accrueInterest()` manually to get the max possible bonus) and did not fix it.\n\n---",
+    "poc_code_blocks": [
+      "Logs:\n  Valuation BEFORE Accrual:\n    Assets (Stale Price): 50000000000000000000\n    Interest (Fresh Debt): 1434795130794140900\n    Net Position Value:   48565204869205859100\n\nValuation AFTER Accrual:\n    Assets (Fresh Price): 48612850467710481715\n    Interest (Fresh Debt): 0\n    Net Position Value:   48612850467710481715\n\n[!] BUG CONFIRMED: Mismatch hidden value of: 47645598504622615\n  This discrepancy leads to overstated protocol losses and underpaid liquidators."
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_liquidate",
+        "start_line": 1482,
+        "end_line": 1593,
+        "code": "    function _liquidate(\n        address liquidatee,\n        TokenId[] calldata positionIdList,\n        int24 twapTick,\n        int24 currentTick\n    ) internal {\n        LeftRightUnsigned tokenData0;\n        LeftRightUnsigned tokenData1;\n        LeftRightUnsigned shortPremium;\n        {\n            PositionBalance[] memory positionBalanceArray = new PositionBalance[](\n                positionIdList.length\n            );\n            LeftRightUnsigned longPremium;\n            (shortPremium, longPremium, positionBalanceArray) = _calculateAccumulatedPremia(\n                liquidatee,\n                positionIdList,\n                COMPUTE_PREMIA_AS_COLLATERAL,\n                ONLY_AVAILABLE_PREMIUM,\n                currentTick\n            );\n            (tokenData0, tokenData1, ) = riskEngine().getMargin(\n                positionBalanceArray,\n                twapTick,\n                liquidatee,\n                positionIdList,\n                shortPremium,\n                longPremium,\n                collateralToken0(),\n                collateralToken1()\n            );\n        }\n\n        // The protocol delegates some virtual shares to ensure the burn can be settled.\n        collateralToken0().delegate(liquidatee);\n        collateralToken1().delegate(liquidatee);\n\n        LeftRightSigned bonusAmounts;\n        LeftRightUnsigned haircutTotal;\n        {\n            LeftRightSigned netPaid;\n            LeftRightSigned[4][] memory premiasByLeg;\n            // burn all options from the liquidatee\n\n            // Do not commit any settled long premium to storage - we will do this after we determine if any long premium must be revoked\n            // This is to prevent any short positions the liquidatee has being settled with tokens that will later be revoked\n            // NOTE: tick limits are not applied here since it is not the liquidator's position being liquidated\n            (netPaid, premiasByLeg) = _burnAllOptionsFrom(\n                liquidatee,\n                MIN_SWAP_TICK,\n                MAX_SWAP_TICK,\n                DONOT_COMMIT_LONG_SETTLED,\n                positionIdList\n            );\n\n            LeftRightSigned collateralRemaining;\n\n            // compute bonus amounts using latest tick data\n            (bonusAmounts, collateralRemaining) = riskEngine().getLiquidationBonus(\n                tokenData0,\n                tokenData1,\n                Math.getSqrtRatioAtTick(twapTick),\n                netPaid,\n                shortPremium\n            );\n\n            // premia cannot be paid if there is protocol loss associated with the liquidatee\n            // otherwise, an economic exploit could occur if the liquidator and liquidatee collude to\n            // manipulate the fees in a liquidity area they control past the protocol loss threshold\n            // such that the PLPs are forced to pay out premia to the liquidator\n            // thus, we haircut any premium paid by the liquidatee (converting tokens as necessary) until the protocol loss is covered or the premium is exhausted\n            // note that the haircutPremia function also commits the settled amounts (adjusted for the haircut) to storage, so it will be called even if there is no haircut\n\n            // if premium is haircut from a token that is not in protocol loss, some of the liquidation bonus will be converted into that token\n            address _liquidatee = liquidatee;\n            int24 _twapTick = twapTick;\n            TokenId[] memory _positionIdList = positionIdList;\n            LeftRightSigned bonusDeltas;\n            LeftRightSigned[4][] memory haircutPerLeg;\n            (bonusDeltas, haircutTotal, haircutPerLeg) = riskEngine().haircutPremia(\n                _liquidatee,\n                _positionIdList,\n                premiasByLeg,\n                collateralRemaining,\n                Math.getSqrtRatioAtTick(_twapTick)\n            );\n\n            bonusAmounts = bonusAmounts.add(bonusDeltas);\n\n            InteractionHelper.settleAmounts(\n                _liquidatee,\n                _positionIdList,\n                haircutTotal,\n                haircutPerLeg,\n                premiasByLeg,\n                collateralToken0(),\n                collateralToken1(),\n                s_settledTokens\n            );\n        }\n\n        // revoke delegated virtual shares and settle any bonus deltas with the liquidator\n        // native currency is represented as address(0), so it will always be currency0 alphanumerically\n        collateralToken0().settleLiquidation{value: msg.value}(\n            msg.sender,\n            liquidatee,\n            bonusAmounts.rightSlot()\n        );\n        collateralToken1().settleLiquidation(msg.sender, liquidatee, bonusAmounts.leftSlot());\n\n        emit AccountLiquidated(msg.sender, liquidatee, bonusAmounts);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1503,
+            1512
+          ]
+        ]
+      },
+      {
+        "function_name": "_updateSettlementPostMint",
+        "start_line": 1021,
+        "end_line": 1133,
+        "code": "    function _updateSettlementPostMint(\n        RiskParameters riskParameters,\n        TokenId tokenId,\n        LeftRightUnsigned[4] memory collectedByLeg,\n        uint128 positionSize,\n        uint24 effectiveLiquidityLimit,\n        address owner\n    ) internal {\n        // ADD the current tokenId to the position list hash (hash = XOR of all keccak256(tokenId))\n        // and increase the number of positions counter by 1.\n        _updatePositionsHash(owner, tokenId, ADD, riskParameters.maxLegs());\n\n        for (uint256 leg = 0; leg < tokenId.countLegs(); ) {\n            if (tokenId.width(leg) != 0) {\n                uint256 isLong = tokenId.isLong(leg);\n                // if position is long, ensure that removed liquidity does not deplete strike beyond min(MAX_SPREAD, user-provided effectiveLiquidityLimit)\n                // new totalLiquidity (total sold) = removedLiquidity + netLiquidity (R + N)\n                uint256 totalLiquidity = _checkLiquiditySpread(\n                    tokenId,\n                    leg,\n                    isLong == 0\n                        ? riskParameters.maxSpread()\n                        : Math.min(effectiveLiquidityLimit, riskParameters.maxSpread())\n                );\n\n                bytes32 chunkKey = PanopticMath.getChunkKey(tokenId, leg);\n\n                // add any tokens collected from Uniswap in a given chunk to the settled tokens available for withdrawal by sellers\n                s_settledTokens[chunkKey] = s_settledTokens[chunkKey].add(collectedByLeg[leg]);\n\n                LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(\n                    tokenId,\n                    leg,\n                    positionSize\n                );\n\n                uint256 grossCurrent0;\n                uint256 grossCurrent1;\n                {\n                    {\n                        uint256 tokenType = tokenId.tokenType(leg);\n                        uint256 vegoid = tokenId.vegoid();\n                        uint256 _isLong = isLong;\n                        // can use (type(int24).max flag because premia accumulators were updated during the mintTokenizedPosition step.\n                        (grossCurrent0, grossCurrent1) = SFPM.getAccountPremium(\n                            poolKey(),\n                            address(this),\n                            tokenType,\n                            liquidityChunk.tickLower(),\n                            liquidityChunk.tickUpper(),\n                            type(int24).max,\n                            _isLong,\n                            vegoid\n                        );\n                    }\n\n                    s_options[owner][tokenId][leg] = LeftRightUnsigned\n                        .wrap(uint128(grossCurrent0))\n                        .addToLeftSlot(uint128(grossCurrent1));\n                }\n\n                // if position is short, adjust `grossPremiumLast` upward to account for the increase in short liquidity\n                if (isLong == 0) {\n                    unchecked {\n                        // L\n                        LeftRightUnsigned grossPremiumLast = s_grossPremiumLast[chunkKey];\n                        // R\n                        uint256 positionLiquidity = liquidityChunk.liquidity();\n                        // T (totalLiquidity is (T + R) after minting)\n                        uint256 totalLiquidityBefore = totalLiquidity - positionLiquidity;\n\n                        // We need to adjust the grossPremiumLast value such that the result of\n                        // (grossPremium - adjustedGrossPremiumLast) * updatedTotalLiquidityPostMint / 2**64 is equal to (grossPremium - grossPremiumLast) * totalLiquidityBeforeMint / 2**64\n                        // G: total gross premium\n                        // T: totalLiquidityBeforeMint\n                        // R: positionLiquidity\n                        // C: current grossPremium value\n                        // L: current grossPremiumLast value\n                        // Ln: updated grossPremiumLast value\n                        // T * (C - L) = G\n                        // (T + R) * (C - Ln) = G\n                        //\n                        // T * (C - L) = (T + R) * (C - Ln)\n                        // (TC - TL) / (T + R) = C - Ln\n                        // Ln = C - (TC - TL)/(T + R)\n                        // Ln = (CT + CR - TC + TL)/(T+R)\n                        // Ln = (CR + TL)/(T+R)\n\n                        s_grossPremiumLast[chunkKey] = LeftRightUnsigned\n                            .wrap(\n                                uint128(\n                                    (grossCurrent0 *\n                                        positionLiquidity +\n                                        grossPremiumLast.rightSlot() *\n                                        totalLiquidityBefore) / totalLiquidity\n                                )\n                            )\n                            .addToLeftSlot(\n                                uint128(\n                                    (grossCurrent1 *\n                                        positionLiquidity +\n                                        grossPremiumLast.leftSlot() *\n                                        totalLiquidityBefore) / totalLiquidity\n                                )\n                            );\n                    }\n                }\n            }\n            unchecked {\n                ++leg;\n            }\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1091,
+            1093
+          ],
+          [
+            1091,
+            1091
+          ],
+          [
+            1099,
+            1106
+          ]
+        ]
+      },
+      {
+        "function_name": "_calculateAccumulatedPremia",
+        "start_line": 458,
+        "end_line": 545,
+        "code": "    function _calculateAccumulatedPremia(\n        address user,\n        TokenId[] calldata positionIdList,\n        bool usePremiaAsCollateral,\n        bool includePendingPremium,\n        int24 atTick\n    )\n        internal\n        view\n        returns (\n            LeftRightUnsigned shortPremium,\n            LeftRightUnsigned longPremium,\n            PositionBalance[] memory balances\n        )\n    {\n        uint256 pLength = positionIdList.length;\n        balances = new PositionBalance[](pLength);\n\n        address c_user = user;\n        // loop through each option position/tokenId\n        for (uint256 k = 0; k < pLength; ) {\n            TokenId tokenId = positionIdList[k];\n\n            {\n                PositionBalance positionBalanceData = s_positionBalance[c_user][tokenId];\n                if (positionBalanceData.positionSize() == 0) revert Errors.PositionNotOwned();\n\n                balances[k] = positionBalanceData;\n            }\n            (\n                LeftRightSigned[4] memory premiaByLeg,\n                uint256[2][4] memory premiumAccumulatorsByLeg\n            ) = _getPremia(\n                    tokenId,\n                    balances[k].positionSize(),\n                    c_user,\n                    usePremiaAsCollateral,\n                    atTick\n                );\n\n            uint256 numLegs = tokenId.countLegs();\n            for (uint256 leg = 0; leg < numLegs; ) {\n                if (tokenId.width(leg) != 0) {\n                    if (tokenId.isLong(leg) == 0) {\n                        if (!includePendingPremium) {\n                            bytes32 chunkKey = PanopticMath.getChunkKey(tokenId, leg);\n\n                            (uint256 totalLiquidity, , ) = _getLiquidities(tokenId, leg);\n                            shortPremium = shortPremium.add(\n                                _getAvailablePremium(\n                                    totalLiquidity,\n                                    s_settledTokens[chunkKey],\n                                    s_grossPremiumLast[chunkKey],\n                                    LeftRightUnsigned.wrap(\n                                        uint256(LeftRightSigned.unwrap(premiaByLeg[leg]))\n                                    ),\n                                    premiumAccumulatorsByLeg[leg]\n                                )\n                            );\n                        } else {\n                            shortPremium = shortPremium.add(\n                                LeftRightUnsigned.wrap(\n                                    uint256(LeftRightSigned.unwrap(premiaByLeg[leg]))\n                                )\n                            );\n                        }\n                    } else {\n                        longPremium = LeftRightUnsigned.wrap(\n                            uint256(\n                                LeftRightSigned.unwrap(\n                                    LeftRightSigned\n                                        .wrap(int256(LeftRightUnsigned.unwrap(longPremium)))\n                                        .sub(premiaByLeg[leg])\n                                )\n                            )\n                        );\n                    }\n                }\n                unchecked {\n                    ++leg;\n                }\n            }\n\n            unchecked {\n                ++k;\n            }\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            503,
+            507
+          ]
+        ]
+      },
+      {
+        "function_name": "_burnOptions",
+        "start_line": 876,
+        "end_line": 940,
+        "code": "    function _burnOptions(\n        TokenId tokenId,\n        uint128 positionSize,\n        int24[2] memory tickLimits,\n        address owner,\n        bool commitLongSettled,\n        RiskParameters riskParameters\n    )\n        internal\n        returns (\n            LeftRightSigned paidAmounts,\n            LeftRightSigned[4] memory premiaByLeg,\n            int24 finalTick\n        )\n    {\n        LeftRightUnsigned[4] memory collectedByLeg;\n        LeftRightSigned netAmmDelta;\n        (collectedByLeg, netAmmDelta, finalTick) = SFPM.burnTokenizedPosition(\n            poolKey(),\n            tokenId,\n            positionSize,\n            tickLimits[0],\n            tickLimits[1]\n        );\n\n        LeftRightSigned realizedPremia;\n        (realizedPremia, premiaByLeg) = _updateSettlementPostBurn(\n            owner,\n            tokenId,\n            collectedByLeg,\n            positionSize,\n            riskParameters,\n            LeftRightSigned.wrap(commitLongSettled ? int128(1) : int128(0))\n        );\n\n        (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath\n            .computeExercisedAmounts(tokenId, positionSize, false);\n\n        emit OptionBurnt(owner, positionSize, tokenId, premiaByLeg);\n\n        RiskParameters _rp = riskParameters;\n        {\n            int128 paid0 = collateralToken0().settleBurn(\n                owner,\n                longAmounts.rightSlot(),\n                shortAmounts.rightSlot(),\n                netAmmDelta.rightSlot(),\n                realizedPremia.rightSlot(),\n                _rp\n            );\n            paidAmounts = paidAmounts.addToRightSlot(paid0);\n        }\n\n        {\n            int128 paid1 = collateralToken1().settleBurn(\n                owner,\n                longAmounts.leftSlot(),\n                shortAmounts.leftSlot(),\n                netAmmDelta.leftSlot(),\n                realizedPremia.leftSlot(),\n                _rp\n            );\n            paidAmounts = paidAmounts.addToLeftSlot(paid1);\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            886,
+            886
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:58.184337",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of stale asset valuation and fresh debt valuation leading to a mismatch in liquidation calculations.",
+      "content_reasoning": "The content mentions functions like `_liquidate` and `assetsAndInterest` which are present in the code. The described patterns of stale asset valuation and fresh debt valuation are evident in the code.",
+      "functions_found": [
+        "_liquidate",
+        "assetsAndInterest",
+        "getMargin"
+      ],
+      "variables_found": [
+        "tokenData0",
+        "tokenData1",
+        "s_depositedAssets",
+        "s_assetsInAMM"
+      ],
+      "patterns_found": [
+        "stale asset valuation",
+        "fresh debt valuation"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag. Given the nature of the issue, a tag related to business logic or liquidation could be appropriate.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "liquidation_mismatch"
+      ],
+      "correction_explanation": "The issue is primarily about a mismatch in business logic related to liquidation calculations."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 60,
+      "mando_applicable": false,
+      "reasoning": "The issue does not fit well into any of the MANDO categories as it is more about business logic and valuation mismatches rather than traditional security vulnerabilities like access control or reentrancy."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "C8"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is a result of a business logic flaw in the liquidation process, where stale asset valuations and fresh debt valuations lead to incorrect calculations. This fits well under the SCSVS category for business logic issues.",
+      "vulnerability_type": "State-price mismatch in liquidation leading to overestimated protocol loss and disincentive for liquidators."
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves calling accrueInterest(liquidatee) at the beginning of the _liquidate function to ensure that the liquidatee's balance is updated before any liquidation calculations.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "_liquidate",
+          "fixed_function_code": "function _liquidate(\n        address liquidatee,\n        TokenId[] calldata positionIdList,\n        int24 twapTick,\n        int24 currentTick\n    ) internal {\n        // Accrue interest for the liquidatee to ensure balance is up-to-date\n        accrueInterest(liquidatee);\n\n        LeftRightUnsigned tokenData0;\n        LeftRightUnsigned tokenData1;\n        LeftRightUnsigned shortPremium;\n        {\n            PositionBalance[] memory positionBalanceArray = new PositionBalance[](\n                positionIdList.length\n            );\n            LeftRightUnsigned longPremium;\n            (shortPremium, longPremium, positionBalanceArray) = _calculateAccumulatedPremia(\n                liquidatee,\n                positionIdList,\n                COMPUTE_PREMIA_AS_COLLATERAL,\n                ONLY_AVAILABLE_PREMIUM,\n                currentTick\n            );\n            (tokenData0, tokenData1, ) = riskEngine().getMargin(\n                positionBalanceArray,\n                twapTick,\n                liquidatee,\n                positionIdList,\n                shortPremium,\n                longPremium,\n                collateralToken0(),\n                collateralToken1()\n            );\n        }\n\n        // The protocol delegates some virtual shares to ensure the burn can be settled.\n        collateralToken0().delegate(liquidatee);\n        collateralToken1().delegate(liquidatee);\n\n        LeftRightSigned bonusAmounts;\n        LeftRightUnsigned haircutTotal;\n        {\n            LeftRightSigned netPaid;\n            LeftRightSigned[4][] memory premiasByLeg;\n            // burn all options from the liquidatee\n\n            // Do not commit any settled long premium to storage - we will do this after we determine if any long premium must be revoked\n            // This is to prevent any short positions the liquidatee has being settled with tokens that will later be revoked\n            // NOTE: tick limits are not applied here since it is not the liquidator's position being liquidated\n            (netPaid, premiasByLeg) = _burnAllOptionsFrom(\n                liquidatee,\n                MIN_SWAP_TICK,\n                MAX_SWAP_TICK,\n                DONOT_COMMIT_LONG_SETTLED,\n                positionIdList\n            );\n\n            LeftRightSigned collateralRemaining;\n\n            // compute bonus amounts using latest tick data\n            (bonusAmounts, collateralRemaining) = riskEngine().getLiquidationBonus(\n                tokenData0,\n                tokenData1,\n                Math.getSqrtRatioAtTick(twapTick),\n                netPaid,\n                shortPremium\n            );\n\n            // premia cannot be paid if there is protocol loss associated with the liquidatee\n            // otherwise, an economic exploit could occur if the liquidator and liquidatee collude to\n            // manipulate the fees in a liquidity area they control past the protocol loss threshold\n            // such that the PLPs are forced to pay out premia to the liquidator\n            // thus, we haircut any premium paid by the liquidatee (converting tokens as necessary) until the protocol loss is covered or the premium is exhausted\n            // note that the haircutPremia function also commits the settled amounts (adjusted for the haircut) to storage, so it will be called even if there is no haircut\n\n            // if premium is haircut from a token that is not in protocol loss, some of the liquidation bonus will be converted into that token\n            address _liquidatee = liquidatee;\n            int24 _twapTick = twapTick;\n            TokenId[] memory _positionIdList = positionIdList;\n            LeftRightSigned bonusDeltas;\n            LeftRightSigned[4][] memory haircutPerLeg;\n            (bonusDeltas, haircutTotal, haircutPerLeg) = riskEngine().haircutPremia(\n                _liquidatee,\n                _positionIdList,\n                premiasByLeg,\n                collateralRemaining,\n                Math.getSqrtRatioAtTick(_twapTick)\n            );\n\n            bonusAmounts = bonusAmounts.add(bonusDeltas);\n\n            InteractionHelper.settleAmounts(\n                _liquidatee,\n                _positionIdList,\n                haircutTotal,\n                haircutPerLeg,\n                premiasByLeg,\n                collateralToken0(),\n                collateralToken1(),\n                s_settledTokens\n            );\n        }\n\n        // revoke delegated virtual shares and settle any bonus deltas with the liquidator\n        // native currency is represented as address(0), so it will always be currency0 alphanumerically\n        collateralToken0().settleLiquidation{value: msg.value}(\n            msg.sender,\n            liquidatee,\n            bonusAmounts.rightSlot()\n        );\n        collateralToken1().settleLiquidation(msg.sender, liquidatee, bonusAmounts.leftSlot());\n\n        emit AccountLiquidated(msg.sender, liquidatee, bonusAmounts);\n    }",
+          "reasoning": "By calling accrueInterest(liquidatee) at the beginning of the _liquidate function, we ensure that the liquidatee's balance is updated to reflect the most current state. This prevents any mismatch in the calculation of collateral and debt values, thus avoiding overestimation of protocol loss and ensuring fair incentives for liquidators."
+        }
+      ],
+      "key_changes": [
+        "Added accrueInterest(liquidatee) call at the start of _liquidate function"
+      ],
+      "security_improvements": [
+        "Ensures accurate calculation of collateral and debt values",
+        "Prevents overestimation of protocol loss",
+        "Maintains fair incentives for liquidators"
+      ],
+      "additional_recommendations": "Regularly audit the contract to ensure all state-dependent calculations are synchronized with the latest state updates.",
+      "confidence": 95,
+      "fix_code": "function _liquidate(\n        address liquidatee,\n        TokenId[] calldata positionIdList,\n        int24 twapTick,\n        int24 currentTick\n    ) internal {\n        // Accrue interest for the liquidatee to ensure balance is up-to-date\n        accrueInterest(liquidatee);\n\n        LeftRightUnsigned tokenData0;\n        LeftRightUnsigned tokenData1;\n        LeftRightUnsigned shortPremium;\n        {\n            PositionBalance[] memory positionBalanceArray = new PositionBalance[](\n                positionIdList.length\n            );\n            LeftRightUnsigned longPremium;\n            (shortPremium, longPremium, positionBalanceArray) = _calculateAccumulatedPremia(\n                liquidatee,\n                positionIdList,\n                COMPUTE_PREMIA_AS_COLLATERAL,\n                ONLY_AVAILABLE_PREMIUM,\n                currentTick\n            );\n            (tokenData0, tokenData1, ) = riskEngine().getMargin(\n                positionBalanceArray,\n                twapTick,\n                liquidatee,\n                positionIdList,\n                shortPremium,\n                longPremium,\n                collateralToken0(),\n                collateralToken1()\n            );\n        }\n\n        // The protocol delegates some virtual shares to ensure the burn can be settled.\n        collateralToken0().delegate(liquidatee);\n        collateralToken1().delegate(liquidatee);\n\n        LeftRightSigned bonusAmounts;\n        LeftRightUnsigned haircutTotal;\n        {\n            LeftRightSigned netPaid;\n            LeftRightSigned[4][] memory premiasByLeg;\n            // burn all options from the liquidatee\n\n            // Do not commit any settled long premium to storage - we will do this after we determine if any long premium must be revoked\n            // This is to prevent any short positions the liquidatee has being settled with tokens that will later be revoked\n            // NOTE: tick limits are not applied here since it is not the liquidator's position being liquidated\n            (netPaid, premiasByLeg) = _burnAllOptionsFrom(\n                liquidatee,\n                MIN_SWAP_TICK,\n                MAX_SWAP_TICK,\n                DONOT_COMMIT_LONG_SETTLED,\n                positionIdList\n            );\n\n            LeftRightSigned collateralRemaining;\n\n            // compute bonus amounts using latest tick data\n            (bonusAmounts, collateralRemaining) = riskEngine().getLiquidationBonus(\n                tokenData0,\n                tokenData1,\n                Math.getSqrtRatioAtTick(twapTick),\n                netPaid,\n                shortPremium\n            );\n\n            // premia cannot be paid if there is protocol loss associated with the liquidatee\n            // otherwise, an economic exploit could occur if the liquidator and liquidatee collude to\n            // manipulate the fees in a liquidity area they control past the protocol loss threshold\n            // such that the PLPs are forced to pay out premia to the liquidator\n            // thus, we haircut any premium paid by the liquidatee (converting tokens as necessary) until the protocol loss is covered or the premium is exhausted\n            // note that the haircutPremia function also commits the settled amounts (adjusted for the haircut) to storage, so it will be called even if there is no haircut\n\n            // if premium is haircut from a token that is not in protocol loss, some of the liquidation bonus will be converted into that token\n            address _liquidatee = liquidatee;\n            int24 _twapTick = twapTick;\n            TokenId[] memory _positionIdList = positionIdList;\n            LeftRightSigned bonusDeltas;\n            LeftRightSigned[4][] memory haircutPerLeg;\n            (bonusDeltas, haircutTotal, haircutPerLeg) = riskEngine().haircutPremia(\n                _liquidatee,\n                _positionIdList,\n                premiasByLeg,\n                collateralRemaining,\n                Math.getSqrtRatioAtTick(_twapTick)\n            );\n\n            bonusAmounts = bonusAmounts.add(bonusDeltas);\n\n            InteractionHelper.settleAmounts(\n                _liquidatee,\n                _positionIdList,\n                haircutTotal,\n                haircutPerLeg,\n                premiasByLeg,\n                collateralToken0(),\n                collateralToken1(),\n                s_settledTokens\n            );\n        }\n\n        // revoke delegated virtual shares and settle any bonus deltas with the liquidator\n        // native currency is represented as address(0), so it will always be currency0 alphanumerically\n        collateralToken0().settleLiquidation{value: msg.value}(\n            msg.sender,\n            liquidatee,\n            bonusAmounts.rightSlot()\n        );\n        collateralToken1().settleLiquidation(msg.sender, liquidatee, bonusAmounts.leftSlot());\n\n        emit AccountLiquidated(msg.sender, liquidatee, bonusAmounts);\n    }",
+      "expected_fixed_blocks": 4,
+      "returned_fixed_blocks": 1,
+      "block_count_match": false,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:36:15.020536"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:36:15.020560",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

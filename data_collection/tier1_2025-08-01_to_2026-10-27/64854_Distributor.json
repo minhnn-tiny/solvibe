@@ -1,0 +1,144 @@
+{
+  "id": "64854",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/launchpad/Distributor.sol# L106-L132",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      106,
+      132
+    ]
+  ],
+  "filename": "64854_Distributor.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 198,
+  "vulnerability_title": "[H-06] Donations to `Distributor` with arbitrary `quoteToken` can be used to drain all quote rewards from distributor",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Validate both the launch asset and quote asset are legitimate within `addRewards`.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-4)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "addRewards",
+        "start_line": 106,
+        "end_line": 132,
+        "code": "    function addRewards(address token0, address token1, uint128 amount0, uint128 amount1) external {\n        (address launchAsset, address quoteAsset, uint128 launchAssetAmount, uint128 quoteAssetAmount) =\n            (token0, token1, amount0, amount1);\n        RewardPoolData storage rs = RewardsTrackerStorage.getRewardPool(token0);\n\n        if (rs.quoteAsset == address(0)) {\n            rs = RewardsTrackerStorage.getRewardPool(token1);\n\n            if (rs.quoteAsset == address(0)) revert RewardsDoNotExist();\n\n            (launchAsset, quoteAsset, launchAssetAmount, quoteAssetAmount) = (token1, token0, amount1, amount0);\n        }\n\n        if (rs.totalShares == 0) revert NoSharesToIncentivize();\n\n        if (launchAssetAmount > 0) {\n            rs.addBaseRewards(launchAsset, launchAssetAmount);\n            _increaseTotalPending(launchAsset, launchAssetAmount);\n            launchAsset.safeTransferFrom(msg.sender, address(this), uint256(launchAssetAmount));\n        }\n\n        if (quoteAssetAmount > 0) {\n            rs.addQuoteRewards(launchAsset, quoteAsset, quoteAssetAmount);\n            _increaseTotalPending(quoteAsset, quoteAssetAmount);\n            quoteAsset.safeTransferFrom(msg.sender, address(this), uint256(quoteAssetAmount));\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            106,
+            132
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:06.725002",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue where an attacker can manipulate the `addRewards` function to drain quote tokens by providing a malicious contract as `token1`.",
+      "content_reasoning": "The code snippet shows the `addRewards` function which lacks validation for legitimate quote assets, allowing an attacker to exploit this by using a malicious contract.",
+      "functions_found": [
+        "addRewards"
+      ],
+      "variables_found": [
+        "token0",
+        "token1",
+        "amount0",
+        "amount1",
+        "launchAsset",
+        "quoteAsset",
+        "launchAssetAmount",
+        "quoteAssetAmount"
+      ],
+      "patterns_found": [
+        "lack of validation for legitimate tokens"
+      ],
+      "issues": [
+        "Lack of validation for quoteAsset legitimacy"
+      ]
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag. The issue is primarily related to business logic flaws due to improper validation of input parameters.",
+      "suggested_tag": "business_logic_flaw",
+      "alternative_tags": [
+        "input_validation"
+      ],
+      "correction_explanation": "The vulnerability arises from a lack of proper validation of input parameters, which is a business logic flaw."
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": true,
+      "reasoning": "The issue involves improper validation of input parameters, which can be considered an access control issue as it allows unauthorized manipulation of the contract's state."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G5"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is a result of flawed business logic due to improper validation of input parameters, which directly impacts the contract's functionality and security.",
+      "vulnerability_type": "Improper validation of input parameters leading to unauthorized state manipulation"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves validating that both the launch asset and quote asset are legitimate by checking against a whitelist of allowed tokens before proceeding with reward addition.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "addRewards",
+          "fixed_function_code": "function addRewards(address token0, address token1, uint128 amount0, uint128 amount1) external {\n    require(isValidToken(token0) && isValidToken(token1), \"Invalid token address\"); // Validate tokens\n    (address launchAsset, address quoteAsset, uint128 launchAssetAmount, uint128 quoteAssetAmount) =\n        (token0, token1, amount0, amount1);\n    RewardPoolData storage rs = RewardsTrackerStorage.getRewardPool(token0);\n\n    if (rs.quoteAsset == address(0)) {\n        rs = RewardsTrackerStorage.getRewardPool(token1);\n\n        if (rs.quoteAsset == address(0)) revert RewardsDoNotExist();\n\n        (launchAsset, quoteAsset, launchAssetAmount, quoteAssetAmount) = (token1, token0, amount1, amount0);\n    }\n\n    if (rs.totalShares == 0) revert NoSharesToIncentivize();\n\n    if (launchAssetAmount > 0) {\n        rs.addBaseRewards(launchAsset, launchAssetAmount);\n        _increaseTotalPending(launchAsset, launchAssetAmount);\n        launchAsset.safeTransferFrom(msg.sender, address(this), uint256(launchAssetAmount));\n    }\n\n    if (quoteAssetAmount > 0) {\n        rs.addQuoteRewards(launchAsset, quoteAsset, quoteAssetAmount);\n        _increaseTotalPending(quoteAsset, quoteAssetAmount);\n        quoteAsset.safeTransferFrom(msg.sender, address(this), uint256(quoteAssetAmount));\n    }\n}\n\nfunction isValidToken(address token) internal view returns (bool) {\n    // Implement logic to check if the token is in the whitelist\n    return allowedTokens[token];\n}",
+          "reasoning": "This fix ensures that only legitimate tokens can be used in the addRewards function by checking against a whitelist of allowed tokens. This prevents attackers from using arbitrary tokens to manipulate the reward system."
+        }
+      ],
+      "key_changes": [
+        "Added a validation step to check if both token0 and token1 are valid tokens.",
+        "Introduced a helper function isValidToken to verify token legitimacy.",
+        "Used require statements to enforce token validation before proceeding with reward logic."
+      ],
+      "security_improvements": [
+        "Prevents unauthorized manipulation of reward pools by ensuring only legitimate tokens are used.",
+        "Reduces the risk of draining quote rewards through arbitrary token submissions.",
+        "Enhances overall contract robustness by enforcing stricter input validation."
+      ],
+      "additional_recommendations": "Consider maintaining and updating the whitelist of allowed tokens securely and regularly to adapt to changes in the token ecosystem.",
+      "confidence": 95,
+      "fix_code": "function addRewards(address token0, address token1, uint128 amount0, uint128 amount1) external {\n    require(isValidToken(token0) && isValidToken(token1), \"Invalid token address\"); // Validate tokens\n    (address launchAsset, address quoteAsset, uint128 launchAssetAmount, uint128 quoteAssetAmount) =\n        (token0, token1, amount0, amount1);\n    RewardPoolData storage rs = RewardsTrackerStorage.getRewardPool(token0);\n\n    if (rs.quoteAsset == address(0)) {\n        rs = RewardsTrackerStorage.getRewardPool(token1);\n\n        if (rs.quoteAsset == address(0)) revert RewardsDoNotExist();\n\n        (launchAsset, quoteAsset, launchAssetAmount, quoteAssetAmount) = (token1, token0, amount1, amount0);\n    }\n\n    if (rs.totalShares == 0) revert NoSharesToIncentivize();\n\n    if (launchAssetAmount > 0) {\n        rs.addBaseRewards(launchAsset, launchAssetAmount);\n        _increaseTotalPending(launchAsset, launchAssetAmount);\n        launchAsset.safeTransferFrom(msg.sender, address(this), uint256(launchAssetAmount));\n    }\n\n    if (quoteAssetAmount > 0) {\n        rs.addQuoteRewards(launchAsset, quoteAsset, quoteAssetAmount);\n        _increaseTotalPending(quoteAsset, quoteAssetAmount);\n        quoteAsset.safeTransferFrom(msg.sender, address(this), uint256(quoteAssetAmount));\n    }\n}\n\nfunction isValidToken(address token) internal view returns (bool) {\n    // Implement logic to check if the token is in the whitelist\n    return allowedTokens[token];\n}",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:22:42.293628"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:22:42.293640",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

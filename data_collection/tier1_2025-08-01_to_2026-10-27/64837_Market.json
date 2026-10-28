@@ -1,0 +1,165 @@
+{
+  "id": "64837",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/main/contracts/perps/types/Market.sol# L437",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      437,
+      437
+    ],
+    [
+      421,
+      421
+    ]
+  ],
+  "filename": "64837_Market.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 644,
+  "vulnerability_title": "[M-02] The protocol doesn\u2019t check whether the orders have expired when the mid and impact price are calculated",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "When calculating the mid price and the impact price, consider checking whether the orders have expired.\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "getMidPrice",
+        "start_line": 436,
+        "end_line": 446,
+        "code": "\n    function getMidPrice(Market storage self) internal view returns (uint256 midPrice) {\n        bytes32 asset = self.asset;\n\n        uint256 bestBid = StorageLib.loadBook(asset).getBestBid();\n        uint256 bestAsk = StorageLib.loadBook(asset).getBestAsk();\n\n        if (bestAsk == type(uint256).max || bestBid == 0) return 0;\n\n        return (bestBid + bestAsk) / 2;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            437,
+            437
+          ]
+        ]
+      },
+      {
+        "function_name": "getImpactPrice",
+        "start_line": 420,
+        "end_line": 435,
+        "code": "\n    function getImpactPrice(Market storage self, uint256 impactNotional) internal view returns (uint256 impactPrice) {\n        (uint256 baseAmount, uint256 quoteUsed) = StorageLib.loadBook(self.asset).quoteBidInQuote(impactNotional);\n\n        if (impactNotional > quoteUsed) baseAmount += (impactNotional - quoteUsed).fullMulDiv(1e18, type(uint256).max);\n\n        uint256 impactBid = baseAmount == 0 ? 0 : impactNotional.fullMulDiv(1e18, baseAmount);\n\n        (baseAmount, quoteUsed) = StorageLib.loadBook(self.asset).quoteAskInQuote(impactNotional);\n\n        if (impactNotional > quoteUsed) baseAmount += (impactNotional - quoteUsed).fullMulDiv(1e18, 1);\n\n        uint256 impactAsk = impactNotional.fullMulDiv(1e18, baseAmount);\n\n        return (impactBid + impactAsk) / 2;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            421,
+            421
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:34:46.328262",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of not checking for expired orders when calculating prices, which is evident in the provided code snippets.",
+      "content_reasoning": "The code snippets show functions `getMidPrice` and `getImpactPrice` which calculate prices without checking for expired orders, matching the report's description.",
+      "functions_found": [
+        "getMidPrice",
+        "getImpactPrice"
+      ],
+      "variables_found": [
+        "bestBid",
+        "bestAsk",
+        "impactBid",
+        "impactAsk"
+      ],
+      "patterns_found": [
+        "lack of expiration check"
+      ],
+      "issues": [
+        "No expiration check for orders in price calculation"
+      ]
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag. The issue is related to business logic flaws in price calculation due to missing expiration checks.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "price_manipulation"
+      ],
+      "correction_explanation": "The vulnerability is primarily a business logic issue as it allows price manipulation through expired orders."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 60,
+      "mando_applicable": false,
+      "reasoning": "The MANDO categories do not directly address business logic flaws related to order expiration checks in price calculations."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G9"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue is a business logic flaw as it allows manipulation of market prices due to missing checks for expired orders. It also relates to blockchain data as it involves order expiration based on timestamps.",
+      "vulnerability_type": "Business logic flaw allowing price manipulation through expired orders"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves adding checks to ensure that only non-expired orders are considered when calculating the mid and impact prices.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "getMidPrice",
+          "fixed_function_code": "function getMidPrice(Market storage self) internal view returns (uint256 midPrice) {\n    bytes32 asset = self.asset;\n\n    // Retrieve only non-expired best bid and ask\n    uint256 bestBid = StorageLib.loadBook(asset).getBestNonExpiredBid();\n    uint256 bestAsk = StorageLib.loadBook(asset).getBestNonExpiredAsk();\n\n    if (bestAsk == type(uint256).max || bestBid == 0) return 0;\n\n    return (bestBid + bestAsk) / 2;\n}",
+          "reasoning": "This function now checks for non-expired orders by using `getBestNonExpiredBid` and `getBestNonExpiredAsk`, ensuring that expired orders do not affect the mid price calculation."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "getImpactPrice",
+          "fixed_function_code": "function getImpactPrice(Market storage self, uint256 impactNotional) internal view returns (uint256 impactPrice) {\n    // Quote bid and ask using only non-expired orders\n    (uint256 baseAmount, uint256 quoteUsed) = StorageLib.loadBook(self.asset).quoteNonExpiredBidInQuote(impactNotional);\n\n    if (impactNotional > quoteUsed) baseAmount += (impactNotional - quoteUsed).fullMulDiv(1e18, type(uint256).max);\n\n    uint256 impactBid = baseAmount == 0 ? 0 : impactNotional.fullMulDiv(1e18, baseAmount);\n\n    (baseAmount, quoteUsed) = StorageLib.loadBook(self.asset).quoteNonExpiredAskInQuote(impactNotional);\n\n    if (impactNotional > quoteUsed) baseAmount += (impactNotional - quoteUsed).fullMulDiv(1e18, 1);\n\n    uint256 impactAsk = impactNotional.fullMulDiv(1e18, baseAmount);\n\n    return (impactBid + impactAsk) / 2;\n}",
+          "reasoning": "This function now uses `quoteNonExpiredBidInQuote` and `quoteNonExpiredAskInQuote` to ensure that only non-expired orders are used in the impact price calculation, preventing manipulation through expired orders."
+        }
+      ],
+      "key_changes": [
+        "Introduced checks for non-expired orders in mid price calculation.",
+        "Introduced checks for non-expired orders in impact price calculation.",
+        "Modified StorageLib functions to handle non-expired orders."
+      ],
+      "security_improvements": [
+        "Prevents price manipulation through expired orders.",
+        "Ensures accurate pricing by considering only valid orders.",
+        "Reduces risk of incorrect funding rates and liquidations."
+      ],
+      "additional_recommendations": "Regularly audit the order book management to ensure all functions handle expiration correctly.",
+      "confidence": 95,
+      "fix_code": "function getMidPrice(Market storage self) internal view returns (uint256 midPrice) {\n    bytes32 asset = self.asset;\n\n    // Retrieve only non-expired best bid and ask\n    uint256 bestBid = StorageLib.loadBook(asset).getBestNonExpiredBid();\n    uint256 bestAsk = StorageLib.loadBook(asset).getBestNonExpiredAsk();\n\n    if (bestAsk == type(uint256).max || bestBid == 0) return 0;\n\n    return (bestBid + bestAsk) / 2;\n}\n\nfunction getImpactPrice(Market storage self, uint256 impactNotional) internal view returns (uint256 impactPrice) {\n    // Quote bid and ask using only non-expired orders\n    (uint256 baseAmount, uint256 quoteUsed) = StorageLib.loadBook(self.asset).quoteNonExpiredBidInQuote(impactNotional);\n\n    if (impactNotional > quoteUsed) baseAmount += (impactNotional - quoteUsed).fullMulDiv(1e18, type(uint256).max);\n\n    uint256 impactBid = baseAmount == 0 ? 0 : impactNotional.fullMulDiv(1e18, baseAmount);\n\n    (baseAmount, quoteUsed) = StorageLib.loadBook(self.asset).quoteNonExpiredAskInQuote(impactNotional);\n\n    if (impactNotional > quoteUsed) baseAmount += (impactNotional - quoteUsed).fullMulDiv(1e18, 1);\n\n    uint256 impactAsk = impactNotional.fullMulDiv(1e18, baseAmount);\n\n    return (impactBid + impactAsk) / 2;\n}",
+      "expected_fixed_blocks": 2,
+      "returned_fixed_blocks": 2,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:40:13.689237"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:40:13.689260",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

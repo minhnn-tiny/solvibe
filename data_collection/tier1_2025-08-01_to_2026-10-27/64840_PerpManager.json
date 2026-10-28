@@ -1,0 +1,158 @@
+{
+  "id": "64840",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/perps/PerpManager.sol# L97",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      97,
+      97
+    ],
+    [
+      136,
+      139
+    ]
+  ],
+  "filename": "64840_PerpManager.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 399,
+  "vulnerability_title": "[M-05] Protocol Disable Functionality Bypass Allows Critical Operations During Emergency Shutdown",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Add the `onlyActiveProtocol` modifier to all margin and collateral management functions that should be restricted during protocol shutdown.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-130)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "deposit",
+        "start_line": 96,
+        "end_line": 102,
+        "code": "\n    function deposit(address account, uint256 amount)\n        external\n        onlySenderOrOperator(account, PerpsOperatorRoles.DEPOSIT_ACCOUNT)\n    {\n        StorageLib.loadCollateralManager().depositFreeCollateral(account, account, amount);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            97,
+            97
+          ]
+        ]
+      },
+      {
+        "function_name": "addMargin",
+        "start_line": 135,
+        "end_line": 174,
+        "code": "\n    function addMargin(address account, uint256 subaccount, uint256 amount)\n        external\n        onlySenderOrOperator(account, PerpsOperatorRoles.DEPOSIT_MARGIN)\n    {\n        ClearingHouse storage clearingHouse = StorageLib.loadClearingHouse();\n\n        __MarginUpdateCache__ memory cache;\n\n        // load account\n        (cache.assets, cache.positions) = clearingHouse.getAccount(account, subaccount);\n\n        if (amount == 0) revert InvalidDeposit();\n        if (cache.positions.length == 0) revert InvalidDeposit();\n\n        // realize funding payment\n        cache.fundingPayment = ClearingHouseLib.realizeFundingPayment(cache.assets, cache.positions);\n\n        // settle margin update\n        int256 remainingMargin = StorageLib.loadCollateralManager().settleMarginUpdate({\n            account: account,\n            subaccount: subaccount,\n            marginDelta: amount.toInt256(),\n            fundingPayment: cache.fundingPayment\n        });\n\n        // assert not liquidatable\n        clearingHouse.assertNotLiquidatable({assets: cache.assets, positions: cache.positions, margin: remainingMargin});\n\n        // set position update (note: this will just be the new position.lastCumulativeFunding)\n        clearingHouse.setPositions({\n            tradedAsset: \"\",\n            account: account,\n            subaccount: subaccount,\n            assets: cache.assets,\n            positions: cache.positions\n        });\n\n        emit MarginAdded(account, subaccount, amount, remainingMargin, StorageLib.incNonce());\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            136,
+            139
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:34:49.950254",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of missing access control during emergency shutdown.",
+      "content_reasoning": "The content mentions functions like 'addMargin' and 'deposit' which are present in the code and lack the 'onlyActiveProtocol' modifier.",
+      "functions_found": [
+        "deposit",
+        "addMargin"
+      ],
+      "variables_found": [
+        "active"
+      ],
+      "patterns_found": [
+        "missing modifier"
+      ],
+      "issues": [
+        "missing access control during emergency shutdown"
+      ]
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report lacks a tag, but it clearly involves an access control issue.",
+      "suggested_tag": "access_control",
+      "alternative_tags": [
+        "authorization"
+      ],
+      "correction_explanation": "The issue is primarily about missing access control during protocol shutdown, which fits the 'access_control' tag."
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "secondary_categories": [],
+      "confidence": 100,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability is related to authorization and permissions, which fits the 'access_control' category in MANDO."
+    },
+    "scsvs_classification": {
+      "primary_category": "G5",
+      "primary_category_name": "Access control",
+      "secondary_categories": [],
+      "confidence": 100,
+      "use_scsvs_instead": false,
+      "reasoning": "The issue is a classic access control problem, which is well-covered by both MANDO and SCSVS under access control categories.",
+      "vulnerability_type": "Missing access control during emergency shutdown"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Add the 'onlyActiveProtocol' modifier to critical functions to ensure they cannot be executed during an emergency shutdown.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "deposit",
+          "fixed_function_code": "function deposit(address account, uint256 amount)\n        external\n        onlySenderOrOperator(account, PerpsOperatorRoles.DEPOSIT_ACCOUNT)\n        onlyActiveProtocol\n    {\n        StorageLib.loadCollateralManager().depositFreeCollateral(account, account, amount);\n    }",
+          "reasoning": "The 'onlyActiveProtocol' modifier ensures that the deposit function cannot be executed when the protocol is in a shutdown state, preventing unauthorized access to funds."
+        },
+        {
+          "snippet_index": 2,
+          "function_name": "addMargin",
+          "fixed_function_code": "function addMargin(address account, uint256 subaccount, uint256 amount)\n        external\n        onlySenderOrOperator(account, PerpsOperatorRoles.DEPOSIT_MARGIN)\n        onlyActiveProtocol\n    {\n        ClearingHouse storage clearingHouse = StorageLib.loadClearingHouse();\n\n        __MarginUpdateCache__ memory cache;\n\n        // load account\n        (cache.assets, cache.positions) = clearingHouse.getAccount(account, subaccount);\n\n        if (amount == 0) revert InvalidDeposit();\n        if (cache.positions.length == 0) revert InvalidDeposit();\n\n        // realize funding payment\n        cache.fundingPayment = ClearingHouseLib.realizeFundingPayment(cache.assets, cache.positions);\n\n        // settle margin update\n        int256 remainingMargin = StorageLib.loadCollateralManager().settleMarginUpdate({\n            account: account,\n            subaccount: subaccount,\n            marginDelta: amount.toInt256(),\n            fundingPayment: cache.fundingPayment\n        });\n\n        // assert not liquidatable\n        clearingHouse.assertNotLiquidatable({assets: cache.assets, positions: cache.positions, margin: remainingMargin});\n\n        // set position update (note: this will just be the new position.lastCumulativeFunding)\n        clearingHouse.setPositions({\n            tradedAsset: \"\",\n            account: account,\n            subaccount: subaccount,\n            assets: cache.assets,\n            positions: cache.positions\n        });\n\n        emit MarginAdded(account, subaccount, amount, remainingMargin, StorageLib.incNonce());\n    }",
+          "reasoning": "The 'onlyActiveProtocol' modifier prevents the addMargin function from being executed during a protocol shutdown, ensuring that users cannot alter their margin positions inappropriately."
+        }
+      ],
+      "key_changes": [
+        "Added 'onlyActiveProtocol' modifier to the 'deposit' function.",
+        "Added 'onlyActiveProtocol' modifier to the 'addMargin' function."
+      ],
+      "security_improvements": [
+        "Prevents unauthorized access to critical functions during protocol shutdown.",
+        "Ensures protocol integrity by restricting operations during emergencies."
+      ],
+      "additional_recommendations": "Regularly audit access control modifiers to ensure they are applied consistently across all critical functions.",
+      "confidence": 95,
+      "fix_code": "function deposit(address account, uint256 amount)\n        external\n        onlySenderOrOperator(account, PerpsOperatorRoles.DEPOSIT_ACCOUNT)\n        onlyActiveProtocol\n    {\n        StorageLib.loadCollateralManager().depositFreeCollateral(account, account, amount);\n    }\n\nfunction addMargin(address account, uint256 subaccount, uint256 amount)\n        external\n        onlySenderOrOperator(account, PerpsOperatorRoles.DEPOSIT_MARGIN)\n        onlyActiveProtocol\n    {\n        ClearingHouse storage clearingHouse = StorageLib.loadClearingHouse();\n\n        __MarginUpdateCache__ memory cache;\n\n        // load account\n        (cache.assets, cache.positions) = clearingHouse.getAccount(account, subaccount);\n\n        if (amount == 0) revert InvalidDeposit();\n        if (cache.positions.length == 0) revert InvalidDeposit();\n\n        // realize funding payment\n        cache.fundingPayment = ClearingHouseLib.realizeFundingPayment(cache.assets, cache.positions);\n\n        // settle margin update\n        int256 remainingMargin = StorageLib.loadCollateralManager().settleMarginUpdate({\n            account: account,\n            subaccount: subaccount,\n            marginDelta: amount.toInt256(),\n            fundingPayment: cache.fundingPayment\n        });\n\n        // assert not liquidatable\n        clearingHouse.assertNotLiquidatable({assets: cache.assets, positions: cache.positions, margin: remainingMargin});\n\n        // set position update (note: this will just be the new position.lastCumulativeFunding)\n        clearingHouse.setPositions({\n            tradedAsset: \"\",\n            account: account,\n            subaccount: subaccount,\n            assets: cache.assets,\n            positions: cache.positions\n        });\n\n        emit MarginAdded(account, subaccount, amount, remainingMargin, StorageLib.incNonce());\n    }",
+      "expected_fixed_blocks": 2,
+      "returned_fixed_blocks": 2,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:39:46.897666"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:39:46.897688",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

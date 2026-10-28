@@ -1,0 +1,85 @@
+{
+  "id": "codespect-2026-02-04-dutch-H-02",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/dutch-protocol/Protocol-Contracts/tree/cec8b243aa645fdbe80e05e613eca69542b62a2e/src/AuctionAssist.sol#L309",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      309,
+      309
+    ]
+  ],
+  "filename": "codespect-2026-02-04-dutch-H-02_AuctionAssist.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 658,
+  "vulnerability_title": "Contributions not reset after purchase allows infinite reward claims",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "recordPurchase",
+        "start_line": 309,
+        "end_line": 373,
+        "code": "    function recordPurchase(\n        address collection_,\n        uint256 tokenId_,\n        uint256 costETH_\n    ) external returns (uint256 purchaseId_) {\n        // 1. Validate caller is DutchVault.\n        if (msg.sender != _dutchVault) {\n            revert UnauthorizedCaller();\n        }\n\n        // 2. Validate cost is non-zero.\n        if (costETH_ == 0) {\n            revert InvalidPurchaseCost();\n        }\n\n        // 3. Increment purchase counter.\n        purchaseId_ = _purchaseIdCounter++;\n\n        // 4. Get total contributions for this collection.\n        uint256 totalContributionETH_ = _totalContributions[collection_];\n\n        // 5. Get list of contributors.\n        address[] memory contributors_ =\n            _collectionContributors[collection_];\n\n        // 6. Store purchase info.\n        NFTPurchaseInfo storage purchase_ = _purchases[purchaseId_];\n        purchase_.collection = collection_;\n        purchase_.tokenId = tokenId_;\n        purchase_.costETH = costETH_;\n        purchase_.totalContributionETH = totalContributionETH_;\n        purchase_.rewardsFunded = false;\n\n        // 7. Calculate and store contributor shares based on actual cost.\n        for (uint256 i; i < contributors_.length; ++i) {\n            address contributor_ = contributors_[i];\n            uint256 contributionAmount_ =\n                _contributions[contributor_][collection_].amount;\n\n            if (contributionAmount_ > 0) {\n                // Calculate share as (contribution * 10000) / cost.\n                uint256 shareBPS_ =\n                    (contributionAmount_ * 10000) / costETH_;\n                \n                // Cap at 10000 BPS (100%) to prevent over-distribution.\n                if (shareBPS_ > 10000) {\n                    shareBPS_ = 10000;\n                }\n                \n                _purchaseShares[purchaseId_][contributor_] = shareBPS_;\n                purchase_.contributors.push(contributor_);\n            }\n        }\n\n        // 8. Emit event.\n        emit PurchaseRecorded(\n            purchaseId_,\n            collection_,\n            tokenId_,\n            costETH_,\n            purchase_.contributors.length\n        );\n\n        return purchaseId_;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            309,
+            309
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:45:18.005244",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "recordPurchase computes each contributor's share from _contributions[contributor][collection].amount, but nothing in the contract ever resets that amount. The same contribution earns a share of every later purchase in the collection.",
+      "functions_found": [
+        "recordPurchase"
+      ],
+      "variables_found": [
+        "_contributions",
+        "_purchaseShares",
+        "_totalContributions"
+      ],
+      "patterns_found": [
+        "contribution amount never reset after a purchase"
+      ],
+      "issues": []
+    },
+    "mando_classification": {
+      "primary_category": null,
+      "mando_applicable": false
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "vulnerability_type": "old contributions earn shares in every later purchase"
+    },
+    "fix_code_source": "none"
+  }
+}

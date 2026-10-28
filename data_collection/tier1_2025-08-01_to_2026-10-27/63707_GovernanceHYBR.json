@@ -1,0 +1,114 @@
+{
+  "id": "63707",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-10-hybra-finance/blob/66c42f3c9754f1b38942c69ebc0d3e4c0f8fdeb2/ve33/contracts/GovernanceHYBR.sol# L137-L144",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      137,
+      144
+    ]
+  ],
+  "filename": "63707_GovernanceHYBR.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 636,
+  "vulnerability_title": "[H-01] Assets deposited before calculating shares amount to mint will cause users to mint less shares",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Make sure that the ratio at the time of deposit must be used to calculate the shares to mint:\n```\n\n        IERC20(HYBR).transferFrom(msg.sender, address(this), amount);\n+       uint256 shares = calculateShares(amount);\n\n        // Initialize veNFT on first deposit\n        if (veTokenId == 0) {\n            _initializeVeNFT(amount);\n        } else {\n            // Add to existing veNFT\n            IERC20(HYBR).approve(votingEscrow, amount);\n            IVotingEscrow(votingEscrow).deposit_for(veTokenId, amount);\n\n            // Extend lock to maximum duration\n            _extendLockToMax();\n        }\n\n        // Calculate shares to mint based on current totalAssets\n-       uint256 shares = calculateShares(amount);\n```\n\nProof of concept\n\n`forge test --mt test_test_submissionValidity -vvv`\n```\n\n    function test_submissionValidity() external {\n        address bob = makeAddr(\"bob\");\n        address alice = makeAddr(\"alice\");\n\n        vm.startPrank(address(minter));\n        hybr.mint(bob, 100e18);\n        hybr.mint(alice, 100e18);\n        vm.stopPrank();\n\n        // bob mints gHYBR shares at 1:1 ratio\n        vm.startPrank(bob);\n        hybr.approve(address(gHybr), 100e18);\n        gHybr.deposit(100e18, bob);\n        uint bobShares = gHybr.balanceOf(bob);\n        console.log(\"Bob shares: \", bobShares);\n        uint shareToAssetRatio = gHybr.calculateAssets(1e18);\n        vm.stopPrank();\n\n        // Alice mints gHYBR shares at 1:1 ratio but gets less shares due to the incorrect shares calculation\n        vm.startPrank(alice);\n        hybr.approve(address(gHybr), 100e18);\n        gHybr.deposit(100e18, alice);\n        uint aliceShares = gHybr.balanceOf(alice);\n        console.log(\"Alice shares: \", aliceShares);\n        uint aliceShareToAssetRatio = gHybr.calculateAssets(1e18);\n        vm.stopPrank();\n\n        console.log(\"ratio after Bob deposits                                              : \", shareToAssetRatio);\n        console.log(\"ratio after Alice deposits even when there was no rewards distribution: \", aliceShareToAssetRatio);\n    }\n```\n\nWe can see from the test console that Alice recieves less shares than bob with the same assset amount deposits.\n\n**[Hybra Finance mitigated](https://github.com/code-423n4/2025-11-hybra-finance-mitigation?tab=readme-ov-file# mitigations-of-high--medium-severity-issues):**\n\n> S-321 calculating shares use the pool ratio at the time of deposit\n> S-352 check share is zero\n> S- 101 too many locks check\n\n**Status:** Mitigation confirmed. Full details in the [mitigation review reports from niffylord, rayss, and ZanyBonzy](https://code4rena.com/audits/2025-11-hybra-finance-mitigation-review/submissions/S-1).\n\n---",
+    "fix_code_blocks": [
+      "IERC20(HYBR).transferFrom(msg.sender, address(this), amount);\n+       uint256 shares = calculateShares(amount);\n\n        // Initialize veNFT on first deposit\n        if (veTokenId == 0) {\n            _initializeVeNFT(amount);\n        } else {\n            // Add to existing veNFT\n            IERC20(HYBR).approve(votingEscrow, amount);\n            IVotingEscrow(votingEscrow).deposit_for(veTokenId, amount);\n\n            // Extend lock to maximum duration\n            _extendLockToMax();\n        }\n\n        // Calculate shares to mint based on current totalAssets\n-       uint256 shares = calculateShares(amount);",
+      "function test_submissionValidity() external {\n        address bob = makeAddr(\"bob\");\n        address alice = makeAddr(\"alice\");\n\n        vm.startPrank(address(minter));\n        hybr.mint(bob, 100e18);\n        hybr.mint(alice, 100e18);\n        vm.stopPrank();\n\n        // bob mints gHYBR shares at 1:1 ratio\n        vm.startPrank(bob);\n        hybr.approve(address(gHybr), 100e18);\n        gHybr.deposit(100e18, bob);\n        uint bobShares = gHybr.balanceOf(bob);\n        console.log(\"Bob shares: \", bobShares);\n        uint shareToAssetRatio = gHybr.calculateAssets(1e18);\n        vm.stopPrank();\n\n        // Alice mints gHYBR shares at 1:1 ratio but gets less shares due to the incorrect shares calculation\n        vm.startPrank(alice);\n        hybr.approve(address(gHybr), 100e18);\n        gHybr.deposit(100e18, alice);\n        uint aliceShares = gHybr.balanceOf(alice);\n        console.log(\"Alice shares: \", aliceShares);\n        uint aliceShareToAssetRatio = gHybr.calculateAssets(1e18);\n        vm.stopPrank();\n\n        console.log(\"ratio after Bob deposits                                              : \", shareToAssetRatio);\n        console.log(\"ratio after Alice deposits even when there was no rewards distribution: \", aliceShareToAssetRatio);\n    }"
+    ]
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "deposit",
+        "start_line": 124,
+        "end_line": 153,
+        "code": "    function deposit(uint256 amount, address recipient) external nonReentrant {\n        require(amount > 0, \"Zero amount\");\n        recipient = recipient == address(0) ? msg.sender : recipient;\n        \n        // Transfer HYBR from user first\n        IERC20(HYBR).transferFrom(msg.sender, address(this), amount);\n        \n        // Initialize veNFT on first deposit\n        if (veTokenId == 0) {\n            _initializeVeNFT(amount);\n        } else {\n            // Add to existing veNFT\n            IERC20(HYBR).approve(votingEscrow, amount);\n            IVotingEscrow(votingEscrow).deposit_for(veTokenId, amount);\n\n            // Extend lock to maximum duration\n            _extendLockToMax();\n        }\n        \n        // Calculate shares to mint based on current totalAssets\n        uint256 shares = calculateShares(amount);\n        \n        // Mint gHYBR shares\n        _mint(recipient, shares);\n        \n        // Add transfer lock for recipient\n        _addTransferLock(recipient, shares);\n        \n        emit Deposit(msg.sender, amount, shares);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            137,
+            144
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:07:47.289653",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of incorrect share calculation due to the order of operations in the deposit function.",
+      "content_reasoning": "The content mentions the relevant functions and variables that exist in the code, specifically the deposit function and the calculation of shares.",
+      "functions_found": [
+        "deposit",
+        "calculateShares",
+        "_mint"
+      ],
+      "variables_found": [
+        "amount",
+        "recipient",
+        "shares"
+      ],
+      "patterns_found": [
+        "incorrect share calculation",
+        "asset loss due to logic error"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 90,
+      "reasoning": "The report does not have a tag, which is necessary for categorization and tracking of vulnerabilities.",
+      "suggested_tag": "share_calculation_error",
+      "alternative_tags": [
+        "asset_loss",
+        "logic_error"
+      ],
+      "correction_explanation": "A tag is needed to identify the specific nature of the vulnerability related to share calculation."
+    },
+    "mando_classification": {
+      "primary_category": "arithmetic",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The issue relates to incorrect arithmetic operations affecting share calculations, which falls under the arithmetic category."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G7"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is primarily related to the business logic of share calculations, and it also involves arithmetic issues.",
+      "vulnerability_type": "Incorrect share calculation leading to asset loss"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-04-25T08:55:54.794763",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

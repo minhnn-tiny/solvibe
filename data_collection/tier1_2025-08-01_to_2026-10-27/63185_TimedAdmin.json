@@ -1,0 +1,143 @@
+{
+  "id": "63185",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/itos-finance/Commons/blob/621c2337f7acbf2a537500cddb82e3216adf5aa6/src/Util/TimedAdmin.sol#L29-L35",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      29,
+      35
+    ],
+    [
+      23,
+      26
+    ],
+    [
+      112,
+      115
+    ]
+  ],
+  "filename": "63185_TimedAdmin.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 68,
+  "vulnerability_title": "M-6: Pending Owner cannot accept ownership because of wrong implementation of `transferOwnership` and `acceptOwnership` functions",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Call `AdminLib.reassignOwner` in `transferOwnership` function.\n\n```solidity\nfunction transferOwnership(address _newOwner) external virtual override {\n    AdminLib.validateOwner();\n    AdminLib.reassignOwner(_newOwner);  // @audit: call it here\n    Timed.memoryPrecommit(OWNER_USE_ID, abi.encode(_newOwner));\n}\n\nfunction acceptOwnership() external virtual override {\n    // @audit: You should leave this as is even though you try to remove below condition check because need to check delay is passed or not\n    bytes memory entry = Timed.fetchPrecommit(OWNER_USE_ID, getDelay(true));\n    address _newOwner = abi.decode(entry, (address));\n    // @audit: Just check if _newOwer is msg.sender. You can skip this check because AdminLib.acceptOwnership checks it\n    if (_newOwner != msg.sender) {\n        revert AdminLib.ImproperOwnershipAcceptance();\n    }\n    AdminLib.acceptOwnership();\n    emit IERC173.OwnershipTransferred(AdminLib.getOwner(), msg.sender);\n}\n```",
+    "fix_code_blocks": [
+      "function transferOwnership(address _newOwner) external virtual override {\n    AdminLib.validateOwner();\n    AdminLib.reassignOwner(_newOwner);  // @audit: call it here\n    Timed.memoryPrecommit(OWNER_USE_ID, abi.encode(_newOwner));\n}\n\nfunction acceptOwnership() external virtual override {\n    // @audit: You should leave this as is even though you try to remove below condition check because need to check delay is passed or not\n    bytes memory entry = Timed.fetchPrecommit(OWNER_USE_ID, getDelay(true));\n    address _newOwner = abi.decode(entry, (address));\n    // @audit: Just check if _newOwer is msg.sender. You can skip this check because AdminLib.acceptOwnership checks it\n    if (_newOwner != msg.sender) {\n        revert AdminLib.ImproperOwnershipAcceptance();\n    }\n    AdminLib.acceptOwnership();\n    emit IERC173.OwnershipTransferred(AdminLib.getOwner(), msg.sender);\n}"
+    ]
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "Add below test function to `Ammplify\\test\\facets\\Admin.t.sol` and run `forge test --mt testPendingOwnerCannotAcceptOwnership -vvvv` in terminal.\n\n```solidity\nfunction testPendingOwnerCannotAcceptOwnership() public {\n    address pendingOwner = makeAddr(\"pendingOwner\");\n        \n    adminFacet.transferOwnership(pendingOwner);\n\n    // Skip the time delay for testing (3 days as per AdminFacet.getDelay implementation)\n    vm.warp(block.timestamp + 3 days);\n        \n    vm.startPrank(pendingOwner);\n\n    vm.expectRevert(AdminLib.NotOwner.selector);\n    adminFacet.acceptOwnership();\n\n    vm.stopPrank();\n}\n```",
+    "poc_code_blocks": [
+      "function testPendingOwnerCannotAcceptOwnership() public {\n    address pendingOwner = makeAddr(\"pendingOwner\");\n        \n    adminFacet.transferOwnership(pendingOwner);\n\n    // Skip the time delay for testing (3 days as per AdminFacet.getDelay implementation)\n    vm.warp(block.timestamp + 3 days);\n        \n    vm.startPrank(pendingOwner);\n\n    vm.expectRevert(AdminLib.NotOwner.selector);\n    adminFacet.acceptOwnership();\n\n    vm.stopPrank();\n}"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "acceptOwnership",
+        "start_line": 29,
+        "end_line": 35,
+        "code": "    function acceptOwnership() external virtual override {\n        bytes memory entry = Timed.fetchPrecommit(OWNER_USE_ID, getDelay(true));\n        address _newOwner = abi.decode(entry, (address));\n        AdminLib.reassignOwner(_newOwner);\n        AdminLib.acceptOwnership();\n        emit IERC173.OwnershipTransferred(AdminLib.getOwner(), msg.sender);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            29,
+            35
+          ]
+        ]
+      },
+      {
+        "function_name": "getRightsUseID",
+        "start_line": 15,
+        "end_line": 26,
+        "code": "    function getRightsUseID(bool add) internal view virtual returns (uint256);\n\n    /// The delay rights have to wait before being accepted.\n    /// @param add True if we want to add rights. False if we want to remove them.\n    function getDelay(bool add) public view virtual returns (uint32);\n\n    /* Owner changes */\n\n    function transferOwnership(address _newOwner) external virtual override {\n        AdminLib.validateOwner();\n        Timed.memoryPrecommit(OWNER_USE_ID, abi.encode(_newOwner));\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            23,
+            26
+          ]
+        ]
+      },
+      {
+        "code": "",
+        "start_line": 112,
+        "end_line": 112,
+        "context_start_line": 97,
+        "context_end_line": 68,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:06:20.428040",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue with the ownership transfer process and the incorrect function calls.",
+      "content_reasoning": "The content mentions the relevant functions and their roles in the ownership transfer process, which are present in the extracted code.",
+      "functions_found": [
+        "transferOwnership",
+        "acceptOwnership",
+        "reassignOwner",
+        "validateOwner"
+      ],
+      "variables_found": [
+        "_newOwner"
+      ],
+      "patterns_found": [
+        "incorrect function call",
+        "ownership transfer issue"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 85,
+      "reasoning": "The report lacks a tag that reflects the ownership transfer issue, which is a significant aspect of smart contract security.",
+      "suggested_tag": "access_control",
+      "alternative_tags": [
+        "ownership_issue",
+        "authorization"
+      ],
+      "correction_explanation": "A tag related to access control is appropriate as the issue directly involves the management of ownership privileges."
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "secondary_categories": [],
+      "confidence": 90,
+      "mando_applicable": true,
+      "reasoning": "The issue directly relates to access control as it involves the inability of the pending owner to accept ownership due to incorrect function implementation."
+    },
+    "scsvs_classification": {
+      "primary_category": "G5",
+      "primary_category_name": "Access control",
+      "secondary_categories": [],
+      "confidence": 90,
+      "use_scsvs_instead": false,
+      "reasoning": "The MANDO category of access control is sufficient to describe the vulnerability, and SCSVS does not provide a more specific category for this issue.",
+      "vulnerability_type": "Access control issue in ownership transfer"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-04-24T21:56:22.935594",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

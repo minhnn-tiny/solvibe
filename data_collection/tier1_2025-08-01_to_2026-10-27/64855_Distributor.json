@@ -1,0 +1,103 @@
+{
+  "id": "64855",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/launchpad/Distributor.sol# L119",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      119,
+      119
+    ]
+  ],
+  "filename": "64855_Distributor.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 198,
+  "vulnerability_title": "[H-07] Total reward shares for token can reach zero after unlocking, causing `GTELaunchpadV2Pair` to be bricked",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "It appears the condition on LaunchToken.sol:147 may have been coded accidentally with the wrong condition. It would make sense to change it to:\n```\n\nif (totalFeeShare == 0 && unlocked) _endRewards();\n```\n\nThis way the rewards program will end post-unlocking if all stakers transfer their tokens out, preventing `Distributor::addRewards` being called by the pair.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-5)\n\n---",
+    "fix_code_blocks": [
+      "if (totalFeeShare == 0 && unlocked) _endRewards();"
+    ]
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "addRewards",
+        "start_line": 106,
+        "end_line": 132,
+        "code": "    function addRewards(address token0, address token1, uint128 amount0, uint128 amount1) external {\n        (address launchAsset, address quoteAsset, uint128 launchAssetAmount, uint128 quoteAssetAmount) =\n            (token0, token1, amount0, amount1);\n        RewardPoolData storage rs = RewardsTrackerStorage.getRewardPool(token0);\n\n        if (rs.quoteAsset == address(0)) {\n            rs = RewardsTrackerStorage.getRewardPool(token1);\n\n            if (rs.quoteAsset == address(0)) revert RewardsDoNotExist();\n\n            (launchAsset, quoteAsset, launchAssetAmount, quoteAssetAmount) = (token1, token0, amount1, amount0);\n        }\n\n        if (rs.totalShares == 0) revert NoSharesToIncentivize();\n\n        if (launchAssetAmount > 0) {\n            rs.addBaseRewards(launchAsset, launchAssetAmount);\n            _increaseTotalPending(launchAsset, launchAssetAmount);\n            launchAsset.safeTransferFrom(msg.sender, address(this), uint256(launchAssetAmount));\n        }\n\n        if (quoteAssetAmount > 0) {\n            rs.addQuoteRewards(launchAsset, quoteAsset, quoteAssetAmount);\n            _increaseTotalPending(quoteAsset, quoteAssetAmount);\n            quoteAsset.safeTransferFrom(msg.sender, address(this), uint256(quoteAssetAmount));\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            119,
+            119
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:07.767271",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue where the totalShares reaching zero causes the rewards distribution to continue incorrectly, leading to a potential denial of service.",
+      "content_reasoning": "The code snippet includes the condition that checks if totalShares is zero and reverts, which aligns with the described vulnerability.",
+      "functions_found": [
+        "addRewards"
+      ],
+      "variables_found": [
+        "totalShares"
+      ],
+      "patterns_found": [
+        "revert on zero shares"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report lacks a tag, but it clearly describes a denial of service issue due to incorrect logic handling.",
+      "suggested_tag": "denial_of_service",
+      "alternative_tags": [],
+      "correction_explanation": "The issue causes a denial of service by making the contract unresponsive when totalShares is zero."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [],
+      "confidence": 95,
+      "mando_applicable": true,
+      "reasoning": "The issue directly leads to a denial of service as the contract becomes unresponsive due to incorrect handling of zero totalShares."
+    },
+    "scsvs_classification": {
+      "primary_category": "G8",
+      "primary_category_name": "Denial of service",
+      "secondary_categories": [],
+      "confidence": 95,
+      "use_scsvs_instead": false,
+      "reasoning": "The MANDO category 'denial_of_service' is sufficient to describe the issue, as it directly causes the contract to become unresponsive.",
+      "vulnerability_type": "Denial of service due to incorrect logic handling when totalShares is zero."
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-03-20T15:21:28.174720",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "id": "61797",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/AladdinDAO/fx-protocol-contracts/blob/56a47eab8d10334e479df83a2b13a8b68ce390e9/contracts/core/PoolManager.sol#L259-L264",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      259,
+      264
+    ],
+    [
+      259,
+      264
+    ],
+    [
+      128,
+      157
+    ]
+  ],
+  "filename": "61797_PoolManager.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 715,
+  "vulnerability_title": "Users Can Open Null Positions",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "operate",
+        "start_line": 259,
+        "end_line": 304,
+        "code": "  function operate(\n    address pool,\n    uint256 positionId,\n    int256 newColl,\n    int256 newDebt\n  ) external onlyRegisteredPool(pool) nonReentrant whenNotPaused returns (uint256) {\n    address collateralToken = IPool(pool).collateralToken();\n    uint256 scalingFactor = _getTokenScalingFactor(collateralToken);\n\n    int256 newRawColl = newColl;\n    if (newRawColl != type(int256).min) {\n      newRawColl = _scaleUp(newRawColl, scalingFactor);\n    }\n\n    uint256 rawProtocolFees;\n    // the `newRawColl` is the result without `protocolFees`\n    (positionId, newRawColl, newDebt, rawProtocolFees) = IPool(pool).operate(\n      positionId,\n      newRawColl,\n      newDebt,\n      _msgSender()\n    );\n\n    newColl = _scaleDown(newRawColl, scalingFactor);\n    uint256 protocolFees = _scaleDown(rawProtocolFees, scalingFactor);\n    _changePoolDebts(pool, newDebt);\n    if (newRawColl > 0) {\n      _accumulatePoolOpenFee(pool, protocolFees);\n      _changePoolCollateral(pool, newColl, newRawColl);\n      IERC20(collateralToken).safeTransferFrom(_msgSender(), address(this), uint256(newColl) + protocolFees);\n    } else if (newRawColl < 0) {\n      _accumulatePoolCloseFee(pool, protocolFees);\n      _changePoolCollateral(pool, newColl - int256(protocolFees), newRawColl - int256(rawProtocolFees));\n      _transferOut(collateralToken, uint256(-newColl), _msgSender());\n    }\n\n    if (newDebt > 0) {\n      IFxUSDRegeneracy(fxUSD).mint(_msgSender(), uint256(newDebt));\n    } else if (newDebt < 0) {\n      IFxUSDRegeneracy(fxUSD).burn(_msgSender(), uint256(-newDebt));\n    }\n\n    emit Operate(pool, positionId, newColl, newDebt, protocolFees);\n\n    return positionId;\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            259,
+            264
+          ],
+          [
+            259,
+            264
+          ]
+        ]
+      },
+      {
+        "code": "    uint96 scalar;\n    address rateProvider;\n  }\n\n  /// @dev Memory variables for liquidate or rebalance.\n  /// @param stablePrice The USD price of stable token (with scalar).\n  /// @param scalingFactor The scaling factor for collateral token.\n  /// @param collateralToken The address of collateral token.\n  /// @param rawColls The amount of raw collateral tokens liquidated or rebalanced, including bonus.\n  /// @param bonusRawColls The amount of raw collateral tokens used as bonus.\n  /// @param rawDebts The amount of raw debt tokens liquidated or rebalanced.\n  struct LiquidateOrRebalanceMemoryVar {\n    uint256 stablePrice;\n    uint256 scalingFactor;\n    address collateralToken;\n    uint256 rawColls;\n    uint256 bonusRawColls;\n    uint256 rawDebts;\n  }\n\n  /*********************\n   * Storage Variables *\n   *********************/\n\n  /// @dev The list of registered pools.\n  EnumerableSet.AddressSet private pools;\n\n  /// @notice Mapping to pool address to pool struct.\n  mapping(address => PoolStruct) private poolInfo;\n\n  /// @notice Mapping from pool address to rewards splitter.\n  mapping(address => address) public rewardSplitter;\n\n  /// @notice Mapping from token address to token rate struct.\n  mapping(address => TokenRate) public tokenRates;\n\n  /// @notice The threshold for permissioned liquidate or rebalance.\n  uint256 public permissionedLiquidationThreshold;\n\n  /*************\n   * Modifiers *\n   *************/\n\n  modifier onlyRegisteredPool(address pool) {\n    if (!pools.contains(pool)) revert ErrorPoolNotRegistered();\n    _;\n  }\n\n  modifier onlyFxUSDSave() {\n    if (_msgSender() != fxBASE) {\n      // allow permissonless rebalance or liquidate when insufficient fxUSD/USDC in fxBASE.\n      uint256 totalYieldToken = IFxUSDBasePool(fxBASE).totalYieldToken();\n      uint256 totalStableToken = IFxUSDBasePool(fxBASE).totalStableToken();\n      uint256 price = IFxUSDBasePool(fxBASE).getStableTokenPriceWithScale();\n      if (totalYieldToken + (totalStableToken * price) / PRECISION >= permissionedLiquidationThreshold) {\n        revert ErrorCallerNotFxUSDSave();\n      }\n    }\n    _;\n  }",
+        "start_line": 128,
+        "end_line": 157,
+        "context_start_line": 113,
+        "context_end_line": 172,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:01:13.348599",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of users being able to create null positions through the `operate` function.",
+      "content_reasoning": "The content mentions the `operate` function and the parameters involved, which are directly related to the vulnerability described.",
+      "functions_found": [
+        "operate"
+      ],
+      "variables_found": [
+        "positionId",
+        "newColl",
+        "newDebt"
+      ],
+      "patterns_found": [
+        "null position creation",
+        "event spamming"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 85,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to reflect the nature of the issue.",
+      "suggested_tag": "UX Issue",
+      "alternative_tags": [
+        "Event Spamming",
+        "State Management"
+      ],
+      "correction_explanation": "The issue primarily affects user experience and clarity, thus a tag related to UX or state management would be appropriate."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": false,
+      "reasoning": "The issue does not fit neatly into any of the MANDO categories as it is more related to user experience and protocol clarity rather than a security vulnerability."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G11"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue pertains to the business logic of the contract allowing null positions, which can confuse users and affect off-chain analysis. Additionally, it relates to code clarity as it introduces ambiguity.",
+      "vulnerability_type": "User experience issue due to null position creation"
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-04-25T19:49:24.671524",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

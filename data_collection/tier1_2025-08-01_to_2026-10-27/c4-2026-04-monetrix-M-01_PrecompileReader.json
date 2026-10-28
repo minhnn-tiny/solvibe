@@ -1,0 +1,360 @@
+{
+  "id": "c4-2026-04-monetrix-M-01",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2026-04-monetrix/blob/main/src/core/PrecompileReader.sol#L84-L91",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      84,
+      91
+    ],
+    [
+      133,
+      136
+    ],
+    [
+      152,
+      162
+    ],
+    [
+      146,
+      157
+    ],
+    [
+      180,
+      192
+    ],
+    [
+      84,
+      91
+    ],
+    [
+      133,
+      136
+    ],
+    [
+      152,
+      162
+    ],
+    [
+      146,
+      157
+    ],
+    [
+      180,
+      192
+    ],
+    [
+      212,
+      221
+    ],
+    [
+      395,
+      399
+    ],
+    [
+      84,
+      84
+    ],
+    [
+      169,
+      180
+    ],
+    [
+      84,
+      91
+    ],
+    [
+      212,
+      216
+    ],
+    [
+      395,
+      399
+    ],
+    [
+      160,
+      172
+    ],
+    [
+      86,
+      86
+    ],
+    [
+      83,
+      83
+    ],
+    [
+      88,
+      88
+    ],
+    [
+      79,
+      79
+    ]
+  ],
+  "filename": "c4-2026-04-monetrix-M-01_PrecompileReader.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 172,
+  "vulnerability_title": "[M-01] PM borrow liabilities are omitted from backing, allowing phantom surplus settlement",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Decode and account for both PM supply and PM borrow state. Replace `suppliedBalance()` with a reader that returns all 0x811 fields, then subtract borrow liabilities from `totalBackingSigned()` in the same units and valuation framework used for supplied assets. For USDC, subtract borrowed USDC 8dp converted to EVM 6dp. For non-USDC borrowable assets, subtract borrowed notional using the appropriate oracle and token metadata.\n\nA safer design is to compute a complete net PM equity value from HyperCore if a reliable precompile/API field exists, rather than reconstructing only the asset side from individual token slots.",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "[View detailed Proof of Concept](https://code4rena.com/audits/2026-04-monetrix/submissions/S-629#poc)",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "suppliedUsdcEvm",
+        "start_line": 133,
+        "end_line": 136,
+        "code": "    function suppliedUsdcEvm(address account) internal view returns (uint256) {\n        uint64 supplied = suppliedBalance(account, uint64(HyperCoreConstants.USDC_TOKEN_INDEX));\n        return TokenMath.usdcL1WeiToEvm(supplied);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            133,
+            136
+          ],
+          [
+            133,
+            136
+          ]
+        ]
+      },
+      {
+        "function_name": "suppliedNotionalUsdcFromPerp",
+        "start_line": 152,
+        "end_line": 162,
+        "code": "    function suppliedNotionalUsdcFromPerp(\n        uint32 spotTokenIndex,\n        uint32 perpIndex,\n        address account\n    ) internal view returns (uint256) {\n        uint64 supplied = suppliedBalance(account, uint64(spotTokenIndex));\n        if (supplied == 0) return 0;\n        uint64 price = oraclePx(perpIndex);\n        (uint8 weiDec, uint8 szDec) = _assetDecimals(spotTokenIndex, perpIndex);\n        return TokenMath.spotNotionalUsdcFromPerpPx(supplied, price, weiDec, szDec);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            152,
+            162
+          ],
+          [
+            152,
+            162
+          ],
+          [
+            160,
+            172
+          ]
+        ]
+      },
+      {
+        "function_name": "spotNotionalUsdcFromPerp",
+        "start_line": 139,
+        "end_line": 149,
+        "code": "    function spotNotionalUsdcFromPerp(\n        uint32 spotTokenIndex,\n        uint32 perpIndex,\n        address account\n    ) internal view returns (uint256) {\n        SpotBalance memory bal = spotBalance(account, uint64(spotTokenIndex));\n        if (bal.total == 0) return 0;\n        uint64 price = oraclePx(perpIndex);\n        (uint8 weiDec, uint8 szDec) = _assetDecimals(spotTokenIndex, perpIndex);\n        return TokenMath.spotNotionalUsdcFromPerpPx(bal.total, price, weiDec, szDec);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            146,
+            157
+          ],
+          [
+            146,
+            157
+          ]
+        ]
+      },
+      {
+        "function_name": "_assetDecimals",
+        "start_line": 163,
+        "end_line": 171,
+        "code": "\n    function _assetDecimals(uint32 spotTokenIndex, uint32 perpIndex)\n        private view returns (uint8 weiDec, uint8 perpSzDec)\n    {\n        TokenInfo memory ti = tokenInfo(spotTokenIndex);\n        PerpAssetInfo memory pi = perpAssetInfo(perpIndex);\n        weiDec = ti.weiDecimals;\n        perpSzDec = pi.szDecimals;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            169,
+            172
+          ]
+        ]
+      },
+      {
+        "function_name": "suppliedBalance",
+        "start_line": 85,
+        "end_line": 91,
+        "code": "    function suppliedBalance(address account, uint64 token) internal view returns (uint64 supplied) {\n        (bool ok, bytes memory res) = HyperCoreConstants.PRECOMPILE_SUPPLIED_BALANCE.staticcall(\n            abi.encode(account, token)\n        );\n        require(ok && res.length >= 128, \"PrecompileReader: supplied balance read failed\");\n        (,,, supplied) = abi.decode(res, (uint64, uint64, uint64, uint64));\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            86,
+            86
+          ],
+          [
+            88,
+            88
+          ]
+        ]
+      },
+      {
+        "function_name": "accountValueSigned",
+        "start_line": 76,
+        "end_line": 82,
+        "code": "    function accountValueSigned(address user) internal view returns (int64 accountValue) {\n        (bool ok, bytes memory res) = HyperCoreConstants.PRECOMPILE_ACCOUNT_MARGIN_SUMMARY.staticcall(\n            abi.encode(uint32(0), user)\n        );\n        require(ok && res.length >= 128, \"PrecompileReader: perp account read failed\");\n        (accountValue,,,) = abi.decode(res, (int64, uint64, uint64, int64));\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            79,
+            79
+          ]
+        ]
+      },
+      {
+        "code": "        );\n        require(ok && res.length >= 32, \"PrecompileReader: oracle px read failed\");\n        price = abi.decode(res, (uint64));\n        require(price > 0, \"PrecompileReader: oracle px zero\");\n    }\n\n    /// @notice Perp account value (signed, 6-dp) from 0x80F.\n    function accountValueSigned(address user) internal view returns (int64 accountValue) {\n        (bool ok, bytes memory res) = HyperCoreConstants.PRECOMPILE_ACCOUNT_MARGIN_SUMMARY.staticcall(\n            abi.encode(uint32(0), user)\n        );\n        require(ok && res.length >= 128, \"PrecompileReader: perp account read failed\");\n        (accountValue,,,) = abi.decode(res, (int64, uint64, uint64, int64));\n    }\n\n    /// @notice PM \"supplied\" balance (0x811). Returned in L1 8-dp wei.\n    function suppliedBalance(address account, uint64 token) internal view returns (uint64 supplied) {\n        (bool ok, bytes memory res) = HyperCoreConstants.PRECOMPILE_SUPPLIED_BALANCE.staticcall(\n            abi.encode(account, token)\n        );\n        require(ok && res.length >= 128, \"PrecompileReader: supplied balance read failed\");\n        (,,, supplied) = abi.decode(res, (uint64, uint64, uint64, uint64));\n    }\n\n    /// @notice Spot oracle price (0x808) for an HL spot pair.\n    /// @param spotAssetId HL spot asset id = 10000 + spot_pair_index (NOT token_index).\n    ///                    See `MonetrixConfig.TradeableAsset.spotPairAssetId`.\n    /// @dev Returned value is scaled by `10^(8 - baseSzDecimals)`.\n    function spotPx(uint64 spotAssetId) internal view returns (uint64 price) {\n        (bool ok, bytes memory res) = HyperCoreConstants.PRECOMPILE_SPOT_PX.staticcall(\n            abi.encode(spotAssetId)\n        );\n        require(ok && res.length >= 32, \"PrecompileReader: spot px read failed\");\n        price = abi.decode(res, (uint64));\n        require(price > 0, \"PrecompileReader: spot px zero\");\n    }\n\n    /// @notice Perp asset metadata (0x80A).",
+        "start_line": 84,
+        "end_line": 91,
+        "context_start_line": 69,
+        "context_end_line": 106,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "        private view returns (uint8 weiDec, uint8 perpSzDec)\n    {\n        TokenInfo memory ti = tokenInfo(spotTokenIndex);\n        PerpAssetInfo memory pi = perpAssetInfo(perpIndex);\n        weiDec = ti.weiDecimals;\n        perpSzDec = pi.szDecimals;\n    }\n}",
+        "start_line": 180,
+        "end_line": 180,
+        "context_start_line": 165,
+        "context_end_line": 172,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "        );\n        require(ok && res.length >= 32, \"PrecompileReader: oracle px read failed\");\n        price = abi.decode(res, (uint64));\n        require(price > 0, \"PrecompileReader: oracle px zero\");\n    }\n\n    /// @notice Perp account value (signed, 6-dp) from 0x80F.\n    function accountValueSigned(address user) internal view returns (int64 accountValue) {\n        (bool ok, bytes memory res) = HyperCoreConstants.PRECOMPILE_ACCOUNT_MARGIN_SUMMARY.staticcall(\n            abi.encode(uint32(0), user)\n        );\n        require(ok && res.length >= 128, \"PrecompileReader: perp account read failed\");\n        (accountValue,,,) = abi.decode(res, (int64, uint64, uint64, int64));\n    }\n\n    /// @notice PM \"supplied\" balance (0x811). Returned in L1 8-dp wei.\n    function suppliedBalance(address account, uint64 token) internal view returns (uint64 supplied) {\n        (bool ok, bytes memory res) = HyperCoreConstants.PRECOMPILE_SUPPLIED_BALANCE.staticcall(\n            abi.encode(account, token)\n        );\n        require(ok && res.length >= 128, \"PrecompileReader: supplied balance read failed\");\n        (,,, supplied) = abi.decode(res, (uint64, uint64, uint64, uint64));\n    }\n\n    /// @notice Spot oracle price (0x808) for an HL spot pair.\n    /// @param spotAssetId HL spot asset id = 10000 + spot_pair_index (NOT token_index).\n    ///                    See `MonetrixConfig.TradeableAsset.spotPairAssetId`.\n    /// @dev Returned value is scaled by `10^(8 - baseSzDecimals)`.\n    function spotPx(uint64 spotAssetId) internal view returns (uint64 price) {\n        (bool ok, bytes memory res) = HyperCoreConstants.PRECOMPILE_SPOT_PX.staticcall(\n            abi.encode(spotAssetId)\n        );\n        require(ok && res.length >= 32, \"PrecompileReader: spot px read failed\");\n        price = abi.decode(res, (uint64));\n        require(price > 0, \"PrecompileReader: spot px zero\");\n    }\n\n    /// @notice Perp asset metadata (0x80A).",
+        "start_line": 84,
+        "end_line": 91,
+        "context_start_line": 69,
+        "context_end_line": 106,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "        private view returns (uint8 weiDec, uint8 perpSzDec)\n    {\n        TokenInfo memory ti = tokenInfo(spotTokenIndex);\n        PerpAssetInfo memory pi = perpAssetInfo(perpIndex);\n        weiDec = ti.weiDecimals;\n        perpSzDec = pi.szDecimals;\n    }\n}",
+        "start_line": 180,
+        "end_line": 180,
+        "context_start_line": 165,
+        "context_end_line": 172,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "",
+        "start_line": 212,
+        "end_line": 212,
+        "context_start_line": 197,
+        "context_end_line": 172,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "",
+        "start_line": 395,
+        "end_line": 395,
+        "context_start_line": 380,
+        "context_end_line": 172,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "        );\n        require(ok && res.length >= 32, \"PrecompileReader: oracle px read failed\");\n        price = abi.decode(res, (uint64));\n        require(price > 0, \"PrecompileReader: oracle px zero\");\n    }\n\n    /// @notice Perp account value (signed, 6-dp) from 0x80F.\n    function accountValueSigned(address user) internal view returns (int64 accountValue) {\n        (bool ok, bytes memory res) = HyperCoreConstants.PRECOMPILE_ACCOUNT_MARGIN_SUMMARY.staticcall(\n            abi.encode(uint32(0), user)\n        );\n        require(ok && res.length >= 128, \"PrecompileReader: perp account read failed\");\n        (accountValue,,,) = abi.decode(res, (int64, uint64, uint64, int64));\n    }\n\n    /// @notice PM \"supplied\" balance (0x811). Returned in L1 8-dp wei.\n    function suppliedBalance(address account, uint64 token) internal view returns (uint64 supplied) {\n        (bool ok, bytes memory res) = HyperCoreConstants.PRECOMPILE_SUPPLIED_BALANCE.staticcall(\n            abi.encode(account, token)\n        );\n        require(ok && res.length >= 128, \"PrecompileReader: supplied balance read failed\");\n        (,,, supplied) = abi.decode(res, (uint64, uint64, uint64, uint64));\n    }\n\n    /// @notice Spot oracle price (0x808) for an HL spot pair.\n    /// @param spotAssetId HL spot asset id = 10000 + spot_pair_index (NOT token_index).\n    ///                    See `MonetrixConfig.TradeableAsset.spotPairAssetId`.\n    /// @dev Returned value is scaled by `10^(8 - baseSzDecimals)`.\n    function spotPx(uint64 spotAssetId) internal view returns (uint64 price) {\n        (bool ok, bytes memory res) = HyperCoreConstants.PRECOMPILE_SPOT_PX.staticcall(\n            abi.encode(spotAssetId)",
+        "start_line": 84,
+        "end_line": 84,
+        "context_start_line": 69,
+        "context_end_line": 99,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "        );\n        require(ok && res.length >= 32, \"PrecompileReader: oracle px read failed\");\n        price = abi.decode(res, (uint64));\n        require(price > 0, \"PrecompileReader: oracle px zero\");\n    }\n\n    /// @notice Perp account value (signed, 6-dp) from 0x80F.\n    function accountValueSigned(address user) internal view returns (int64 accountValue) {\n        (bool ok, bytes memory res) = HyperCoreConstants.PRECOMPILE_ACCOUNT_MARGIN_SUMMARY.staticcall(\n            abi.encode(uint32(0), user)\n        );\n        require(ok && res.length >= 128, \"PrecompileReader: perp account read failed\");\n        (accountValue,,,) = abi.decode(res, (int64, uint64, uint64, int64));\n    }\n\n    /// @notice PM \"supplied\" balance (0x811). Returned in L1 8-dp wei.\n    function suppliedBalance(address account, uint64 token) internal view returns (uint64 supplied) {\n        (bool ok, bytes memory res) = HyperCoreConstants.PRECOMPILE_SUPPLIED_BALANCE.staticcall(\n            abi.encode(account, token)\n        );\n        require(ok && res.length >= 128, \"PrecompileReader: supplied balance read failed\");\n        (,,, supplied) = abi.decode(res, (uint64, uint64, uint64, uint64));\n    }\n\n    /// @notice Spot oracle price (0x808) for an HL spot pair.\n    /// @param spotAssetId HL spot asset id = 10000 + spot_pair_index (NOT token_index).\n    ///                    See `MonetrixConfig.TradeableAsset.spotPairAssetId`.\n    /// @dev Returned value is scaled by `10^(8 - baseSzDecimals)`.\n    function spotPx(uint64 spotAssetId) internal view returns (uint64 price) {\n        (bool ok, bytes memory res) = HyperCoreConstants.PRECOMPILE_SPOT_PX.staticcall(\n            abi.encode(spotAssetId)\n        );\n        require(ok && res.length >= 32, \"PrecompileReader: spot px read failed\");\n        price = abi.decode(res, (uint64));\n        require(price > 0, \"PrecompileReader: spot px zero\");\n    }\n\n    /// @notice Perp asset metadata (0x80A).",
+        "start_line": 84,
+        "end_line": 91,
+        "context_start_line": 69,
+        "context_end_line": 106,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "",
+        "start_line": 212,
+        "end_line": 212,
+        "context_start_line": 197,
+        "context_end_line": 172,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "",
+        "start_line": 395,
+        "end_line": 395,
+        "context_start_line": 380,
+        "context_end_line": 172,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "            abi.encode(assetIndex)\n        );\n        require(ok && res.length >= 32, \"PrecompileReader: oracle px read failed\");\n        price = abi.decode(res, (uint64));\n        require(price > 0, \"PrecompileReader: oracle px zero\");\n    }\n\n    /// @notice Perp account value (signed, 6-dp) from 0x80F.\n    function accountValueSigned(address user) internal view returns (int64 accountValue) {\n        (bool ok, bytes memory res) = HyperCoreConstants.PRECOMPILE_ACCOUNT_MARGIN_SUMMARY.staticcall(\n            abi.encode(uint32(0), user)\n        );\n        require(ok && res.length >= 128, \"PrecompileReader: perp account read failed\");\n        (accountValue,,,) = abi.decode(res, (int64, uint64, uint64, int64));\n    }\n\n    /// @notice PM \"supplied\" balance (0x811). Returned in L1 8-dp wei.\n    function suppliedBalance(address account, uint64 token) internal view returns (uint64 supplied) {\n        (bool ok, bytes memory res) = HyperCoreConstants.PRECOMPILE_SUPPLIED_BALANCE.staticcall(\n            abi.encode(account, token)\n        );\n        require(ok && res.length >= 128, \"PrecompileReader: supplied balance read failed\");\n        (,,, supplied) = abi.decode(res, (uint64, uint64, uint64, uint64));\n    }\n\n    /// @notice Spot oracle price (0x808) for an HL spot pair.\n    /// @param spotAssetId HL spot asset id = 10000 + spot_pair_index (NOT token_index).\n    ///                    See `MonetrixConfig.TradeableAsset.spotPairAssetId`.\n    /// @dev Returned value is scaled by `10^(8 - baseSzDecimals)`.\n    function spotPx(uint64 spotAssetId) internal view returns (uint64 price) {\n        (bool ok, bytes memory res) = HyperCoreConstants.PRECOMPILE_SPOT_PX.staticcall(",
+        "start_line": 83,
+        "end_line": 83,
+        "context_start_line": 68,
+        "context_end_line": 98,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:43:55.184208",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 65,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "suppliedBalance decodes four uint64 values from the 0x811 precompile and keeps only the fourth one, the supplied amount, which is the line the finding marks as the bug. suppliedUsdcEvm and suppliedNotionalUsdcFromPerp build on this value, so the borrow side is lost before the backing is summed.",
+      "functions_found": [
+        "suppliedBalance",
+        "suppliedUsdcEvm",
+        "suppliedNotionalUsdcFromPerp"
+      ],
+      "variables_found": [
+        "supplied"
+      ],
+      "patterns_found": [
+        "precompile response decoded for the supply value only, borrow fields discarded"
+      ],
+      "issues": [
+        "The backing sum that adds the supplied value without subtracting borrow debt (_readL1Backing, totalBackingSigned, surplus) is in MonetrixAccountant.sol, and settle is in MonetrixVault.sol. Only the reader part of the bug is in this file."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": null,
+      "mando_applicable": false
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "vulnerability_type": "borrow debt left out of the backing calculation"
+    },
+    "fix_code_source": "none"
+  }
+}

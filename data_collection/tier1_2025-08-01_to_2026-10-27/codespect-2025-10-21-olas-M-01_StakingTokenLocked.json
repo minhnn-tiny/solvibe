@@ -1,0 +1,124 @@
+{
+  "id": "codespect-2025-10-21-olas-M-01",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/LemonTreeTechnologies/olas-lst/tree/e9d19b7fb08288f829cba8243d91e80ebde745a6/contracts/l2/StakingTokenLocked.sol",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      185,
+      185
+    ],
+    [
+      316,
+      316
+    ],
+    [
+      525,
+      525
+    ]
+  ],
+  "filename": "codespect-2025-10-21-olas-M-01_StakingTokenLocked.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 795,
+  "vulnerability_title": "Attacker can create and activate malicious staking proxies",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_checkRatioPass",
+        "start_line": 316,
+        "end_line": 341,
+        "code": "    function _checkRatioPass(address multisig, uint256[] memory lastNonces, uint256 ts)\n        internal\n        view\n        returns (bool ratioPass, uint256[] memory currentNonces)\n    {\n        // Get current service multisig nonce\n        // This is a low level call since it must never revert\n        bytes memory activityData = abi.encodeCall(IActivityChecker.getMultisigNonces, multisig);\n        (bool success, bytes memory returnData) = activityChecker.staticcall(activityData);\n\n        // If the function call was successful, check the return value\n        // The return data length must be the exact number of full slots\n        if (success && returnData.length > 63 && (returnData.length % 32 == 0)) {\n            // Parse nonces\n            currentNonces = abi.decode(returnData, (uint256[]));\n\n            // Get the ratio pass activity check\n            activityData = abi.encodeCall(IActivityChecker.isRatioPass, (currentNonces, lastNonces, ts));\n            (success, returnData) = activityChecker.staticcall(activityData);\n\n            // The return data must match the size of bool\n            if (success && returnData.length == 32) {\n                ratioPass = abi.decode(returnData, (bool));\n            }\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            316,
+            316
+          ]
+        ]
+      },
+      {
+        "function_name": "stake",
+        "start_line": 523,
+        "end_line": 594,
+        "code": "    function stake(uint256 serviceId) external {\n        // Check for stakingManager address\n        if (msg.sender != stakingManager) {\n            revert UnauthorizedAccount(msg.sender);\n        }\n\n        // Checkpoint to finalize any unaccounted rewards, if any\n        checkpoint();\n\n        // Get service info\n        ServiceInfo storage sInfo = mapServiceInfo[serviceId];\n        // tsStart being greater than zero means that the service was not yet unstaked\n        if (sInfo.tsStart > 0) {\n            revert ServiceNotUnstaked(serviceId);\n        }\n\n        // Check for the maximum number of staking services\n        uint256 numStakingServices = setServiceIds.length;\n        if (numStakingServices == maxNumServices) {\n            revert MaxNumServicesReached(maxNumServices);\n        }\n\n        // Check the service conditions for staking\n        IService.Service memory service = IService(serviceRegistry).getService(serviceId);\n\n        // The service must be deployed\n        if (service.state != IService.ServiceState.Deployed) {\n            revert WrongServiceState(uint256(service.state), serviceId);\n        }\n\n        // Get the service staking token and deposit\n        (address token, uint96 stakingDeposit) =\n            IService(serviceRegistryTokenUtility).mapServiceIdTokenDeposit(serviceId);\n\n        // The staking token must match the contract token\n        if (stakingToken != token) {\n            revert WrongStakingToken(stakingToken, token);\n        }\n\n        // The staking deposit must be greater or equal to the minimum defined one\n        if (stakingDeposit < minStakingDeposit) {\n            revert LowerThan(stakingDeposit, minStakingDeposit);\n        }\n\n        // ServiceInfo struct will be an empty one since otherwise the safeTransferFrom above would fail\n        sInfo.multisig = service.multisig;\n        sInfo.owner = msg.sender;\n        sInfo.tsStart = block.timestamp;\n\n        // Add the service Id to the set of staked services\n        setServiceIds.push(serviceId);\n\n        // Get multisig nonces\n        // Use staticcall for view functions to prevent state changes\n        bytes memory data = abi.encodeCall(IActivityChecker.getMultisigNonces, (service.multisig));\n        (bool success, bytes memory returnData) = activityChecker.staticcall(data);\n\n        uint256[] memory nonces;\n        if (success) {\n            nonces = abi.decode(returnData, (uint256[]));\n        } else {\n            // This must never happen\n            revert ZeroValue();\n        }\n\n        sInfo.nonces = nonces;\n\n        // Transfer the service for staking\n        IService(serviceRegistry).safeTransferFrom(msg.sender, address(this), serviceId);\n\n        emit ServiceStaked(epochCounter, serviceId, msg.sender, service.multisig, nonces);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            525,
+            525
+          ]
+        ]
+      },
+      {
+        "code": "\n    // Input staking parameters\n    struct StakingParams {\n        // Maximum number of staking services\n        uint256 maxNumServices;\n        // Rewards per second\n        uint256 rewardsPerSecond;\n        // Minimum service staking deposit value required for staking\n        uint256 minStakingDeposit;\n        // Liveness period\n        uint256 livenessPeriod;\n        // Time for emissions\n        uint256 timeForEmissions;\n        // ServiceRegistry contract address\n        address serviceRegistry;\n        // ServiceRegistryTokenUtility address\n        address serviceRegistryTokenUtility;\n        // Security token address for staking corresponding to the service deposit token\n        address stakingToken;\n        // Staking manager address\n        address stakingManager;\n        // Service activity checker address\n        address activityChecker;\n    }\n\n    event ServiceStaked(\n        uint256 epoch, uint256 indexed serviceId, address indexed owner, address indexed multisig, uint256[] nonces\n    );\n    event Checkpoint(\n        uint256 indexed epoch, uint256 availableRewards, uint256[] serviceIds, uint256[] rewards, uint256 epochLength\n    );",
+        "start_line": 185,
+        "end_line": 185,
+        "context_start_line": 170,
+        "context_end_line": 200,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:44:55.285437",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 65,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "initialize stores livenessPeriod, stakingManager and activityChecker with only zero-value and contract-code checks, and the file shows how these values control rewards in _calculateStakingRewards and _checkRatioPass and who may call stake. The path that lets an attacker create and activate such a proxy is in StakingFactory and LzOracle, which are other files.",
+      "functions_found": [
+        "initialize",
+        "_calculateStakingRewards",
+        "_checkRatioPass",
+        "stake",
+        "checkpoint"
+      ],
+      "variables_found": [
+        "livenessPeriod",
+        "activityChecker",
+        "stakingManager"
+      ],
+      "patterns_found": [
+        "staking parameters accepted without upper bound or allow-list",
+        "reward calculation controlled by unchecked parameters"
+      ],
+      "issues": [
+        "Creation (StakingFactory.createStakingInstance) and activation (LzOracle.lzCreateAndActivateStakingModel) of the malicious proxy are in other contracts; this file shows only the unchecked parameters and their effect.",
+        "`initPayload` is a parameter of StakingFactory and does not occur in this file."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "mando_applicable": true
+    },
+    "scsvs_classification": {
+      "primary_category": "G5",
+      "primary_category_name": "Access control",
+      "vulnerability_type": "unvalidated staking proxy parameters"
+    },
+    "fix_code_source": "none"
+  }
+}

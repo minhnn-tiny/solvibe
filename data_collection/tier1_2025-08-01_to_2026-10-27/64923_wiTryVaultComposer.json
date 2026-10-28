@@ -1,0 +1,132 @@
+{
+  "id": "64923",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-11-brix-money/blob/main/src/token/wiTRY/crosschain/wiTryVaultComposer.sol# L267-L268",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      267,
+      268
+    ],
+    [
+      116,
+      117
+    ]
+  ],
+  "filename": "64923_wiTryVaultComposer.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 362,
+  "vulnerability_title": "[M-02] Cross-chain unstake and fast redeem operations fail due to `minAmountLD` not accounting for LayerZero dust removal",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Set `minAmountLD` to `0` or calculate the dust-removed amount to use as the minimum:\n\nOption 1: No slippage protection (recommended):\n```\n\n// Acceptable since amount is protocol-determined, not user-provided\n_sendParam.minAmountLD = 0;\n```\n\nOption 2: Account for dust removal:\n```\n\n_sendParam.minAmountLD = (assets / 1e12) * 1e12;\n```\n\nFor `_handleUnstake()`:\n```\n\nSendParam memory _sendParam = SendParam({\n    dstEid: _origin.srcEid,\n    to: bytes32(uint256(uint160(user))),\n    amountLD: assets,\n-   minAmountLD: assets,\n+   minAmountLD: 0,\n    extraOptions: options,\n    composeMsg: \"\",\n    oftCmd: \"\"\n});\n```\n\nFor `_fastRedeem(`)`:\n```\n\n_sendParam.amountLD = assets;\n- _sendParam.minAmountLD = assets;\n+ _sendParam.minAmountLD = 0;\n```",
+    "fix_code_blocks": [
+      "// Acceptable since amount is protocol-determined, not user-provided\n_sendParam.minAmountLD = 0;",
+      "_sendParam.minAmountLD = (assets / 1e12) * 1e12;",
+      "SendParam memory _sendParam = SendParam({\n    dstEid: _origin.srcEid,\n    to: bytes32(uint256(uint160(user))),\n    amountLD: assets,\n-   minAmountLD: assets,\n+   minAmountLD: 0,\n    extraOptions: options,\n    composeMsg: \"\",\n    oftCmd: \"\"\n});",
+      "_sendParam.amountLD = assets;\n- _sendParam.minAmountLD = assets;\n+ _sendParam.minAmountLD = 0;"
+    ]
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "Add `DustRemovalRevert.t.sol` file to the test folder:\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-11-brix-money/submissions/S-410)\n\nRun the PoC:\n```\n\nforge test --match-contract DustRemovalRevertPOC -vv\n```\n\nKey test results:\n\n* `test_POC_CoreIssue_DustRemovalCausesRevert` - Confirms vulnerability with amounts containing dust\n* `test_POC_ImpactScale_MostAmountsAffected` - Shows 69% of realistic amounts fail (25/36 scenarios)\n* `test_POC_ProofOfFix_MinAmountZero` - Validates both fixes work correctly\n* `test_POC_VulnerableCodePaths` - Documents vulnerable locations and fix\n\nThe PoC demonstrates that any amount not perfectly divisible by 1,000,000,000,000 (1e12) will cause cross-chain operations to revert, breaking core protocol functionality.\n\n---",
+    "poc_code_blocks": [
+      "forge test --match-contract DustRemovalRevertPOC -vv"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_handleUnstake",
+        "start_line": 244,
+        "end_line": 278,
+        "code": "    function _handleUnstake(Origin calldata _origin, bytes32 _guid, IUnstakeMessenger.UnstakeMessage memory unstakeMsg)\n        internal\n        virtual\n    {\n        address user = unstakeMsg.user;\n\n        // Validate user\n        if (user == address(0)) revert InvalidZeroAddress();\n        if (_origin.srcEid == 0) revert InvalidOrigin();\n\n        // Call vault to unstake\n        uint256 assets = IStakediTryCrosschain(address(VAULT)).unstakeThroughComposer(user);\n\n        if (assets == 0) {\n            revert NoAssetsToUnstake();\n        }\n\n        // Build send parameters and send assets back to spoke chain\n        bytes memory options = OptionsBuilder.newOptions();\n\n        SendParam memory _sendParam = SendParam({\n            dstEid: _origin.srcEid,\n            to: bytes32(uint256(uint160(user))),\n            amountLD: assets,\n            minAmountLD: assets,\n            extraOptions: options,\n            composeMsg: \"\",\n            oftCmd: \"\"\n        });\n\n        _send(ASSET_OFT, _sendParam, address(this));\n\n        // Emit success event\n        emit CrosschainUnstakeProcessed(user, _origin.srcEid, assets, _guid);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            267,
+            268
+          ]
+        ]
+      },
+      {
+        "function_name": "_fastRedeem",
+        "start_line": 106,
+        "end_line": 124,
+        "code": "    function _fastRedeem(bytes32 _redeemer, uint256 _shareAmount, SendParam memory _sendParam, address _refundAddress) internal virtual {\n         address redeemer = _redeemer.bytes32ToAddress();\n        if (redeemer == address(0)) revert InvalidZeroAddress();\n\n        uint256 assets = IStakediTryCrosschain(address(VAULT)).fastRedeemThroughComposer(_shareAmount, redeemer, redeemer); // redeemer is the owner and crosschain receiver\n\n          if (assets == 0) {\n            revert NoAssetsToRedeem();\n        }\n\n        _sendParam.amountLD = assets;\n        _sendParam.minAmountLD = assets;\n\n        _send(ASSET_OFT, _sendParam, _refundAddress);\n\n        // Emit success event\n        emit CrosschainFastRedeemProcessed(redeemer, _sendParam.dstEid, _shareAmount, assets);\n\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            116,
+            117
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:33.871913",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue with `minAmountLD` not accounting for dust removal, leading to slippage check failures.",
+      "content_reasoning": "The content mentions `_handleUnstake()` and `_fastRedeem()` functions and the `minAmountLD` variable, which are present in the extracted code. The problematic pattern of setting `minAmountLD` equal to `amountLD` is also present.",
+      "functions_found": [
+        "_handleUnstake",
+        "_fastRedeem"
+      ],
+      "variables_found": [
+        "minAmountLD",
+        "amountLD"
+      ],
+      "patterns_found": [
+        "minAmountLD = amountLD"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag. Given the nature of the issue, a tag related to arithmetic precision or cross-chain operations would be appropriate.",
+      "suggested_tag": "arithmetic",
+      "alternative_tags": [
+        "cross_chain"
+      ],
+      "correction_explanation": "The issue is primarily about arithmetic precision due to dust removal, which affects cross-chain operations."
+    },
+    "mando_classification": {
+      "primary_category": "arithmetic",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The issue involves arithmetic precision due to dust removal, which fits under the 'arithmetic' category in MANDO."
+    },
+    "scsvs_classification": {
+      "primary_category": "I4",
+      "primary_category_name": "Cross-Chain",
+      "secondary_categories": [
+        "G7"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue is specific to cross-chain operations and involves arithmetic precision, making 'Cross-Chain' a more precise classification. The arithmetic aspect is also relevant.",
+      "vulnerability_type": "Cross-chain arithmetic precision issue due to dust removal"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-03-20T15:26:26.338846",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

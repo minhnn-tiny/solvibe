@@ -1,0 +1,139 @@
+{
+  "id": "64144",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-11-megapot/blob/f0a7297d59c376e38b287b2c56740617dbbfbdc7/contracts/JackpotBridgeManager.sol# L166-L198",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      166,
+      198
+    ]
+  ],
+  "filename": "64144_JackpotBridgeManager.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 371,
+  "vulnerability_title": "[M-02] Incorrect ticket price reference in JackpotBridgeManager causes user overpayment after price updates",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Make sure to fetch the ticket price of an actual drawing and not the latest one from the Jackpot when purchasing tickets through JackpotBridgeManager\n\n`uint256 ticketPrice = jackpot.getDrawingState(currentDrawingId).ticketPrice;`\n\nExpand for detailed Proof of Concept",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "```\n\nimport { ethers } from \"hardhat\";\nimport DeployHelper from \"@utils/deploys\";\n\nimport { getWaffleExpect, getAccounts } from \"@utils/test/index\";\nimport { ether, usdc } from \"@utils/common\";\nimport { Account } from \"@utils/test\";\n\nimport { PRECISE_UNIT } from \"@utils/constants\";\n\nimport {\n  GuaranteedMinimumPayoutCalculator,\n  Jackpot,\n  JackpotBridgeManager,\n  JackpotLPManager,\n  JackpotTicketNFT,\n  MockDepository,\n  ReentrantUSDCMock,\n  ScaledEntropyProviderMock,\n} from \"@utils/contracts\";\nimport {\n  Address,\n  DrawingState,\n  JackpotSystemFixture,\n  RelayTxData,\n  Ticket,\n} from \"@utils/types\";\nimport { deployJackpotSystem } from \"@utils/test/jackpotFixture\";\nimport {\n  calculatePackedTicket,\n  calculateTicketId,\n  generateClaimTicketSignature,\n  generateClaimWinningsSignature,\n} from \"@utils/protocolUtils\";\nimport { ADDRESS_ZERO } from \"@utils/constants\";\nimport {\n  takeSnapshot,\n  SnapshotRestorer,\n  time,\n} from \"@nomicfoundation/hardhat-toolbox/network-helpers\";\n\nconst expect = getWaffleExpect();\n\ndescribe(\"C4\", () => {\n  let owner: Account;\n  let buyerOne: Account;\n  let buyerTwo: Account;\n  let referrerOne: Account;\n  let referrerTwo: Account;\n  let referrerThree: Account;\n  let solver: Account;\n\n  let jackpotSystem: JackpotSystemFixture;\n  let jackpot: Jackpot;\n  let jackpotNFT: JackpotTicketNFT;\n  let jackpotLPManager: JackpotLPManager;\n  let payoutCalculator: GuaranteedMinimumPayoutCalculator;\n  let usdcMock: ReentrantUSDCMock;\n  let entropyProvider: ScaledEntropyProviderMock;\n  let snapshot: SnapshotRestorer;\n  let jackpotBridgeManager: JackpotBridgeManager;\n  let mockDepository: MockDepository;\n\n  beforeEach(async () => {\n    [\n      owner,\n      buyerOne,\n      buyerTwo,\n      referrerOne,\n      referrerTwo,\n      referrerThree,\n      solver,\n    ] = await getAccounts();\n\n    jackpotSystem = await deployJackpotSystem();\n    jackpot = jackpotSystem.jackpot;\n    jackpotNFT = jackpotSystem.jackpotNFT;\n    jackpotLPManager = jackpotSystem.jackpotLPManager;\n    payoutCalculator = jackpotSystem.payoutCalculator;\n    usdcMock = jackpotSystem.usdcMock;\n    entropyProvider = jackpotSystem.entropyProvider;\n\n    await jackpot\n      .connect(owner.wallet)\n      .initialize(\n        usdcMock.getAddress(),\n        await jackpotLPManager.getAddress(),\n        await jackpotNFT.getAddress(),\n        entropyProvider.getAddress(),\n        await payoutCalculator.getAddress(),\n      );\n\n    await jackpot.connect(owner.wallet).initializeLPDeposits(usdc(10000000));\n\n    await usdcMock\n      .connect(owner.wallet)\n      .approve(jackpot.getAddress(), usdc(1000000));\n    await jackpot.connect(owner.wallet).lpDeposit(usdc(1000000));\n\n    await jackpot\n      .connect(owner.wallet)\n      .initializeJackpot(\n        BigInt(await time.latest()) +\n          BigInt(jackpotSystem.deploymentParams.drawingDurationInSeconds),\n      );\n\n    jackpotBridgeManager =\n      await jackpotSystem.deployer.deployJackpotBridgeManager(\n        await jackpot.getAddress(),\n        await jackpotNFT.getAddress(),\n        await usdcMock.getAddress(),\n        \"MegapotBridgeManager\",\n        \"1.0.0\",\n      );\n\n    mockDepository = await jackpotSystem.deployer.deployMockDepository(\n      await usdcMock.getAddress(),\n    );\n\n    snapshot = await takeSnapshot();\n  });\n\n  beforeEach(async () => {\n    await snapshot.restore();\n  });\n\n  describe(\"PoC\", async () => {\n    let subjectTickets: Ticket[];\n        let subjectRecipient: Address;\n        let subjectReferrers: Address[];\n        let subjectReferralSplitBps: bigint[];\n        let subjectSource: string;\n        let subjectCaller: Account;\n\n    it(\"charges a higher ticket price when using bridge if price is adjusted\", async () => {\n\n      subjectTickets = [\n        {\n          normals: [BigInt(1), BigInt(2), BigInt(3), BigInt(4), BigInt(5)],\n          bonusball: BigInt(1)\n        } as Ticket,\n        {\n          normals: [BigInt(2), BigInt(4), BigInt(6), BigInt(7), BigInt(11)],\n          bonusball: BigInt(3)\n        } as Ticket,\n      ];\n\n      await usdcMock.connect(owner.wallet).transfer(buyerOne.address, usdc(1000));\n\n      // Approval and ticket setup\n      await usdcMock.connect(buyerOne.wallet).approve(jackpotBridgeManager.getAddress(), usdc(10));\n      subjectRecipient = buyerOne.address;\n      subjectReferrers = [referrerOne.address, referrerTwo.address, referrerThree.address];\n      subjectReferralSplitBps = [ether(.3333), ether(.3333), ether(.3334)];\n      subjectSource = ethers.encodeBytes32String(\"test\");\n      subjectCaller = buyerOne;\n\n      // Verify current ticket price\n      const actualDrawingState: DrawingState = await jackpot.getDrawingState(1);\n      const actualDrawingTicketPrice = actualDrawingState.ticketPrice;\n      const actualGlobalTicketPrice = await jackpot.ticketPrice();\n      expect(actualDrawingTicketPrice).to.eq(usdc(1));\n      expect(actualGlobalTicketPrice).to.eq(usdc(1));\n\n      // Change global ticket price\n      await jackpot.setTicketPrice(usdc(3));\n      const newGlobalTicketPrice = await jackpot.ticketPrice();\n      expect(newGlobalTicketPrice).to.eq(usdc(3));\n\n      const jackpotBridgeManagerBalanceBefore = await usdcMock.balanceOf(jackpotBridgeManager.getAddress());\n      const jackpotBalanceBefore = await usdcMock.balanceOf(jackpot.getAddress());\n\nawait jackpotBridgeManager.connect(buyerOne.wallet).buyTickets(subjectTickets,\n        subjectRecipient,\n        subjectReferrers,\n        subjectReferralSplitBps,\n        subjectSource);\n\n      const jackpotBridgeManagerBalanceAfter = await usdcMock.balanceOf(jackpotBridgeManager.getAddress());\n      const jackpotBalanceAfter = await usdcMock.balanceOf(jackpot.getAddress());\n\n      // Balance of the jackpot contract only increased by the actual drawing ticket price multiplied by the number of bought tickets\n      expect(jackpotBalanceAfter).to.eq(jackpotBalanceBefore + BigInt(subjectTickets.length) * actualDrawingTicketPrice);\n\n      // JackpotBridgeManager charges tickets with the newly updated ticket price and not with the price of the actual drawing\n      // Here we can see that the excess funds are trapped in the contract\n      expect(jackpotBridgeManagerBalanceAfter).to.eq(BigInt(subjectTickets.length) * newGlobalTicketPrice - BigInt(subjectTickets.length) * actualDrawingTicketPrice);\n\n      // JackpotBridgeManager should've forwarded everything\n      expect(jackpotBridgeManagerBalanceAfter).to.not.eq(jackpotBridgeManagerBalanceBefore);\n\n    });\n  });\n});\n```\n\n---",
+    "poc_code_blocks": [
+      "import { ethers } from \"hardhat\";\nimport DeployHelper from \"@utils/deploys\";\n\nimport { getWaffleExpect, getAccounts } from \"@utils/test/index\";\nimport { ether, usdc } from \"@utils/common\";\nimport { Account } from \"@utils/test\";\n\nimport { PRECISE_UNIT } from \"@utils/constants\";\n\nimport {\n  GuaranteedMinimumPayoutCalculator,\n  Jackpot,\n  JackpotBridgeManager,\n  JackpotLPManager,\n  JackpotTicketNFT,\n  MockDepository,\n  ReentrantUSDCMock,\n  ScaledEntropyProviderMock,\n} from \"@utils/contracts\";\nimport {\n  Address,\n  DrawingState,\n  JackpotSystemFixture,\n  RelayTxData,\n  Ticket,\n} from \"@utils/types\";\nimport { deployJackpotSystem } from \"@utils/test/jackpotFixture\";\nimport {\n  calculatePackedTicket,\n  calculateTicketId,\n  generateClaimTicketSignature,\n  generateClaimWinningsSignature,\n} from \"@utils/protocolUtils\";\nimport { ADDRESS_ZERO } from \"@utils/constants\";\nimport {\n  takeSnapshot,\n  SnapshotRestorer,\n  time,\n} from \"@nomicfoundation/hardhat-toolbox/network-helpers\";\n\nconst expect = getWaffleExpect();\n\ndescribe(\"C4\", () => {\n  let owner: Account;\n  let buyerOne: Account;\n  let buyerTwo: Account;\n  let referrerOne: Account;\n  let referrerTwo: Account;\n  let referrerThree: Account;\n  let solver: Account;\n\n  let jackpotSystem: JackpotSystemFixture;\n  let jackpot: Jackpot;\n  let jackpotNFT: JackpotTicketNFT;\n  let jackpotLPManager: JackpotLPManager;\n  let payoutCalculator: GuaranteedMinimumPayoutCalculator;\n  let usdcMock: ReentrantUSDCMock;\n  let entropyProvider: ScaledEntropyProviderMock;\n  let snapshot: SnapshotRestorer;\n  let jackpotBridgeManager: JackpotBridgeManager;\n  let mockDepository: MockDepository;\n\n  beforeEach(async () => {\n    [\n      owner,\n      buyerOne,\n      buyerTwo,\n      referrerOne,\n      referrerTwo,\n      referrerThree,\n      solver,\n    ] = await getAccounts();\n\n    jackpotSystem = await deployJackpotSystem();\n    jackpot = jackpotSystem.jackpot;\n    jackpotNFT = jackpotSystem.jackpotNFT;\n    jackpotLPManager = jackpotSystem.jackpotLPManager;\n    payoutCalculator = jackpotSystem.payoutCalculator;\n    usdcMock = jackpotSystem.usdcMock;\n    entropyProvider = jackpotSystem.entropyProvider;\n\n    await jackpot\n      .connect(owner.wallet)\n      .initialize(\n        usdcMock.getAddress(),\n        await jackpotLPManager.getAddress(),\n        await jackpotNFT.getAddress(),\n        entropyProvider.getAddress(),\n        await payoutCalculator.getAddress(),\n      );\n\n    await jackpot.connect(owner.wallet).initializeLPDeposits(usdc(10000000));\n\n    await usdcMock\n      .connect(owner.wallet)\n      .approve(jackpot.getAddress(), usdc(1000000));\n    await jackpot.connect(owner.wallet).lpDeposit(usdc(1000000));\n\n    await jackpot\n      .connect(owner.wallet)\n      .initializeJackpot(\n        BigInt(await time.latest()) +\n          BigInt(jackpotSystem.deploymentParams.drawingDurationInSeconds),\n      );\n\n    jackpotBridgeManager =\n      await jackpotSystem.deployer.deployJackpotBridgeManager(\n        await jackpot.getAddress(),\n        await jackpotNFT.getAddress(),\n        await usdcMock.getAddress(),\n        \"MegapotBridgeManager\",\n        \"1.0.0\",\n      );\n\n    mockDepository = await jackpotSystem.deployer.deployMockDepository(\n      await usdcMock.getAddress(),\n    );\n\n    snapshot = await takeSnapshot();\n  });\n\n  beforeEach(async () => {\n    await snapshot.restore();\n  });\n\n  describe(\"PoC\", async () => {\n    let subjectTickets: Ticket[];\n        let subjectRecipient: Address;\n        let subjectReferrers: Address[];\n        let subjectReferralSplitBps: bigint[];\n        let subjectSource: string;\n        let subjectCaller: Account;\n\n    it(\"charges a higher ticket price when using bridge if price is adjusted\", async () => {\n\n      subjectTickets = [\n        {\n          normals: [BigInt(1), BigInt(2), BigInt(3), BigInt(4), BigInt(5)],\n          bonusball: BigInt(1)\n        } as Ticket,\n        {\n          normals: [BigInt(2), BigInt(4), BigInt(6), BigInt(7), BigInt(11)],\n          bonusball: BigInt(3)\n        } as Ticket,\n      ];\n\n      await usdcMock.connect(owner.wallet).transfer(buyerOne.address, usdc(1000));\n\n      // Approval and ticket setup\n      await usdcMock.connect(buyerOne.wallet).approve(jackpotBridgeManager.getAddress(), usdc(10));\n      subjectRecipient = buyerOne.address;\n      subjectReferrers = [referrerOne.address, referrerTwo.address, referrerThree.address];\n      subjectReferralSplitBps = [ether(.3333), ether(.3333), ether(.3334)];\n      subjectSource = ethers.encodeBytes32String(\"test\");\n      subjectCaller = buyerOne;\n\n      // Verify current ticket price\n      const actualDrawingState: DrawingState = await jackpot.getDrawingState(1);\n      const actualDrawingTicketPrice = actualDrawingState.ticketPrice;\n      const actualGlobalTicketPrice = await jackpot.ticketPrice();\n      expect(actualDrawingTicketPrice).to.eq(usdc(1));\n      expect(actualGlobalTicketPrice).to.eq(usdc(1));\n\n      // Change global ticket price\n      await jackpot.setTicketPrice(usdc(3));\n      const newGlobalTicketPrice = await jackpot.ticketPrice();\n      expect(newGlobalTicketPrice).to.eq(usdc(3));\n\n      const jackpotBridgeManagerBalanceBefore = await usdcMock.balanceOf(jackpotBridgeManager.getAddress());\n      const jackpotBalanceBefore = await usdcMock.balanceOf(jackpot.getAddress());\n\nawait jackpotBridgeManager.connect(buyerOne.wallet).buyTickets(subjectTickets,\n        subjectRecipient,\n        subjectReferrers,\n        subjectReferralSplitBps,\n        subjectSource);\n\n      const jackpotBridgeManagerBalanceAfter = await usdcMock.balanceOf(jackpotBridgeManager.getAddress());\n      const jackpotBalanceAfter = await usdcMock.balanceOf(jackpot.getAddress());\n\n      // Balance of the jackpot contract only increased by the actual drawing ticket price multiplied by the number of bought tickets\n      expect(jackpotBalanceAfter).to.eq(jackpotBalanceBefore + BigInt(subjectTickets.length) * actualDrawingTicketPrice);\n\n      // JackpotBridgeManager charges tickets with the newly updated ticket price and not with the price of the actual drawing\n      // Here we can see that the excess funds are trapped in the contract\n      expect(jackpotBridgeManagerBalanceAfter).to.eq(BigInt(subjectTickets.length) * newGlobalTicketPrice - BigInt(subjectTickets.length) * actualDrawingTicketPrice);\n\n      // JackpotBridgeManager should've forwarded everything\n      expect(jackpotBridgeManagerBalanceAfter).to.not.eq(jackpotBridgeManagerBalanceBefore);\n\n    });\n  });\n});"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "buyTickets",
+        "start_line": 166,
+        "end_line": 198,
+        "code": "    function buyTickets(\n        IJackpot.Ticket[] memory _tickets,\n        address _recipient,\n        address[] memory _referrers,\n        uint256[] memory _referralSplitBps,\n        bytes32 _source\n    )\n        external\n        nonReentrant\n        returns (uint256[] memory)\n    {\n        if (_recipient == address(0)) revert JackpotErrors.ZeroAddress();\n        uint256 ticketPrice = jackpot.ticketPrice();\n        uint256 currentDrawingId = jackpot.currentDrawingId();\n        uint256 ticketCost = ticketPrice * _tickets.length;\n\n        usdc.safeTransferFrom(msg.sender, address(this), ticketCost);\n        usdc.approve(address(jackpot), ticketCost);\n        uint256[] memory ticketIds = jackpot.buyTickets(_tickets, address(this), _referrers, _referralSplitBps, _source);\n\n        // Store the tickets in the user's mapping\n        UserTickets storage userDrawingTickets = userTickets[_recipient][currentDrawingId];\n        uint256 userTicketCount = userDrawingTickets.totalTicketsOwned;\n        for (uint256 i = 0; i < _tickets.length; i++) {\n            userDrawingTickets.ticketIds[userTicketCount + i] = ticketIds[i];\n            ticketOwner[ticketIds[i]] = _recipient;\n        }\n        userDrawingTickets.totalTicketsOwned += _tickets.length;\n\n        emit TicketsBought(_recipient, currentDrawingId, ticketIds);\n\n        return ticketIds;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            166,
+            198
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T17:55:32.405766",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of fetching the latest ticket price instead of the current drawing's price, which is evident in the extracted code.",
+      "content_reasoning": "The content mentions the `buyTickets` function and the `ticketPrice` variable, both of which are present in the code and relate directly to the vulnerability described.",
+      "functions_found": [
+        "buyTickets"
+      ],
+      "variables_found": [
+        "ticketPrice",
+        "currentDrawingId"
+      ],
+      "patterns_found": [
+        "fetching global state instead of drawing-specific state"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 85,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to reflect the vulnerability accurately.",
+      "suggested_tag": "Incorrect Ticket Price Reference",
+      "alternative_tags": [
+        "Cross-Chain Vulnerability",
+        "Denial of Service"
+      ],
+      "correction_explanation": "The issue relates to incorrect ticket pricing due to fetching the wrong state, which can lead to user overpayment and DoS."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [
+        "arithmetic"
+      ],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The primary issue is a denial of service due to incorrect ticket pricing, which can lead to users being unable to purchase tickets correctly."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G7",
+        "C5"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more granular classification, particularly highlighting the business logic flaw and the bridge component involved in the vulnerability.",
+      "vulnerability_type": "Incorrect ticket price fetching leading to overpayment and DoS"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves fetching the ticket price from the current drawing state instead of the latest ticket price, ensuring users pay the correct amount during a drawing.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "buyTickets",
+          "fixed_function_code": "function buyTickets(\n        IJackpot.Ticket[] memory _tickets,\n        address _recipient,\n        address[] memory _referrers,\n        uint256[] memory _referralSplitBps,\n        bytes32 _source\n    )\n        external\n        nonReentrant\n        returns (uint256[] memory)\n    {\n        if (_recipient == address(0)) revert JackpotErrors.ZeroAddress();\n        uint256 currentDrawingId = jackpot.currentDrawingId();\n        uint256 ticketPrice = jackpot.getDrawingState(currentDrawingId).ticketPrice; // Fetch ticket price for the current drawing\n        uint256 ticketCost = ticketPrice * _tickets.length;\n\n        usdc.safeTransferFrom(msg.sender, address(this), ticketCost);\n        usdc.approve(address(jackpot), ticketCost);\n        uint256[] memory ticketIds = jackpot.buyTickets(_tickets, address(this), _referrers, _referralSplitBps, _source);\n\n        // Store the tickets in the user's mapping\n        UserTickets storage userDrawingTickets = userTickets[_recipient][currentDrawingId];\n        uint256 userTicketCount = userDrawingTickets.totalTicketsOwned;\n        for (uint256 i = 0; i < _tickets.length; i++) {\n            userDrawingTickets.ticketIds[userTicketCount + i] = ticketIds[i];\n            ticketOwner[ticketIds[i]] = _recipient;\n        }\n        userDrawingTickets.totalTicketsOwned += _tickets.length;\n\n        emit TicketsBought(_recipient, currentDrawingId, ticketIds);\n\n        return ticketIds;\n    }",
+          "reasoning": "This function now correctly fetches the ticket price for the current drawing, preventing overpayment and ensuring that users are charged the correct amount for their tickets."
+        }
+      ],
+      "key_changes": [
+        "Replaced the fetching of ticket price from jackpot.ticketPrice() to jackpot.getDrawingState(currentDrawingId).ticketPrice"
+      ],
+      "security_improvements": [
+        "Mitigated risk of user overpayment during ticket purchases",
+        "Ensured consistent state during drawing by using the correct ticket price"
+      ],
+      "additional_recommendations": "Consider implementing additional checks to ensure that the drawing is active before allowing ticket purchases.",
+      "confidence": 95,
+      "fix_code": "function buyTickets(\n        IJackpot.Ticket[] memory _tickets,\n        address _recipient,\n        address[] memory _referrers,\n        uint256[] memory _referralSplitBps,\n        bytes32 _source\n    )\n        external\n        nonReentrant\n        returns (uint256[] memory)\n    {\n        if (_recipient == address(0)) revert JackpotErrors.ZeroAddress();\n        uint256 currentDrawingId = jackpot.currentDrawingId();\n        uint256 ticketPrice = jackpot.getDrawingState(currentDrawingId).ticketPrice; // Fetch ticket price for the current drawing\n        uint256 ticketCost = ticketPrice * _tickets.length;\n\n        usdc.safeTransferFrom(msg.sender, address(this), ticketCost);\n        usdc.approve(address(jackpot), ticketCost);\n        uint256[] memory ticketIds = jackpot.buyTickets(_tickets, address(this), _referrers, _referralSplitBps, _source);\n\n        // Store the tickets in the user's mapping\n        UserTickets storage userDrawingTickets = userTickets[_recipient][currentDrawingId];\n        uint256 userTicketCount = userDrawingTickets.totalTicketsOwned;\n        for (uint256 i = 0; i < _tickets.length; i++) {\n            userDrawingTickets.ticketIds[userTicketCount + i] = ticketIds[i];\n            ticketOwner[ticketIds[i]] = _recipient;\n        }\n        userDrawingTickets.totalTicketsOwned += _tickets.length;\n\n        emit TicketsBought(_recipient, currentDrawingId, ticketIds);\n\n        return ticketIds;\n    }",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-04-16T17:58:47.620540"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-16T17:58:47.620561",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

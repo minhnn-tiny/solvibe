@@ -1,0 +1,143 @@
+{
+  "id": "62196",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/across-protocol/contracts/blob/d9826e30b51bbb3067df07c9532f4a5f6fe56f1c/contracts/SpokePool.sol#L1208-L1212",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      1208,
+      1212
+    ],
+    [
+      1208,
+      1212
+    ],
+    [
+      69,
+      69
+    ],
+    [
+      102,
+      102
+    ]
+  ],
+  "filename": "62196_SpokePool.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 1767,
+  "vulnerability_title": "Excess Gas Remains in SpokePool",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "executeRelayerRefundLeaf",
+        "start_line": 1208,
+        "end_line": 1247,
+        "code": "    function executeRelayerRefundLeaf(\n        uint32 rootBundleId,\n        SpokePoolInterface.RelayerRefundLeaf memory relayerRefundLeaf,\n        bytes32[] memory proof\n    ) public payable virtual override nonReentrant {\n        _preExecuteLeafHook(relayerRefundLeaf.l2TokenAddress);\n\n        if (relayerRefundLeaf.chainId != chainId()) revert InvalidChainId();\n\n        RootBundle storage rootBundle = rootBundles[rootBundleId];\n\n        // Check that proof proves that relayerRefundLeaf is contained within the relayer refund root.\n        // Note: This should revert if the relayerRefundRoot is uninitialized.\n        if (!MerkleLib.verifyRelayerRefund(rootBundle.relayerRefundRoot, relayerRefundLeaf, proof)) {\n            revert InvalidMerkleProof();\n        }\n\n        _setClaimedLeaf(rootBundleId, relayerRefundLeaf.leafId);\n\n        bool deferredRefunds = _distributeRelayerRefunds(\n            relayerRefundLeaf.chainId,\n            relayerRefundLeaf.amountToReturn,\n            relayerRefundLeaf.refundAmounts,\n            relayerRefundLeaf.leafId,\n            relayerRefundLeaf.l2TokenAddress,\n            relayerRefundLeaf.refundAddresses\n        );\n\n        emit ExecutedRelayerRefundRoot(\n            relayerRefundLeaf.amountToReturn,\n            relayerRefundLeaf.chainId,\n            relayerRefundLeaf.refundAmounts,\n            rootBundleId,\n            relayerRefundLeaf.leafId,\n            relayerRefundLeaf.l2TokenAddress,\n            relayerRefundLeaf.refundAddresses,\n            deferredRefunds,\n            msg.sender\n        );\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            1208,
+            1212
+          ],
+          [
+            1208,
+            1212
+          ]
+        ]
+      },
+      {
+        "code": "    // Address of the L1 contract that will send tokens to and receive tokens from this contract to fund relayer\n    // refunds and slow relays.\n    address public withdrawalRecipient;\n\n    // Note: The following two storage variables prefixed with DEPRECATED used to be variables that could be set by\n    // the cross-domain admin. Admins ended up not changing these in production, so to reduce\n    // gas in deposit/fill functions, we are converting them to private variables to maintain the contract\n    // storage layout and replacing them with immutable or constant variables, because retrieving a constant\n    // value is cheaper than retrieving a storage variable. Please see out the immutable/constant variable section.\n    WETH9Interface private DEPRECATED_wrappedNativeToken;\n    uint32 private DEPRECATED_depositQuoteTimeBuffer;\n\n    // `numberOfDeposits` acts as a counter to generate unique deposit identifiers for this spoke pool.\n    // It is a uint32 that increments with each `depositV3` call. In the `FundsDeposited` event, it is\n    // implicitly cast to uint256 by setting its most significant bits to 0, reducing the risk of ID collisions\n    // with unsafe deposits. However, this variable's name could be improved (e.g., `depositNonceCounter`)\n    // since it does not accurately reflect the total number of deposits, as `unsafeDeposit` can bypass this increment.\n    uint32 public numberOfDeposits;\n\n    // Whether deposits and fills are disabled.\n    bool public pausedFills;\n    bool public pausedDeposits;\n\n    // This contract can store as many root bundles as the HubPool chooses to publish here.\n    RootBundle[] public rootBundles;\n\n    // Origin token to destination token routings can be turned on or off, which can enable or disable deposits.\n    mapping(address => mapping(uint256 => bool)) private DEPRECATED_enabledDepositRoutes;\n\n    // Each relay is associated with the hash of parameters that uniquely identify the original deposit and a relay\n    // attempt for that deposit. The relay itself is just represented as the amount filled so far. The total amount to",
+        "start_line": 69,
+        "end_line": 69,
+        "context_start_line": 54,
+        "context_end_line": 84,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      },
+      {
+        "code": "\n    // Note: We will likely un-deprecate the fill and deposit counters to implement a better\n    // dynamic LP fee mechanism but for now we'll deprecate it to reduce bytecode\n    // in deposit/fill functions. These counters are designed to implement a fee mechanism that is based on a\n    // canonical history of deposit and fill events and how they update a virtual running balance of liabilities and\n    // assets, which then determines the LP fee charged to relays.\n\n    // This keeps track of the worst-case liabilities due to fills.\n    // It is never reset. Users should only rely on it to determine the worst-case increase in liabilities between\n    // two points. This is used to provide frontrunning protection to ensure the relayer's assumptions about the state\n    // upon which their expected repayments are based will not change before their transaction is mined.\n    mapping(address => uint256) private DEPRECATED_fillCounter;\n\n    // This keeps track of the total running deposits for each token. This allows depositors to protect themselves from\n    // frontrunning that might change their worst-case quote.\n    mapping(address => uint256) private DEPRECATED_depositCounter;\n\n    // This tracks the number of identical refunds that have been requested.\n    // The intention is to allow an off-chain system to know when this could be a duplicate and ensure that the other\n    // requests are known and accounted for.\n    mapping(bytes32 => uint256) private DEPRECATED_refundsRequested;\n\n    // Mapping of V3 relay hashes to fill statuses. Distinguished from relayFills\n    // to eliminate any chance of collision between pre and post V3 relay hashes.\n    mapping(bytes32 => uint256) public fillStatuses;\n\n    // Mapping of L2TokenAddress to relayer to outstanding refund amount. Used when a relayer repayment fails for some\n    // reason (eg blacklist) to track their outstanding liability, thereby letting them claim it later.\n    mapping(address => mapping(address => uint256)) public relayerRefund;\n\n    // Mapping of L2 token address to L2 IOFT messenger address. Required to support bridging via OFT standard",
+        "start_line": 102,
+        "end_line": 102,
+        "context_start_line": 87,
+        "context_end_line": 117,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:02:59.507232",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of excess tokens remaining in the contract due to price fluctuations between quoting and execution.",
+      "content_reasoning": "The content mentions the relevant functions and variables that are present in the extracted code, specifically `executeRelayerRefundLeaf` and `_transferViaOFT`, which are directly related to the described vulnerability.",
+      "functions_found": [
+        "executeRelayerRefundLeaf",
+        "_transferViaOFT"
+      ],
+      "variables_found": [
+        "relayerRefundLeaf",
+        "rootBundles"
+      ],
+      "patterns_found": [
+        "excess tokens remaining",
+        "price fluctuation issue"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 85,
+      "reasoning": "The report lacks a tag that reflects the identified vulnerability related to excess gas and token management.",
+      "suggested_tag": "Gas Management",
+      "alternative_tags": [
+        "Token Management",
+        "Refund Mechanism"
+      ],
+      "correction_explanation": "A tag related to gas management or token management should be added to accurately categorize the issue."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": true,
+      "reasoning": "The issue can lead to denial of service as excess tokens remaining in the contract may prevent users from retrieving their funds, thus affecting usability."
+    },
+    "scsvs_classification": {
+      "primary_category": "G10",
+      "primary_category_name": "Gas usage & limitations",
+      "secondary_categories": [
+        "C1"
+      ],
+      "confidence": 85,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more granular classification, particularly focusing on gas usage and the implications of token management in the contract.",
+      "vulnerability_type": "Excess tokens remain due to price fluctuations affecting gas management."
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-04-25T08:33:45.282966",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

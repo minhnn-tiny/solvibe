@@ -1,0 +1,142 @@
+{
+  "id": "64849",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/perps/types/Position.sol# L90-L128",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      90,
+      128
+    ]
+  ],
+  "filename": "64849_Position.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 154,
+  "vulnerability_title": "[M-14] Margin Balance can be forced to be < 0 even realizing upnl indirectly",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "On close, do not refund `marginDelta` if that portion of IM was already withdrawn. When calculating `finalMarginDelta` to return on close, cap the refund to the actual reserved `IM` remaining for that position.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-438)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_close",
+        "start_line": 90,
+        "end_line": 128,
+        "code": "    function _close(Position memory self, Side side, uint256 quoteTraded, uint256 baseTraded)\n        private\n        pure\n        returns (PositionUpdateResult memory result)\n    {\n        __CloseCache__ memory cache;\n\n        cache.closeSize = self.amount.min(baseTraded);\n\n        // pro rate quote amounts by close\n        cache.closedOpenNotional = self.openNotional.fullMulDiv(cache.closeSize, self.amount);\n        cache.currentNotional = quoteTraded.fullMulDiv(cache.closeSize, baseTraded);\n\n        result.rpnl = _pnl(self.isLong, cache.closedOpenNotional, cache.currentNotional);\n        result.marginDelta = -cache.closedOpenNotional.fullMulDiv(1e18, self.leverage).toInt256();\n\n        self.openNotional -= cache.closedOpenNotional;\n        self.amount -= cache.closeSize;\n\n        quoteTraded -= cache.currentNotional;\n        baseTraded -= cache.closeSize;\n\n        if (self.isLong) result.oiDelta.long = -cache.closeSize.toInt256();\n        else result.oiDelta.short = -cache.closeSize.toInt256();\n\n        if (result.sideClose = self.amount == 0) {\n            // reverse open\n            if (baseTraded > 0) {\n                result.marginDelta = _open(self, side, quoteTraded, baseTraded);\n\n                if (self.isLong) result.oiDelta.long += baseTraded.toInt256();\n                else result.oiDelta.short += baseTraded.toInt256();\n            } else {\n                // full close, set to defaults\n                delete self.lastCumulativeFunding;\n                delete self.isLong;\n            }\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            90,
+            128
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:00.790085",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of margin manipulation and the potential for a user to withdraw more than deposited.",
+      "content_reasoning": "The content mentions functions and variables such as `removeMargin`, `assertPostWithdrawalMarginRequired`, and `marginDelta` which are present in the code. The described vulnerable patterns of margin manipulation are evident.",
+      "functions_found": [
+        "removeMargin",
+        "assertPostWithdrawalMarginRequired",
+        "_close",
+        "rebalanceClose"
+      ],
+      "variables_found": [
+        "marginDelta",
+        "intendedMargin",
+        "equity",
+        "upnl"
+      ],
+      "patterns_found": [
+        "margin manipulation",
+        "withdrawal loophole"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report lacks a tag, but it should be tagged for business logic vulnerabilities due to the manipulation of margin and equity calculations.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "financial_exploitation"
+      ],
+      "correction_explanation": "The vulnerability is primarily related to business logic, where the intended margin and equity calculations are exploited."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 60,
+      "mando_applicable": false,
+      "reasoning": "The MANDO categories do not directly address business logic vulnerabilities related to financial calculations and margin manipulation."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G7"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is a business logic flaw where margin and equity calculations are manipulated, allowing users to withdraw more than deposited. This fits well under SCSVS G4 for business logic issues.",
+      "vulnerability_type": "Business logic flaw in margin and equity calculations allowing financial exploitation."
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves ensuring that the margin refund on position close is capped to the remaining reserved margin for that position, preventing any excess withdrawal.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "_close",
+          "fixed_function_code": "function _close(Position memory self, Side side, uint256 quoteTraded, uint256 baseTraded)\n        private\n        pure\n        returns (PositionUpdateResult memory result)\n    {\n        __CloseCache__ memory cache;\n\n        cache.closeSize = self.amount.min(baseTraded);\n\n        // pro rate quote amounts by close\n        cache.closedOpenNotional = self.openNotional.fullMulDiv(cache.closeSize, self.amount);\n        cache.currentNotional = quoteTraded.fullMulDiv(cache.closeSize, baseTraded);\n\n        result.rpnl = _pnl(self.isLong, cache.closedOpenNotional, cache.currentNotional);\n        \n        // Calculate the potential margin delta\n        int256 potentialMarginDelta = -cache.closedOpenNotional.fullMulDiv(1e18, self.leverage).toInt256();\n        \n        // Cap the margin delta to the remaining reserved margin\n        result.marginDelta = potentialMarginDelta.min(self.reservedMargin.toInt256());\n\n        self.openNotional -= cache.closedOpenNotional;\n        self.amount -= cache.closeSize;\n\n        quoteTraded -= cache.currentNotional;\n        baseTraded -= cache.closeSize;\n\n        if (self.isLong) result.oiDelta.long = -cache.closeSize.toInt256();\n        else result.oiDelta.short = -cache.closeSize.toInt256();\n\n        if (result.sideClose = self.amount == 0) {\n            // reverse open\n            if (baseTraded > 0) {\n                result.marginDelta = _open(self, side, quoteTraded, baseTraded);\n\n                if (self.isLong) result.oiDelta.long += baseTraded.toInt256();\n                else result.oiDelta.short += baseTraded.toInt256();\n            } else {\n                // full close, set to defaults\n                delete self.lastCumulativeFunding;\n                delete self.isLong;\n            }\n        }\n    }",
+          "reasoning": "The fix ensures that the margin refund is capped to the remaining reserved margin for the position, preventing users from withdrawing more than they should. This addresses the vulnerability by ensuring that the margin balance cannot be manipulated to become negative."
+        }
+      ],
+      "key_changes": [
+        "Introduced a cap on marginDelta to ensure it does not exceed the reserved margin.",
+        "Used the min function to compare potentialMarginDelta with reservedMargin.",
+        "Ensured that the margin refund logic is secure and prevents excess withdrawal."
+      ],
+      "security_improvements": [
+        "Prevents margin balance from being manipulated to negative values.",
+        "Ensures that users cannot withdraw more than their reserved margin.",
+        "Improves the integrity of margin calculations and withdrawals."
+      ],
+      "additional_recommendations": "Regularly audit the margin and equity calculation logic to ensure no new vulnerabilities are introduced.",
+      "confidence": 95,
+      "fix_code": "function _close(Position memory self, Side side, uint256 quoteTraded, uint256 baseTraded)\n        private\n        pure\n        returns (PositionUpdateResult memory result)\n    {\n        __CloseCache__ memory cache;\n\n        cache.closeSize = self.amount.min(baseTraded);\n\n        // pro rate quote amounts by close\n        cache.closedOpenNotional = self.openNotional.fullMulDiv(cache.closeSize, self.amount);\n        cache.currentNotional = quoteTraded.fullMulDiv(cache.closeSize, baseTraded);\n\n        result.rpnl = _pnl(self.isLong, cache.closedOpenNotional, cache.currentNotional);\n        \n        // Calculate the potential margin delta\n        int256 potentialMarginDelta = -cache.closedOpenNotional.fullMulDiv(1e18, self.leverage).toInt256();\n        \n        // Cap the margin delta to the remaining reserved margin\n        result.marginDelta = potentialMarginDelta.min(self.reservedMargin.toInt256());\n\n        self.openNotional -= cache.closedOpenNotional;\n        self.amount -= cache.closeSize;\n\n        quoteTraded -= cache.currentNotional;\n        baseTraded -= cache.closeSize;\n\n        if (self.isLong) result.oiDelta.long = -cache.closeSize.toInt256();\n        else result.oiDelta.short = -cache.closeSize.toInt256();\n\n        if (result.sideClose = self.amount == 0) {\n            // reverse open\n            if (baseTraded > 0) {\n                result.marginDelta = _open(self, side, quoteTraded, baseTraded);\n\n                if (self.isLong) result.oiDelta.long += baseTraded.toInt256();\n                else result.oiDelta.short += baseTraded.toInt256();\n            } else {\n                // full close, set to defaults\n                delete self.lastCumulativeFunding;\n                delete self.isLong;\n            }\n        }\n    }",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:38:35.919902"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:38:35.919924",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

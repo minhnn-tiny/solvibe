@@ -1,0 +1,148 @@
+{
+  "id": "64147",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-11-megapot/blob/main/contracts/ScaledEntropyProvider.sol# L251",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      251,
+      251
+    ],
+    [
+      251,
+      251
+    ]
+  ],
+  "filename": "64147_ScaledEntropyProvider.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 341,
+  "vulnerability_title": "[M-05] Randomness can be exploited in some cases",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Use a different seed for the bonus ball when generating random numbers.\n\nExpand for detailed Proof of Concept",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "```\n\nimport { ethers } from \"hardhat\";\nimport DeployHelper from \"@utils/deploys\";\n\nimport { getWaffleExpect, getAccounts } from \"@utils/test/index\";\nimport { ether, usdc } from \"@utils/common\";\nimport { Account } from \"@utils/test\";\n\nimport { PRECISE_UNIT } from \"@utils/constants\";\n\nimport {\n  GuaranteedMinimumPayoutCalculator,\n  Jackpot,\n  JackpotBridgeManager,\n  JackpotLPManager,\n  JackpotTicketNFT,\n  MockDepository,\n  ReentrantUSDCMock,\n  ScaledEntropyProviderMock,\n} from \"@utils/contracts\";\nimport {\n  Address,\n  JackpotSystemFixture,\n  RelayTxData,\n  Ticket,\n} from \"@utils/types\";\nimport { deployJackpotSystem } from \"@utils/test/jackpotFixture\";\nimport {\n  calculatePackedTicket,\n  calculateTicketId,\n  generateClaimTicketSignature,\n  generateClaimWinningsSignature,\n} from \"@utils/protocolUtils\";\nimport { ADDRESS_ZERO } from \"@utils/constants\";\nimport {\n  takeSnapshot,\n  SnapshotRestorer,\n  time,\n} from \"@nomicfoundation/hardhat-toolbox/network-helpers\";\n\nconst expect = getWaffleExpect();\n\ndescribe(\"C4\", () => {\n  let owner: Account;\n  let buyerOne: Account;\n  let buyerTwo: Account;\n  let referrerOne: Account;\n  let referrerTwo: Account;\n  let referrerThree: Account;\n  let solver: Account;\n\n  let jackpotSystem: JackpotSystemFixture;\n  let jackpot: Jackpot;\n  let jackpotNFT: JackpotTicketNFT;\n  let jackpotLPManager: JackpotLPManager;\n  let payoutCalculator: GuaranteedMinimumPayoutCalculator;\n  let usdcMock: ReentrantUSDCMock;\n  let entropyProvider: ScaledEntropyProviderMock;\n  let snapshot: SnapshotRestorer;\n  let jackpotBridgeManager: JackpotBridgeManager;\n  let mockDepository: MockDepository;\n\n  beforeEach(async () => {\n    [\n      owner,\n      buyerOne,\n      buyerTwo,\n      referrerOne,\n      referrerTwo,\n      referrerThree,\n      solver,\n    ] = await getAccounts();\n\n    jackpotSystem = await deployJackpotSystem();\n    jackpot = jackpotSystem.jackpot;\n    jackpotNFT = jackpotSystem.jackpotNFT;\n    jackpotLPManager = jackpotSystem.jackpotLPManager;\n    payoutCalculator = jackpotSystem.payoutCalculator;\n    usdcMock = jackpotSystem.usdcMock;\n    entropyProvider = jackpotSystem.entropyProvider;\n\n    await jackpot\n      .connect(owner.wallet)\n      .initialize(\n        usdcMock.getAddress(),\n        await jackpotLPManager.getAddress(),\n        await jackpotNFT.getAddress(),\n        entropyProvider.getAddress(),\n        await payoutCalculator.getAddress(),\n      );\n\n    await jackpot.connect(owner.wallet).initializeLPDeposits(usdc(10000000));\n\n    await usdcMock\n      .connect(owner.wallet)\n      .approve(jackpot.getAddress(), usdc(1000000));\n    await jackpot.connect(owner.wallet).lpDeposit(usdc(1000000));\n\n    await jackpot\n      .connect(owner.wallet)\n      .initializeJackpot(\n        BigInt(await time.latest()) +\n          BigInt(jackpotSystem.deploymentParams.drawingDurationInSeconds),\n      );\n\n    jackpotBridgeManager =\n      await jackpotSystem.deployer.deployJackpotBridgeManager(\n        await jackpot.getAddress(),\n        await jackpotNFT.getAddress(),\n        await usdcMock.getAddress(),\n        \"MegapotBridgeManager\",\n        \"1.0.0\",\n      );\n\n    mockDepository = await jackpotSystem.deployer.deployMockDepository(\n      await usdcMock.getAddress(),\n    );\n\n    snapshot = await takeSnapshot();\n  });\n\n  beforeEach(async () => {\n    await snapshot.restore();\n  });\n\n  describe(\"PoC\", async () => {\n    it(\"demonstrates bonus ball is always included in normal balls when normalBallMax == bonusballMax\", async () => {\n\n      const deployer = new DeployHelper(owner.wallet);\n      const fisherYatesTester = await deployer.deployFisherYatesWithRejectionTester();\n      const normalBallMax = 30;\n      const bonusballMax = 30;\n      const seed = BigInt(12345);\n\n      // let's test with the same seed:\n      console.log(`\\n --- test with the same seed ---`);\n      const normalsSame = await fisherYatesTester.draw(BigInt(1), BigInt(normalBallMax), BigInt(5), seed);\n      const bonusSame = await fisherYatesTester.draw(BigInt(1), BigInt(bonusballMax), BigInt(1), seed);\n      const bonusValue = bonusSame[0];\n\n      console.log(`Normal balls: [${normalsSame.join(\", \")}]`);\n      console.log(`Bonus ball: ${bonusValue}`);\n    });\n  });\n});\n```\n\nResult:\n```\n\n --- test with the same seed ---\nNormal balls: [30, 18, 24, 3, 19]\nBonus ball: 30\n```\n\n---",
+    "poc_code_blocks": [
+      "import { ethers } from \"hardhat\";\nimport DeployHelper from \"@utils/deploys\";\n\nimport { getWaffleExpect, getAccounts } from \"@utils/test/index\";\nimport { ether, usdc } from \"@utils/common\";\nimport { Account } from \"@utils/test\";\n\nimport { PRECISE_UNIT } from \"@utils/constants\";\n\nimport {\n  GuaranteedMinimumPayoutCalculator,\n  Jackpot,\n  JackpotBridgeManager,\n  JackpotLPManager,\n  JackpotTicketNFT,\n  MockDepository,\n  ReentrantUSDCMock,\n  ScaledEntropyProviderMock,\n} from \"@utils/contracts\";\nimport {\n  Address,\n  JackpotSystemFixture,\n  RelayTxData,\n  Ticket,\n} from \"@utils/types\";\nimport { deployJackpotSystem } from \"@utils/test/jackpotFixture\";\nimport {\n  calculatePackedTicket,\n  calculateTicketId,\n  generateClaimTicketSignature,\n  generateClaimWinningsSignature,\n} from \"@utils/protocolUtils\";\nimport { ADDRESS_ZERO } from \"@utils/constants\";\nimport {\n  takeSnapshot,\n  SnapshotRestorer,\n  time,\n} from \"@nomicfoundation/hardhat-toolbox/network-helpers\";\n\nconst expect = getWaffleExpect();\n\ndescribe(\"C4\", () => {\n  let owner: Account;\n  let buyerOne: Account;\n  let buyerTwo: Account;\n  let referrerOne: Account;\n  let referrerTwo: Account;\n  let referrerThree: Account;\n  let solver: Account;\n\n  let jackpotSystem: JackpotSystemFixture;\n  let jackpot: Jackpot;\n  let jackpotNFT: JackpotTicketNFT;\n  let jackpotLPManager: JackpotLPManager;\n  let payoutCalculator: GuaranteedMinimumPayoutCalculator;\n  let usdcMock: ReentrantUSDCMock;\n  let entropyProvider: ScaledEntropyProviderMock;\n  let snapshot: SnapshotRestorer;\n  let jackpotBridgeManager: JackpotBridgeManager;\n  let mockDepository: MockDepository;\n\n  beforeEach(async () => {\n    [\n      owner,\n      buyerOne,\n      buyerTwo,\n      referrerOne,\n      referrerTwo,\n      referrerThree,\n      solver,\n    ] = await getAccounts();\n\n    jackpotSystem = await deployJackpotSystem();\n    jackpot = jackpotSystem.jackpot;\n    jackpotNFT = jackpotSystem.jackpotNFT;\n    jackpotLPManager = jackpotSystem.jackpotLPManager;\n    payoutCalculator = jackpotSystem.payoutCalculator;\n    usdcMock = jackpotSystem.usdcMock;\n    entropyProvider = jackpotSystem.entropyProvider;\n\n    await jackpot\n      .connect(owner.wallet)\n      .initialize(\n        usdcMock.getAddress(),\n        await jackpotLPManager.getAddress(),\n        await jackpotNFT.getAddress(),\n        entropyProvider.getAddress(),\n        await payoutCalculator.getAddress(),\n      );\n\n    await jackpot.connect(owner.wallet).initializeLPDeposits(usdc(10000000));\n\n    await usdcMock\n      .connect(owner.wallet)\n      .approve(jackpot.getAddress(), usdc(1000000));\n    await jackpot.connect(owner.wallet).lpDeposit(usdc(1000000));\n\n    await jackpot\n      .connect(owner.wallet)\n      .initializeJackpot(\n        BigInt(await time.latest()) +\n          BigInt(jackpotSystem.deploymentParams.drawingDurationInSeconds),\n      );\n\n    jackpotBridgeManager =\n      await jackpotSystem.deployer.deployJackpotBridgeManager(\n        await jackpot.getAddress(),\n        await jackpotNFT.getAddress(),\n        await usdcMock.getAddress(),\n        \"MegapotBridgeManager\",\n        \"1.0.0\",\n      );\n\n    mockDepository = await jackpotSystem.deployer.deployMockDepository(\n      await usdcMock.getAddress(),\n    );\n\n    snapshot = await takeSnapshot();\n  });\n\n  beforeEach(async () => {\n    await snapshot.restore();\n  });\n\n  describe(\"PoC\", async () => {\n    it(\"demonstrates bonus ball is always included in normal balls when normalBallMax == bonusballMax\", async () => {\n\n      const deployer = new DeployHelper(owner.wallet);\n      const fisherYatesTester = await deployer.deployFisherYatesWithRejectionTester();\n      const normalBallMax = 30;\n      const bonusballMax = 30;\n      const seed = BigInt(12345);\n\n      // let's test with the same seed:\n      console.log(`\\n --- test with the same seed ---`);\n      const normalsSame = await fisherYatesTester.draw(BigInt(1), BigInt(normalBallMax), BigInt(5), seed);\n      const bonusSame = await fisherYatesTester.draw(BigInt(1), BigInt(bonusballMax), BigInt(1), seed);\n      const bonusValue = bonusSame[0];\n\n      console.log(`Normal balls: [${normalsSame.join(\", \")}]`);\n      console.log(`Bonus ball: ${bonusValue}`);\n    });\n  });\n});",
+      "--- test with the same seed ---\nNormal balls: [30, 18, 24, 3, 19]\nBonus ball: 30"
+    ]
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "entropyCallback",
+        "start_line": 245,
+        "end_line": 257,
+        "code": "    function entropyCallback(uint64 sequence, address /*provider*/, bytes32 randomNumber) internal override {\n        PendingRequest memory req = pending[sequence];\n        if (req.callback == address(0)) revert UnknownSequence();\n        \n        delete pending[sequence];\n\n        uint256[][] memory scaledRandomNumbers = _getScaledRandomness(randomNumber, req.setRequests);\n        (bool success, ) = req.callback.call(abi.encodeWithSelector(req.selector, sequence, scaledRandomNumbers, req.context));\n        if (!success) revert CallbackFailed(req.selector);\n\n        emit EntropyFulfilled(sequence, randomNumber);\n        emit ScaledRandomnessDelivered(sequence, req.callback, scaledRandomNumbers.length);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            251,
+            251
+          ],
+          [
+            251,
+            251
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-16T17:55:51.665664",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of overlapping randomness due to the same seed being used for both normal and bonus balls.",
+      "content_reasoning": "The content mentions the function `entropyCallback` and the process of generating random numbers, which aligns with the vulnerability described.",
+      "functions_found": [
+        "entropyCallback"
+      ],
+      "variables_found": [
+        "pending",
+        "req",
+        "scaledRandomNumbers"
+      ],
+      "patterns_found": [
+        "overlapping randomness",
+        "predictable outcomes"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 85,
+      "reasoning": "The report lacks a tag that reflects the nature of the vulnerability related to randomness exploitation.",
+      "suggested_tag": "randomness_exploitation",
+      "alternative_tags": [
+        "predictable_randomness"
+      ],
+      "correction_explanation": "A tag related to randomness exploitation is necessary to highlight the specific vulnerability in the lottery system."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 70,
+      "mando_applicable": false,
+      "reasoning": "The MANDO categories do not adequately cover the specific issue of randomness exploitation in this context."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G7"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more granular classification for the business logic flaw related to randomness in the lottery system.",
+      "vulnerability_type": "Randomness exploitation leading to predictable outcomes in a lottery system."
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Use a unique seed for generating the bonus ball to prevent overlapping randomness.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "entropyCallback",
+          "fixed_function_code": "function entropyCallback(uint64 sequence, address /*provider*/, bytes32 randomNumber) internal override {\n        PendingRequest memory req = pending[sequence];\n        if (req.callback == address(0)) revert UnknownSequence();\n        \n        delete pending[sequence];\n\n        // Generate a unique seed for the bonus ball\n        bytes32 bonusSeed = keccak256(abi.encodePacked(randomNumber, sequence, block.timestamp));\n        uint256[][] memory scaledRandomNumbers = _getScaledRandomness(randomNumber, req.setRequests);\n        uint256 bonusBall = uint256(bonusSeed) % req.setRequests.length; // Ensure bonus ball is selected from the available options\n\n        (bool success, ) = req.callback.call(abi.encodeWithSelector(req.selector, sequence, scaledRandomNumbers, req.context, bonusBall));\n        if (!success) revert CallbackFailed(req.selector);\n\n        emit EntropyFulfilled(sequence, randomNumber);\n        emit ScaledRandomnessDelivered(sequence, req.callback, scaledRandomNumbers.length);\n    }",
+          "reasoning": "This function now generates a unique seed for the bonus ball using a combination of the original random number, the sequence, and the current block timestamp. This prevents the bonus ball from being predictable and overlapping with the normal balls."
+        }
+      ],
+      "key_changes": [
+        "Introduced a unique seed for the bonus ball using keccak256 hashing.",
+        "Modified the callback to include the bonus ball index.",
+        "Ensured that the bonus ball is selected from the available options."
+      ],
+      "security_improvements": [
+        "Reduced predictability of the bonus ball selection.",
+        "Enhanced randomness by incorporating additional entropy sources."
+      ],
+      "additional_recommendations": "Consider using a secure randomness oracle or VRF (Verifiable Random Function) for critical randomness needs in the lottery system.",
+      "confidence": 90,
+      "fix_code": "function entropyCallback(uint64 sequence, address /*provider*/, bytes32 randomNumber) internal override {\n        PendingRequest memory req = pending[sequence];\n        if (req.callback == address(0)) revert UnknownSequence();\n        \n        delete pending[sequence];\n\n        // Generate a unique seed for the bonus ball\n        bytes32 bonusSeed = keccak256(abi.encodePacked(randomNumber, sequence, block.timestamp));\n        uint256[][] memory scaledRandomNumbers = _getScaledRandomness(randomNumber, req.setRequests);\n        uint256 bonusBall = uint256(bonusSeed) % req.setRequests.length; // Ensure bonus ball is selected from the available options\n\n        (bool success, ) = req.callback.call(abi.encodeWithSelector(req.selector, sequence, scaledRandomNumbers, req.context, bonusBall));\n        if (!success) revert CallbackFailed(req.selector);\n\n        emit EntropyFulfilled(sequence, randomNumber);\n        emit ScaledRandomnessDelivered(sequence, req.callback, scaledRandomNumbers.length);\n    }",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-04-16T17:58:11.749966"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-16T17:58:11.749986",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

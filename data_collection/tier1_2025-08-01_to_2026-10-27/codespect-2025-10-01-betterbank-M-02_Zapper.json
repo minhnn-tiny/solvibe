@@ -1,0 +1,104 @@
+{
+  "id": "codespect-2025-10-01-betterbank-M-02",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/grape-finance/BB-Custom-contracts/blob/43fba5ed6a5f47d6ae997660a7fe656c57f44b30/contracts/Zapper.sol#L150",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      150,
+      150
+    ],
+    [
+      183,
+      183
+    ]
+  ],
+  "filename": "codespect-2025-10-01-betterbank-M-02_Zapper.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 435,
+  "vulnerability_title": "Missing slippage protection when interacting with UniswapV2 Pair",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_zapToken",
+        "start_line": 137,
+        "end_line": 159,
+        "code": "\n    function _zapToken(address _token, uint _amount, uint256 _deadline) public {\n        address favor = tokenToFavor[_token];\n        require(favor != address(0), \"Zap: unsupported\");\n\n        address lp = favorToLp[favor];\n        require(lp != address(0), \"Zap: no lp\");\n\n        uint256 half = _amount / 2;\n\n        uint256 balFavor = _swap(_token, favor, half, _deadline);\n        IFavorToken(favor).logBuy(msg.sender, balFavor);\n\n        _addLiquidity(_token, favor, half, balFavor, address(this), _deadline);\n\n        uint256 balLP = IERC20(lp).balanceOf(address(this));\n        _depositToStronghold(lp, balLP);\n\n        _refundDust(msg.sender);\n\n        emit TokenZapped(msg.sender, _token, favor, _amount, balLP);\n\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            150,
+            150
+          ]
+        ]
+      },
+      {
+        "function_name": "_swap",
+        "start_line": 168,
+        "end_line": 192,
+        "code": "    function _swap(\n        address _in,\n        address _out,\n        uint256 _amount,\n        uint256 _deadline\n    ) internal returns (uint256) {\n        IERC20(_in).approve(address(router), _amount);\n\n        address[] memory path = new address[](2);\n        path[0] = _in;\n        path[1] = _out;\n\n        uint256 before = IERC20(_out).balanceOf(address(this));\n        router.swapExactTokensForTokensSupportingFeeOnTransferTokens(\n            _amount,\n            0,\n            path,\n            address(this),\n            _deadline\n        );\n        uint256 got = IERC20(_out).balanceOf(address(this)) - before;\n\n        require(got > 0, \"Zapper: Swap failed\");\n        return got;\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            183,
+            183
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:44:04.480444",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "_swap calls swapExactTokensForTokensSupportingFeeOnTransferTokens with a minimum output of 0, and _addLiquidity calls addLiquidity with both minimum amounts set to 0. _zapToken uses both, so a sandwich attack can push the trade to a bad rate.",
+      "functions_found": [
+        "_swap",
+        "_addLiquidity",
+        "_zapToken"
+      ],
+      "variables_found": [
+        "router"
+      ],
+      "patterns_found": [
+        "minimum output of 0 on the router swap",
+        "minimum amounts of 0 on addLiquidity"
+      ],
+      "issues": []
+    },
+    "mando_classification": {
+      "primary_category": "front_running",
+      "mando_applicable": true
+    },
+    "scsvs_classification": {
+      "primary_category": "C8",
+      "primary_category_name": "Liquidity pool",
+      "vulnerability_type": "no slippage limit on swap and add liquidity"
+    },
+    "fix_code_source": "none"
+  }
+}

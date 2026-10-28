@@ -1,0 +1,85 @@
+{
+  "id": "codespect-2026-02-04-dutch-H-05",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/dutch-protocol/Protocol-Contracts/tree/cec8b243aa645fdbe80e05e613eca69542b62a2e/src/DUTCHBondingHook.sol#L905",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      905,
+      905
+    ]
+  ],
+  "filename": "codespect-2026-02-04-dutch-H-05_DUTCHBondingHook.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 1335,
+  "vulnerability_title": "Inverted sign convention for amountSpecified breaks swap logic",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_executeBuy",
+        "start_line": 905,
+        "end_line": 1004,
+        "code": "    function _executeBuy(\n        PoolKey calldata, /* key_ */\n        SwapParams calldata params_,\n        address sender_\n    )\n        internal\n        returns (\n            BeforeSwapDelta delta_,\n            uint256 inputAmount_,\n            uint256 outputAmount_\n        )\n    {\n        uint256 taxAmount_;\n        uint256 netWeth_;\n        bool isExempt_ = _taxExempt[sender_];\n\n        if (params_.amountSpecified > 0) {\n            // Exact Input: User specifies WETH amount to spend.\n            inputAmount_ = uint256(params_.amountSpecified);\n            \n            // Calculate tax (skip if caller is exempt).\n            taxAmount_ = isExempt_\n                ? 0\n                : (inputAmount_ * _buyTaxBps) / BPS_DENOMINATOR;\n            netWeth_ = inputAmount_ - taxAmount_;\n            \n            // Calculate tokens to mint from net WETH.\n            outputAmount_ = _calculateTokensFromWETH(netWeth_);\n            \n            // Validate non-zero output.\n            if (outputAmount_ == 0) revert InvalidAmount();\n        } else {\n            // Exact Output: User specifies DUTCH amount desired.\n            outputAmount_ = uint256(-params_.amountSpecified);\n            \n            // Calculate net WETH needed for tokens (without tax).\n            netWeth_ = _calculateMintCost(outputAmount_);\n            \n            // Calculate total WETH including tax (skip if caller is exempt).\n            if (isExempt_) {\n                inputAmount_ = netWeth_;\n                taxAmount_ = 0;\n            } else {\n                // Formula: netWeth = totalWeth \u00d7 (1 - taxRate)\n                // => totalWeth = netWeth / (1 - taxRate)\n                inputAmount_ = (netWeth_ * BPS_DENOMINATOR) /\n                    (BPS_DENOMINATOR - _buyTaxBps);\n                taxAmount_ = inputAmount_ - netWeth_;\n            }\n        }\n\n        _wethReserve += netWeth_;\n        _wethInflow += netWeth_;\n        _totalMinted += outputAmount_;\n        ++_totalMintOperations;\n\n        // Take WETH from pool (user already deposited it).\n        poolManager.take(_wethCurrency, address(this), inputAmount_);\n\n        // Distribute tax.\n        (uint256 vaultAmount_, uint256 opsAmount_) =\n            _calculateBuyTax(taxAmount_);\n        IERC20(Currency.unwrap(_wethCurrency)).safeTransfer(\n            _dutchVault,\n            vaultAmount_\n        );\n        IERC20(Currency.unwrap(_wethCurrency)).safeTransfer(\n            _opsWallet,\n            opsAmount_\n        );\n\n        // Mint DUTCH to hook.\n        dutchToken.mint(address(this), outputAmount_);\n\n        // Settle DUTCH to pool (physical movement).\n        poolManager.sync(_dutchCurrency);\n        IERC20(Currency.unwrap(_dutchCurrency)).safeTransfer(\n            address(poolManager),\n            outputAmount_\n        );\n        poolManager.settle();\n\n        // Emit event with current price.\n        emit Minted(inputAmount_, outputAmount_, taxAmount_, getCurrentPrice());\n\n        // Return delta to cancel AMM swap.\n        if (params_.amountSpecified > 0) {\n            // Exact input: specify input, calculated output.\n            delta_ = toBeforeSwapDelta(\n                int128(-params_.amountSpecified),\n                int128(int256(outputAmount_))\n            );\n        } else {\n            // Exact output: calculated input, specify output.\n            delta_ = toBeforeSwapDelta(\n                -int128(int256(inputAmount_)),\n                int128(-params_.amountSpecified)\n            );\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            905,
+            905
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:45:31.546174",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "_executeBuy and _executeSell treat a positive amountSpecified as exact input and a negative one as exact output. Uniswap V4 uses the opposite convention, so the returned deltas are swapped.",
+      "functions_found": [
+        "_executeBuy",
+        "_executeSell",
+        "_beforeSwap"
+      ],
+      "variables_found": [
+        "amountSpecified"
+      ],
+      "patterns_found": [
+        "inverted sign check on amountSpecified"
+      ],
+      "issues": []
+    },
+    "mando_classification": {
+      "primary_category": null,
+      "mando_applicable": false
+    },
+    "scsvs_classification": {
+      "primary_category": "C9",
+      "primary_category_name": "Uniswap V4 Hook",
+      "vulnerability_type": "inverted exact-input and exact-output sign convention"
+    },
+    "fix_code_source": "none"
+  }
+}

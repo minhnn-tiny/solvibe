@@ -1,0 +1,136 @@
+{
+  "id": "61791",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/AladdinDAO/fx-protocol-contracts/blob/56a47eab8d10334e479df83a2b13a8b68ce390e9/contracts/core/FlashLoans.sol#L86",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      86,
+      86
+    ],
+    [
+      86,
+      86
+    ],
+    [
+      59,
+      59
+    ]
+  ],
+  "filename": "61791_FlashLoans.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 97,
+  "vulnerability_title": "Flashloan Functionality Does Not Follow ERC-3156 Standard",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "flashLoan",
+        "start_line": 67,
+        "end_line": 96,
+        "code": "  function flashLoan(\n    IERC3156FlashBorrower receiver,\n    address token,\n    uint256 amount,\n    bytes calldata data\n  ) external nonReentrant whenNotPaused returns (bool) {\n    // save the current balance\n    uint256 prevBalance = IERC20(token).balanceOf(address(this));\n    uint256 fee = flashFee(token, amount);\n\n    // transfer token to receiver\n    IERC20(token).safeTransfer(address(receiver), amount);\n\n    // invoke the recipient's callback\n    if (receiver.onFlashLoan(_msgSender(), token, amount, fee, data) != CALLBACK_SUCCESS) {\n      revert ErrorERC3156CallbackFailed();\n    }\n\n    // ensure that the tokens + fee have been deposited back to the network\n    uint256 returnedAmount = IERC20(token).balanceOf(address(this)) - prevBalance;\n    if (returnedAmount < amount + fee) {\n      revert ErrorInsufficientFlashLoanReturn();\n    }\n\n    if (fee > 0) {\n      IERC20(token).safeTransfer(treasury, fee);\n    }\n\n    return true;\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            86,
+            86
+          ],
+          [
+            86,
+            86
+          ]
+        ]
+      },
+      {
+        "function_name": "flashFee",
+        "start_line": 58,
+        "end_line": 60,
+        "code": "  function flashFee(address /*token*/, uint256 amount) public view returns (uint256) {\n    return (amount * getFlashLoanFeeRatio()) / FEE_PRECISION;\n  }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            59,
+            59
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:01:05.773329",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issues with the `flashLoan` and `flashFee` functions, highlighting the non-compliance with the ERC-3156 standard.",
+      "content_reasoning": "The content mentions the relevant functions and variables that exist in the code, specifically `flashLoan` and `flashFee`, and describes the vulnerabilities present in the implementation.",
+      "functions_found": [
+        "flashLoan",
+        "flashFee"
+      ],
+      "variables_found": [
+        "receiver",
+        "token",
+        "amount",
+        "fee"
+      ],
+      "patterns_found": [
+        "non-compliance with ERC-3156",
+        "incorrect handling of flash loan return"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 85,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to reflect the nature of the vulnerability.",
+      "suggested_tag": "ERC-3156 Compliance Issue",
+      "alternative_tags": [
+        "Flash Loan Vulnerability"
+      ],
+      "correction_explanation": "The report discusses a specific compliance issue with the ERC-3156 standard, which should be reflected in the tagging."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 70,
+      "mando_applicable": false,
+      "reasoning": "The MANDO categories do not adequately capture the specific compliance issue related to ERC-3156 standards."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "C1"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The issue primarily relates to the business logic of the flash loan implementation and its compliance with the ERC-3156 standard, which is best captured under SCSVS categories.",
+      "vulnerability_type": "Non-compliance with ERC-3156 flash loan standard"
+    },
+    "fix_code_source": "none",
+    "validated_at": "2026-04-25T17:41:17.370176",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

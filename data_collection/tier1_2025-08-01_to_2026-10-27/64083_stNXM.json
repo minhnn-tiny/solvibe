@@ -1,0 +1,136 @@
+{
+  "id": "64083",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/EaseDeFi/stNXM-Contracts/blob/b1431014cfadc4e5b65a9b93dfb52092313fef31/contracts/core/stNXM.sol#L723",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      723,
+      723
+    ]
+  ],
+  "filename": "64083_stNXM.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 743,
+  "vulnerability_title": "H-5: owner can hide a staked nft  via removeTokenIdAtIndex and inflate shares using this to make profit",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "_No response_",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "_No response_",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "removeTokenIdAtIndex",
+        "start_line": 723,
+        "end_line": 729,
+        "code": "    function removeTokenIdAtIndex(uint256 _index) external onlyOwner {\n        uint256 tokenId = tokenIds[_index];\n        tokenIds[_index] = tokenIds[tokenIds.length - 1];\n        tokenIds.pop();\n        // remove mapping to pool\n        delete tokenIdToPool[tokenId];\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            723,
+            723
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:08:14.575487",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the manipulation of the staked NFT and the resulting profit for the owner, which is evident in the code provided.",
+      "content_reasoning": "The content mentions the function `removeTokenIdAtIndex` and the relevant variables like `tokenIds` and `tokenIdToPool`, which are present in the code snippet.",
+      "functions_found": [
+        "removeTokenIdAtIndex"
+      ],
+      "variables_found": [
+        "tokenIds",
+        "tokenIdToPool"
+      ],
+      "patterns_found": [
+        "owner manipulation",
+        "stake hiding"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 85,
+      "reasoning": "There is no existing tag, and the vulnerability is significant enough to warrant a specific tag related to owner manipulation or NFT staking issues.",
+      "suggested_tag": "owner_manipulation",
+      "alternative_tags": [
+        "nft_staking_issue"
+      ],
+      "correction_explanation": "The vulnerability involves owner manipulation of NFT stakes, which is a critical issue that should be tagged for better tracking and resolution."
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability stems from the owner's ability to manipulate the contract's state without proper checks, which falls under access control issues."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "C6",
+        "C7"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is primarily a business logic flaw where the owner's actions lead to financial manipulation. Additionally, it relates to NFTs and liquid staking, hence the inclusion of C6 and C7.",
+      "vulnerability_type": "Owner manipulation of NFT stakes leading to profit at the expense of other holders."
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "The fix involves adding a check to ensure that the owner cannot manipulate the NFT stakes in a way that inflates shares. This is done by ensuring that the token being removed is not currently staked or by implementing a mechanism to prevent the owner from removing tokens that would lead to profit manipulation.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "removeTokenIdAtIndex",
+          "fixed_function_code": "function removeTokenIdAtIndex(uint256 _index) external onlyOwner { \n        require(_index < tokenIds.length, \"Index out of bounds\"); \n        uint256 tokenId = tokenIds[_index]; \n        // Ensure the token is not currently staked before removal \n        require(tokenIdToPool[tokenId] == address(0), \"Token is currently staked\"); \n        tokenIds[_index] = tokenIds[tokenIds.length - 1]; \n        tokenIds.pop(); \n        // remove mapping to pool \n        delete tokenIdToPool[tokenId]; \n    }",
+          "reasoning": "This function now includes a check to ensure that the token being removed is not currently staked. This prevents the owner from manipulating the NFT stakes to inflate shares and profit at the expense of other holders."
+        }
+      ],
+      "key_changes": [
+        "Added index bounds check to prevent out-of-bounds access.",
+        "Added a check to ensure the token is not currently staked before removal."
+      ],
+      "security_improvements": [
+        "Prevents owner manipulation of NFT stakes.",
+        "Enhances overall contract robustness against unauthorized state changes."
+      ],
+      "additional_recommendations": "Consider implementing a mechanism for transparent tracking of staked NFTs and their states to further enhance security and trust among users.",
+      "confidence": 90,
+      "fix_code": "function removeTokenIdAtIndex(uint256 _index) external onlyOwner { \n        require(_index < tokenIds.length, \"Index out of bounds\"); \n        uint256 tokenId = tokenIds[_index]; \n        // Ensure the token is not currently staked before removal \n        require(tokenIdToPool[tokenId] == address(0), \"Token is currently staked\"); \n        tokenIds[_index] = tokenIds[tokenIds.length - 1]; \n        tokenIds.pop(); \n        // remove mapping to pool \n        delete tokenIdToPool[tokenId]; \n    }",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-04-25T00:09:44.386057"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-25T00:09:44.386077",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

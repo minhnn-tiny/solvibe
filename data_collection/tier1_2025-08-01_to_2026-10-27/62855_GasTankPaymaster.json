@@ -1,0 +1,136 @@
+{
+  "id": "62855",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/etherspot/etherspot-modular-accounts/blob/9019f2a78c36e74bdb1df4029672998cb4631162/src/paymaster/GasTankPaymaster.sol#L391-L393",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      391,
+      393
+    ]
+  ],
+  "filename": "62855_GasTankPaymaster.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 773,
+  "vulnerability_title": "[M-05] Insufficient Check in `updateCachedPrice()` Can Lead to Read Stale Prices as Valid Prices",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "In the if condition, we should add another restriction so that `cacheAge <= gtpConfig.tokenMaxAge`, so that we only return the cachedPrice if neither Token nor native has stale prices",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": true,
+    "poc_text": "- native Oracle has a MaxAge of 1 day\n- token oracle has a MaxAge of 1 hour\n- The last update happened 6 hours ago\n- Now the price should be considered stale as the `tokenMaxAge` (1 hour) is smaller than the cachedAge (6 hours)\n- Calling `updateCachedPrice()` will return `cachedTokenPrice` without reading the new price from Chainlink Oracle",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "updateCachedPrice",
+        "start_line": 388,
+        "end_line": 405,
+        "code": "    function updateCachedPrice(bool force) public returns (uint256) {\n        GasTankPaymasterConfig storage gtpConfig = paymasterConfig;\n        uint256 cacheAge = block.timestamp - gtpConfig.cachedPriceTimestamp;\n        if (!force && cacheAge <= gtpConfig.nativeMaxAge && gtpConfig.cachedTokenPrice > 0) {\n            return gtpConfig.cachedTokenPrice;\n        }\n        // Try to get and validate prices\n        (bool success, uint256 newPrice) = _tryGetFreshPrice(gtpConfig);\n        if (success) {\n            gtpConfig.cachedTokenPrice = newPrice;\n            gtpConfig.cachedPriceTimestamp = uint48(block.timestamp);\n            emit GasTankPaymaster_TokenPriceUpdated(newPrice, 0, gtpConfig.cachedPriceTimestamp);\n            return newPrice;\n        } else {\n            emit GasTankPaymaster_OracleUpdateFailed();\n            return 0; // Signal failure\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            391,
+            393
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:05:15.949850",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of stale prices being considered valid due to insufficient checks in the code.",
+      "content_reasoning": "The content mentions the relevant function and variables that are present in the code, and the described vulnerable pattern of checking only the nativeMaxAge is indeed present.",
+      "functions_found": [
+        "updateCachedPrice"
+      ],
+      "variables_found": [
+        "gtpConfig.cachedPriceTimestamp",
+        "gtpConfig.nativeMaxAge",
+        "gtpConfig.cachedTokenPrice"
+      ],
+      "patterns_found": [
+        "stale price validation",
+        "age comparison"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 85,
+      "reasoning": "There is no existing tag, and a relevant tag should be assigned to indicate the nature of the vulnerability.",
+      "suggested_tag": "Stale Price Validation",
+      "alternative_tags": [
+        "Oracle Vulnerability",
+        "Price Feed Issue"
+      ],
+      "correction_explanation": "A tag is necessary to categorize the vulnerability related to price validation and oracle usage."
+    },
+    "mando_classification": {
+      "primary_category": "time_manipulation",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": true,
+      "reasoning": "The issue relates to the manipulation of time checks that lead to stale data being used, which fits the time manipulation category."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "C3"
+      ],
+      "confidence": 85,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability primarily affects the business logic of price validation, and it also relates to the oracle component used for price feeds.",
+      "vulnerability_type": "Insufficient checks leading to stale price usage"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Added an additional check for tokenMaxAge to ensure cached prices are not stale.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "updateCachedPrice",
+          "fixed_function_code": "function updateCachedPrice(bool force) public returns (uint256) {\n        GasTankPaymasterConfig storage gtpConfig = paymasterConfig;\n        uint256 cacheAge = block.timestamp - gtpConfig.cachedPriceTimestamp;\n        // Ensure both native and token prices are not stale\n        if (!force && cacheAge <= gtpConfig.nativeMaxAge && cacheAge <= gtpConfig.tokenMaxAge && gtpConfig.cachedTokenPrice > 0) {\n            return gtpConfig.cachedTokenPrice;\n        }\n        // Try to get and validate prices\n        (bool success, uint256 newPrice) = _tryGetFreshPrice(gtpConfig);\n        if (success) {\n            gtpConfig.cachedTokenPrice = newPrice;\n            gtpConfig.cachedPriceTimestamp = uint48(block.timestamp);\n            emit GasTankPaymaster_TokenPriceUpdated(newPrice, 0, gtpConfig.cachedPriceTimestamp);\n            return newPrice;\n        } else {\n            emit GasTankPaymaster_OracleUpdateFailed();\n            return 0; // Signal failure\n        }\n    }",
+          "reasoning": "This function fix adds a check for tokenMaxAge alongside nativeMaxAge, ensuring that cached prices are only returned if they are fresh for both token and native currency, thus preventing the use of stale prices."
+        }
+      ],
+      "key_changes": [
+        "Added check for tokenMaxAge in the price validation condition."
+      ],
+      "security_improvements": [
+        "Reduced risk of using stale prices for calculations.",
+        "Improved overall reliability of price updates."
+      ],
+      "additional_recommendations": "Consider implementing a mechanism to alert or log when prices are stale to enhance monitoring and response capabilities.",
+      "confidence": 90,
+      "fix_code": "function updateCachedPrice(bool force) public returns (uint256) {\n        GasTankPaymasterConfig storage gtpConfig = paymasterConfig;\n        uint256 cacheAge = block.timestamp - gtpConfig.cachedPriceTimestamp;\n        // Ensure both native and token prices are not stale\n        if (!force && cacheAge <= gtpConfig.nativeMaxAge && cacheAge <= gtpConfig.tokenMaxAge && gtpConfig.cachedTokenPrice > 0) {\n            return gtpConfig.cachedTokenPrice;\n        }\n        // Try to get and validate prices\n        (bool success, uint256 newPrice) = _tryGetFreshPrice(gtpConfig);\n        if (success) {\n            gtpConfig.cachedTokenPrice = newPrice;\n            gtpConfig.cachedPriceTimestamp = uint48(block.timestamp);\n            emit GasTankPaymaster_TokenPriceUpdated(newPrice, 0, gtpConfig.cachedPriceTimestamp);\n            return newPrice;\n        } else {\n            emit GasTankPaymaster_OracleUpdateFailed();\n            return 0; // Signal failure\n        }\n    }",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-04-25T02:25:44.220534"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-25T02:25:44.220556",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

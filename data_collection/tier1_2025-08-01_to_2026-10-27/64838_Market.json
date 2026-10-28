@@ -1,0 +1,133 @@
+{
+  "id": "64838",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/perps/types/Market.sol# L466",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      466,
+      466
+    ]
+  ],
+  "filename": "64838_Market.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 644,
+  "vulnerability_title": "[M-03] EMA-based Mark Price Component Exhibits Excessive Lag Leading to Inaccurate Pricing",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Implement one of the following solutions:\n\n1. **Reduce EMA period**: Change the number of snapshots used for the calculation of the EMA component to represent the intended calculation period of 15 minutes by only using 15 \\* 60 / 10 = 90 snapshots.\n2. **Time-weighted EMA**: Implement timestamp-based EMA calculation that considers actual time intervals rather than snapshot counts. For this it will be necessary to save the `baseSpread` snapshots with a time stamp and determine the snapshots to be used for the EMA calculation by this timestamp.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-125)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "getBasisSpreadEMA",
+        "start_line": 464,
+        "end_line": 467,
+        "code": "\n    function getBasisSpreadEMA(Market storage self) internal view returns (int256 basisSpreadEMA) {\n        return StorageLib.loadMarketMetadata(self.asset).basisSpreadHistory.ema(15 minutes);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            466,
+            466
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:34:47.616770",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue with the EMA calculation period being incorrect, leading to lag in mark price updates.",
+      "content_reasoning": "The content mentions the `getBasisSpreadEMA()` function and the incorrect EMA period, which matches the extracted code.",
+      "functions_found": [
+        "getBasisSpreadEMA"
+      ],
+      "variables_found": [],
+      "patterns_found": [
+        "incorrect EMA period calculation"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report lacks a tag, but it should be tagged to reflect the nature of the vulnerability.",
+      "suggested_tag": "business_logic",
+      "alternative_tags": [
+        "time_manipulation"
+      ],
+      "correction_explanation": "The issue is primarily related to business logic due to incorrect EMA period affecting pricing calculations."
+    },
+    "mando_classification": {
+      "primary_category": "time_manipulation",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The issue involves incorrect time period calculations leading to lag in pricing, which fits under time manipulation."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G9"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is a business logic flaw due to incorrect EMA period affecting pricing and funding rate calculations.",
+      "vulnerability_type": "Incorrect EMA period leading to inaccurate pricing"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Implement a timestamp-based EMA calculation to ensure the EMA is calculated over the intended 15-minute period.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "getBasisSpreadEMA",
+          "fixed_function_code": "function getBasisSpreadEMA(Market storage self) internal view returns (int256 basisSpreadEMA) {\n    MarketMetadata storage metadata = StorageLib.loadMarketMetadata(self.asset);\n    uint256 currentTime = block.timestamp;\n    uint256 period = 15 minutes;\n    int256 ema = metadata.basisSpreadHistory.calculateTimeWeightedEMA(currentTime, period);\n    return ema;\n}",
+          "reasoning": "This fix replaces the snapshot-based EMA calculation with a time-weighted EMA calculation. By using the current timestamp and a defined period of 15 minutes, the function accurately calculates the EMA over the intended time frame, thus addressing the excessive lag issue."
+        }
+      ],
+      "key_changes": [
+        "Replaced snapshot-based EMA calculation with time-weighted EMA calculation.",
+        "Introduced current timestamp and period parameters for accurate time-based calculations.",
+        "Ensured the EMA calculation aligns with the intended 15-minute period."
+      ],
+      "security_improvements": [
+        "Accurate pricing by reducing lag in EMA calculation.",
+        "Improved funding rate calculations due to more accurate mark price.",
+        "Enhanced market responsiveness to real-time conditions."
+      ],
+      "additional_recommendations": "Ensure that the calculateTimeWeightedEMA function in the basisSpreadHistory library is implemented securely and efficiently to handle timestamp-based calculations.",
+      "confidence": 95,
+      "fix_code": "function getBasisSpreadEMA(Market storage self) internal view returns (int256 basisSpreadEMA) {\n    MarketMetadata storage metadata = StorageLib.loadMarketMetadata(self.asset);\n    uint256 currentTime = block.timestamp;\n    uint256 period = 15 minutes;\n    int256 ema = metadata.basisSpreadHistory.calculateTimeWeightedEMA(currentTime, period);\n    return ema;\n}",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:26:47.698156"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:26:47.698178",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

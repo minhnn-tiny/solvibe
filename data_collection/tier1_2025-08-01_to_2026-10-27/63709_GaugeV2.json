@@ -1,0 +1,112 @@
+{
+  "id": "63709",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-10-hybra-finance/blob/6299bfbc089158221e5c645d4aaceceea474f5be/ve33/contracts/GaugeV2.sol# L270-L281",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      270,
+      281
+    ]
+  ],
+  "filename": "63709_GaugeV2.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 410,
+  "vulnerability_title": "[M-02] Users emergency withdrawing will lose all past accrued rewards",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Add the `updateReward` modifier to the `emergencyWithdraw()` call\n\nProof of concept\npaste in `ve33/test/C4PoC.t.sol`\n```\n\n    function test_emergencyWithdraw_strandsRewardsAndBurnsUserAccrual()\n        external\n    {\n        vm.startPrank(address(this));\n\n        // Use HYBR both as staking TOKEN and rewardToken for simplicity\n        // We have HYBR minted to this test from setup_InitMinter()\n        uint256 initialHybr = hybr.balanceOf(address(this));\n        assertGt(initialHybr, 0, \"expected HYBR from initial mint\");\n\n        // Deploy GaugeV2\n        GaugeV2 gauge = new GaugeV2(\n            address(hybr),\n            address(rewardHybr),\n            address(votingEscrow),\n            address(hybr),\n            address(this),\n            address(0),\n            address(0),\n            false\n        );\n\n        // Stake HYBR\n        uint256 stakeAmount = 100 ether;\n        hybr.approve(address(gauge), type(uint256).max);\n        gauge.deposit(stakeAmount);\n\n        // Fund rewards\n        uint256 rewardAmount = 1_000 ether;\n        hybr.approve(address(gauge), rewardAmount);\n        gauge.notifyRewardAmount(address(hybr), rewardAmount);\n\n        // Accrue some rewards\n        vm.warp(block.timestamp + 7 days / 14);\n\n        uint256 accruedBefore = gauge.earned(address(this));\n        assertGt(\n            accruedBefore,\n            0,\n            \"accrued must be > 0 before emergencyWithdraw\"\n        );\n\n        // Enable emergency and withdraw\n        gauge.activateEmergencyMode();\n        gauge.emergencyWithdraw();\n\nuint256 accruedAfter = gauge.earned(address(this));\n        assertEq(\n            accruedAfter,\n            0,\n            \"accrued should be zero after emergencyWithdraw\"\n        );\n\nuint256 stuckRewards = hybr.balanceOf(address(gauge));\n        assertGt(stuckRewards, 0, \"reward tokens remain stuck in gauge\");\n\n        vm.stopPrank();\n    }\n```\n\n**Hybra Finance disputed this finding.**\n\n---",
+    "fix_code_blocks": [
+      "function test_emergencyWithdraw_strandsRewardsAndBurnsUserAccrual()\n        external\n    {\n        vm.startPrank(address(this));\n\n        // Use HYBR both as staking TOKEN and rewardToken for simplicity\n        // We have HYBR minted to this test from setup_InitMinter()\n        uint256 initialHybr = hybr.balanceOf(address(this));\n        assertGt(initialHybr, 0, \"expected HYBR from initial mint\");\n\n        // Deploy GaugeV2\n        GaugeV2 gauge = new GaugeV2(\n            address(hybr),\n            address(rewardHybr),\n            address(votingEscrow),\n            address(hybr),\n            address(this),\n            address(0),\n            address(0),\n            false\n        );\n\n        // Stake HYBR\n        uint256 stakeAmount = 100 ether;\n        hybr.approve(address(gauge), type(uint256).max);\n        gauge.deposit(stakeAmount);\n\n        // Fund rewards\n        uint256 rewardAmount = 1_000 ether;\n        hybr.approve(address(gauge), rewardAmount);\n        gauge.notifyRewardAmount(address(hybr), rewardAmount);\n\n        // Accrue some rewards\n        vm.warp(block.timestamp + 7 days / 14);\n\n        uint256 accruedBefore = gauge.earned(address(this));\n        assertGt(\n            accruedBefore,\n            0,\n            \"accrued must be > 0 before emergencyWithdraw\"\n        );\n\n        // Enable emergency and withdraw\n        gauge.activateEmergencyMode();\n        gauge.emergencyWithdraw();\n\nuint256 accruedAfter = gauge.earned(address(this));\n        assertEq(\n            accruedAfter,\n            0,\n            \"accrued should be zero after emergencyWithdraw\"\n        );\n\nuint256 stuckRewards = hybr.balanceOf(address(gauge));\n        assertGt(stuckRewards, 0, \"reward tokens remain stuck in gauge\");\n\n        vm.stopPrank();\n    }"
+    ]
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "onReward",
+        "start_line": 16,
+        "end_line": 410,
+        "code": "    function onReward(\n        address user,\n        address recipient,\n        uint256 userBalance\n    ) external;\n}\n\n\ncontract GaugeV2 is ReentrancyGuard, Ownable {\n\n    using SafeERC20 for IERC20;\n\n    bool public immutable isForPair;\n    bool public emergency;\n\n\n    IERC20 public immutable rewardToken;\n    IERC20 public immutable TOKEN;\n    address public immutable rHYBR;\n    address public VE;\n    address public DISTRIBUTION;\n    address public gaugeRewarder;\n    address public internal_bribe;\n    address public external_bribe;\n\n    uint256 public DURATION;\n    uint256 internal _periodFinish;\n    uint256 public rewardRate;\n    uint256 public lastUpdateTime;\n    uint256 public rewardPerTokenStored;\n\n   \n\n    mapping(address => uint256) public userRewardPerTokenPaid;\n    mapping(address => uint256) public rewards;\n\n    uint256 internal _totalSupply;\n    mapping(address => uint256) internal _balances;\n    mapping(address => uint256) public maturityTime;\n\n    event RewardAdded(uint256 reward);\n    event Deposit(address indexed user, uint256 amount);\n    event Withdraw(address indexed user, uint256 amount);\n    event Harvest(address indexed user, uint256 reward);\n\n    event ClaimFees(address indexed from, uint256 claimed0, uint256 claimed1);\n    event EmergencyActivated(address indexed gauge, uint256 timestamp);\n    event EmergencyDeactivated(address indexed gauge, uint256 timestamp);\n\n    modifier updateReward(address account) {\n        rewardPerTokenStored = rewardPerToken();\n        lastUpdateTime = lastTimeRewardApplicable();\n        if (account != address(0)) {\n            rewards[account] = earned(account);\n            userRewardPerTokenPaid[account] = rewardPerTokenStored;\n        }\n        _;\n    }\n\n    modifier onlyDistribution() {\n        require(msg.sender == DISTRIBUTION, \"NA\");\n        _;\n    }\n\n  \n\n  \n\n    modifier isNotEmergency() {\n        require(emergency == false, \"EMER\");\n        _;\n    }\n\n    constructor(address _rewardToken,address _rHYBR,address _ve,address _token,address _distribution, address _internal_bribe, address _external_bribe, bool _isForPair) {\n        rewardToken = IERC20(_rewardToken);     // main reward\n        rHYBR = _rHYBR;\n        VE = _ve;                               // vested\n        TOKEN = IERC20(_token);                 // underlying (LP)\n        DISTRIBUTION = _distribution;           // distro address (GaugeManager)\n        DURATION = HybraTimeLibrary.WEEK;                   \n\n        internal_bribe = _internal_bribe;       // lp fees goes here\n        external_bribe = _external_bribe;       // bribe fees goes here\n\n\n        isForPair = _isForPair;                 // pair boolean, if false no claim_fees\n\n        emergency = false;                      // emergency flag\n\n    }\n\n\n    /* -----------------------------------------------------------------------------\n    --------------------------------------------------------------------------------\n    --------------------------------------------------------------------------------\n                                    ONLY OWNER\n    --------------------------------------------------------------------------------\n    --------------------------------------------------------------------------------\n    ----------------------------------------------------------------------------- */\n\n    ///@notice set distribution address (should be GaugeManager)\n    function setDistribution(address _distribution) external onlyOwner {\n        require(_distribution != address(0), \"ZA\");\n        require(_distribution != DISTRIBUTION, \"SAME_ADDR\");\n        DISTRIBUTION = _distribution;\n    }\n\n    ///@notice set gauge rewarder address\n    function setGaugeRewarder(address _gaugeRewarder) external onlyOwner {\n        require(_gaugeRewarder != gaugeRewarder, \"SAME_ADDR\");\n        gaugeRewarder = _gaugeRewarder;\n    }\n\n\n    ///@notice set new internal bribe contract (where to send fees)\n    function setInternalBribe(address _int) external onlyOwner {\n        require(_int >= address(0), \"ZA\");\n        internal_bribe = _int;\n    }\n\n    function activateEmergencyMode() external onlyOwner {\n        require(emergency == false, \"EMER\");\n        emergency = true;\n        emit EmergencyActivated(address(this), block.timestamp);\n    }\n\n    function stopEmergencyMode() external onlyOwner {\n\n        require(emergency == true,\"EMER\");\n\n        emergency = false;\n        emit EmergencyDeactivated(address(this), block.timestamp);\n    }\n\n\n    /* -----------------------------------------------------------------------------\n    --------------------------------------------------------------------------------\n    --------------------------------------------------------------------------------\n                                    VIEW FUNCTIONS\n    --------------------------------------------------------------------------------\n    --------------------------------------------------------------------------------\n    ----------------------------------------------------------------------------- */\n\n    ///@notice total supply held\n    function totalSupply() public view returns (uint256) {\n        return _totalSupply;\n    }\n\n    ///@notice balance of a user\n    function balanceOf(address account) external view returns (uint256) {\n        return _balanceOf(account);\n    }\n\n    function _balanceOf(address account) internal view returns (uint256) {\n       \n        return _balances[account];\n    }\n\n    ///@notice last time reward\n    function lastTimeRewardApplicable() public view returns (uint256) {\n        return Math.min(block.timestamp, _periodFinish);\n    }\n\n    ///@notice  reward for a sinle token\n    function rewardPerToken() public view returns (uint256) {\n        if (_totalSupply == 0) {\n            return rewardPerTokenStored;\n        } else {\n            return rewardPerTokenStored + (lastTimeRewardApplicable() - lastUpdateTime) * rewardRate * 1e18 / _totalSupply; \n        }\n    }\n\n    ///@notice see earned rewards for user\n    function earned(address account) public view returns (uint256) {\n        return rewards[account] + _balanceOf(account) * (rewardPerToken() - userRewardPerTokenPaid[account]) / 1e18;  \n    }\n\n    ///@notice get total reward for the duration\n    function rewardForDuration() external view returns (uint256) {\n        return rewardRate * DURATION;\n    }\n\n    function periodFinish() external view returns (uint256) {\n        return _periodFinish;\n    }\n\n\n\n    /* -----------------------------------------------------------------------------\n    --------------------------------------------------------------------------------\n    --------------------------------------------------------------------------------\n                                    USER INTERACTION\n    --------------------------------------------------------------------------------\n    --------------------------------------------------------------------------------\n    ----------------------------------------------------------------------------- */\n\n\n\n    // send whole liquidity as additional param\n\n\n    ///@notice deposit all TOKEN of msg.sender\n    function depositAll() external {\n        _deposit(TOKEN.balanceOf(msg.sender), msg.sender);\n    }\n\n    ///@notice deposit amount TOKEN\n    function deposit(uint256 amount) external {\n        _deposit(amount, msg.sender);\n    }\n\n    ///@notice deposit internal\n    function _deposit(uint256 amount, address account) internal nonReentrant isNotEmergency updateReward(account) {\n        require(amount > 0, \"ZV\");\n\n        _balances[account] = _balances[account] + amount;\n        _totalSupply = _totalSupply + amount;\n        if (address(gaugeRewarder) != address(0)) {\n            IRewarder(gaugeRewarder).onReward(account, account, _balanceOf(account));\n        }\n\n        TOKEN.safeTransferFrom(account, address(this), amount);\n\n        emit Deposit(account, amount);\n    }\n\n    ///@notice withdraw all token\n    function withdrawAll() external {\n        _withdraw(_balanceOf(msg.sender));\n    }\n\n    ///@notice withdraw a certain amount of TOKEN\n    function withdraw(uint256 amount) external {\n        _withdraw(amount);\n    }\n\n    ///@notice withdraw internal\n    function _withdraw(uint256 amount) internal nonReentrant isNotEmergency updateReward(msg.sender) {\n        require(amount > 0, \"ZV\");\n        require(_balanceOf(msg.sender) > 0, \"ZV\");\n        require(block.timestamp >= maturityTime[msg.sender], \"!MATURE\");\n\n        _totalSupply = _totalSupply - amount;\n        _balances[msg.sender] = _balances[msg.sender] - amount;\n\n        if (address(gaugeRewarder) != address(0)) {\n            IRewarder(gaugeRewarder).onReward(msg.sender, msg.sender,_balanceOf(msg.sender));\n        }\n\n        TOKEN.safeTransfer(msg.sender, amount);\n\n        emit Withdraw(msg.sender, amount);\n    }\n\n    function emergencyWithdraw() external nonReentrant {\n        require(emergency, \"EMER\");\n        uint256 _amount = _balanceOf(msg.sender);\n        require(_amount > 0, \"ZV\");\n        _totalSupply = _totalSupply - _amount;\n\n        _balances[msg.sender] = 0;\n   \n\n        TOKEN.safeTransfer(msg.sender, _amount);\n        emit Withdraw(msg.sender, _amount);\n    }\n\n    function emergencyWithdrawAmount(uint256 _amount) external nonReentrant {\n\n        require(emergency, \"EMER\");\n        _totalSupply = _totalSupply - _amount;\n\n        _balances[msg.sender] = _balances[msg.sender] - _amount;\n\n        TOKEN.safeTransfer(msg.sender, _amount);\n        emit Withdraw(msg.sender, _amount);\n    }\n\n  \n\n    ///@notice withdraw all TOKEN and harvest rewardToken\n    function withdrawAllAndHarvest(uint8 _redeemType) external {\n        _withdraw(_balanceOf(msg.sender));\n        getReward(_redeemType);\n    }\n\n \n    ///@notice User harvest function called from distribution (GaugeManager allows harvest on multiple gauges)\n    function getReward(address _user, uint8 _redeemType) public nonReentrant onlyDistribution updateReward(_user) {\n        uint256 reward = rewards[_user];\n        if (reward > 0) {\n            rewards[_user] = 0;\n            IERC20(rewardToken).safeApprove(rHYBR, reward);\n            IRHYBR(rHYBR).depostionEmissionsToken(reward);\n            IRHYBR(rHYBR).redeemFor(reward, _redeemType, _user);\n            emit Harvest(_user, reward);\n        }\n\n        if (gaugeRewarder != address(0)) {\n            IRewarder(gaugeRewarder).onReward(_user, _user, _balanceOf(_user));\n        }\n    }\n\n    ///@notice User harvest function\n    function getReward(uint8 _redeemType) public nonReentrant updateReward(msg.sender) {\n        uint256 reward = rewards[msg.sender];\n        if (reward > 0) {\n            rewards[msg.sender] = 0;\n            IERC20(rewardToken).safeApprove(rHYBR, reward);\n            IRHYBR(rHYBR).depostionEmissionsToken(reward);\n            IRHYBR(rHYBR).redeemFor(reward, _redeemType, msg.sender);\n            emit Harvest(msg.sender, reward);\n        }\n\n        if (gaugeRewarder != address(0)) {\n            IRewarder(gaugeRewarder).onReward(msg.sender, msg.sender, _balanceOf(msg.sender));\n        }\n    }\n\n\n\n\n\n\n\n\n    /* -----------------------------------------------------------------------------\n    --------------------------------------------------------------------------------\n    --------------------------------------------------------------------------------\n                                    DISTRIBUTION\n    --------------------------------------------------------------------------------\n    --------------------------------------------------------------------------------\n    ----------------------------------------------------------------------------- */\n\n\n    /// @dev Receive rewards from distribution\n\n    function notifyRewardAmount(address token, uint256 reward) external nonReentrant isNotEmergency onlyDistribution updateReward(address(0)) {\n        require(token == address(rewardToken), \"IA\");\n        rewardToken.safeTransferFrom(DISTRIBUTION, address(this), reward);\n\n        if (block.timestamp >= _periodFinish) {\n            rewardRate = reward / DURATION;\n        } else {\n            uint256 remaining = _periodFinish - block.timestamp;\n            uint256 leftover = remaining * rewardRate;\n            rewardRate = (reward + leftover) / DURATION;\n        }\n\n        // Ensure the provided reward amount is not more than the balance in the contract.\n        // This keeps the reward rate in the right range, preventing overflows due to\n        // very high values of rewardRate in the earned and rewardsPerToken functions;\n        // Reward + leftover must be less than 2^256 / 10^18 to avoid overflow.\n        uint256 balance = rewardToken.balanceOf(address(this));\n        require(rewardRate <= balance / DURATION, \"REWARD_HIGH\");\n\n        lastUpdateTime = block.timestamp;\n        _periodFinish = block.timestamp + DURATION;\n        emit RewardAdded(reward);\n    }\n\n\n    function claimFees() external nonReentrant returns (uint256 claimed0, uint256 claimed1) {\n        return _claimFees();\n    }\n\n     function _claimFees() internal returns (uint256 claimed0, uint256 claimed1) {\n        if (!isForPair) {\n            return (0, 0);\n        }\n        address _token = address(TOKEN);\n        (claimed0, claimed1) = IPair(_token).claimFees();\n        if (claimed0 > 0 || claimed1 > 0) {\n\n            uint256 _fees0 = claimed0;\n            uint256 _fees1 = claimed1;\n\n            (address _token0, address _token1) = IPair(_token).tokens();\n\n            if (_fees0  > 0) {\n                IERC20(_token0).safeApprove(internal_bribe, 0);\n                IERC20(_token0).safeApprove(internal_bribe, _fees0);\n                IBribe(internal_bribe).notifyRewardAmount(_token0, _fees0);\n            } \n            if (_fees1  > 0) {\n                IERC20(_token1).safeApprove(internal_bribe, 0);\n                IERC20(_token1).safeApprove(internal_bribe, _fees1);\n                IBribe(internal_bribe).notifyRewardAmount(_token1, _fees1);\n            } \n            emit ClaimFees(msg.sender, claimed0, claimed1);\n        }\n    }\n\n  \n}",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            270,
+            281
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:07:50.003804",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of users losing accrued rewards when calling `emergencyWithdraw()` without prior reward updates.",
+      "content_reasoning": "The content mentions relevant functions like `emergencyWithdraw()` and `earned()`, which are present in the code and directly relate to the vulnerability.",
+      "functions_found": [
+        "emergencyWithdraw",
+        "earned",
+        "updateReward"
+      ],
+      "variables_found": [
+        "rewards",
+        "userRewardPerTokenPaid"
+      ],
+      "patterns_found": [
+        "loss of rewards",
+        "stuck tokens"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 85,
+      "reasoning": "The report lacks a tag that reflects the nature of the vulnerability, which is related to reward distribution logic and user interaction.",
+      "suggested_tag": "reward_distribution",
+      "alternative_tags": [
+        "user_interaction",
+        "emergency_withdraw"
+      ],
+      "correction_explanation": "A tag related to reward distribution or user interaction would better categorize the issue."
+    },
+    "mando_classification": {
+      "primary_category": "G4",
+      "secondary_categories": [],
+      "confidence": 85,
+      "mando_applicable": true,
+      "reasoning": "The issue relates to the business logic of reward distribution, which falls under the G4 category."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [
+        "G7"
+      ],
+      "confidence": 90,
+      "use_scsvs_instead": true,
+      "reasoning": "SCSVS provides a more granular classification, and G4 captures the essence of the business logic flaw leading to user reward loss.",
+      "vulnerability_type": "Loss of user rewards during emergency withdrawal"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-04-26T02:39:03.918844",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

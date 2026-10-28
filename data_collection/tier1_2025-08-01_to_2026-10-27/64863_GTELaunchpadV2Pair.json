@@ -1,0 +1,123 @@
+{
+  "id": "64863",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/main/contracts/launchpad/uniswap/GTELaunchpadV2Pair.sol# L136-L137",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      136,
+      137
+    ],
+    [
+      2,
+      2
+    ]
+  ],
+  "filename": "64863_GTELaunchpadV2Pair.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 325,
+  "vulnerability_title": "[M-20] Price Accumulators Overflow in GTELaunchpadV2Pair contract Causes AMM-wide DoS",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "To mitigate this critical bug, just wrap the price accumulators in unchecked block so that the calculation will skip the overflow/underflow checks:-\n```\n\nfunction _update(\n        uint256 balance0,\n        uint256 balance1,\n        uint112 _reserve0,\n        uint112 _reserve1,\n        uint112 newLaunchpadFee0,\n        uint112 newLaunchpadFee1\n    ) private {\n       //----- Remaining logic -----\n           unchecked{\n            price0CumulativeLast += uint256(UQ112x112.encode(_reserve1).uqdiv(_reserve0)) * timeElapsed;\n            price1CumulativeLast += uint256(UQ112x112.encode(_reserve0).uqdiv(_reserve1)) * timeElapsed;\n           }\n\n       //----- Remaining logic -----\n```\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-50)\n\n---",
+    "fix_code_blocks": [
+      "function _update(\n        uint256 balance0,\n        uint256 balance1,\n        uint112 _reserve0,\n        uint112 _reserve1,\n        uint112 newLaunchpadFee0,\n        uint112 newLaunchpadFee1\n    ) private {\n       //----- Remaining logic -----\n           unchecked{\n            price0CumulativeLast += uint256(UQ112x112.encode(_reserve1).uqdiv(_reserve0)) * timeElapsed;\n            price1CumulativeLast += uint256(UQ112x112.encode(_reserve0).uqdiv(_reserve1)) * timeElapsed;\n           }\n\n       //----- Remaining logic -----"
+    ]
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "_update",
+        "start_line": 118,
+        "end_line": 159,
+        "code": "    function _update(\n        uint256 balance0,\n        uint256 balance1,\n        uint112 _reserve0,\n        uint112 _reserve1,\n        uint112 newLaunchpadFee0,\n        uint112 newLaunchpadFee1\n    ) private {\n        if (balance0 > type(uint112).max || balance1 > type(uint112).max) revert(\"UniswapV2: OVERFLOW\");\n\n        // New accrued fees must AT LEAST equal existing undistributed fees so that the Sync can be accurate\n        uint112 totalLaunchpadFee0 = accruedLaunchpadFee0 + newLaunchpadFee0;\n        uint112 totalLaunchpadFee1 = accruedLaunchpadFee1 + newLaunchpadFee1;\n\n        uint32 blockTimestamp = uint32(block.timestamp % 2 ** 32);\n        uint32 timeElapsed = blockTimestamp - blockTimestampLast; // overflow is desired\n        if (timeElapsed > 0 && _reserve0 != 0 && _reserve1 != 0) {\n            // * never overflows, and + overflow is desired\n            price0CumulativeLast += uint256(UQ112x112.encode(_reserve1).uqdiv(_reserve0)) * timeElapsed;\n            price1CumulativeLast += uint256(UQ112x112.encode(_reserve0).uqdiv(_reserve1)) * timeElapsed;\n\n            if (launchpadFeeDistributor > address(0)) {\n                if (totalLaunchpadFee0 | totalLaunchpadFee1 > 0) {\n                    delete accruedLaunchpadFee0;\n                    delete accruedLaunchpadFee1;\n                    _distributeLaunchpadFees(totalLaunchpadFee0, totalLaunchpadFee1);\n                }\n            }\n        } else if (launchpadFeeDistributor > address(0) && newLaunchpadFee0 | newLaunchpadFee1 > 0) {\n            accruedLaunchpadFee0 = totalLaunchpadFee0;\n            accruedLaunchpadFee1 = totalLaunchpadFee1;\n            emit LaunchpadFeesAccrued(newLaunchpadFee0, newLaunchpadFee1);\n        }\n\n        // Balances contain both accrued and new launchpad fees earned this tx\n        // as balance is called before any fee distributions, so subtract the total\n        reserve0 = _reserve0 = uint112(balance0) - totalLaunchpadFee0;\n        reserve1 = _reserve1 = uint112(balance1) - totalLaunchpadFee1;\n\n        blockTimestampLast = blockTimestamp;\n        emit Sync(_reserve0, _reserve1);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            136,
+            137
+          ]
+        ]
+      },
+      {
+        "code": "// SPDX-License-Identifier: MIT\npragma solidity 0.8.27;\n\nimport \"@gte-univ2-core/interfaces/IUniswapV2Pair.sol\";\nimport \"@gte-univ2-core/UniswapV2ERC20.sol\";\nimport \"@gte-univ2-core/libraries/Math.sol\";\nimport \"@gte-univ2-core/libraries/UQ112x112.sol\";\nimport \"@gte-univ2-core/interfaces/IERC20.sol\";\nimport \"@gte-univ2-core/interfaces/IUniswapV2Factory.sol\";\nimport \"@gte-univ2-core/interfaces/IUniswapV2Callee.sol\";\n\nimport \"../interfaces/IDistributor.sol\";\nimport \"./interfaces/IGTELaunchpadV2Pair.sol\";\n\n// import \"forge-std/Console.sol\";\n\ncontract GTELaunchpadV2Pair is IUniswapV2Pair, IGTELaunchpadV2Pair, UniswapV2ERC20 {",
+        "start_line": 2,
+        "end_line": 2,
+        "context_start_line": 1,
+        "context_end_line": 17,
+        "confidence": 95,
+        "reason": "GitHub URL includes explicit vulnerable line references"
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:35:17.380526",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of overflow checks causing a DoS due to Solidity's built-in checks in version >=0.8.0.",
+      "content_reasoning": "The code contains the vulnerable pattern where price accumulators are updated without unchecked blocks, leading to potential reverts.",
+      "functions_found": [
+        "_update"
+      ],
+      "variables_found": [
+        "price0CumulativeLast",
+        "price1CumulativeLast"
+      ],
+      "patterns_found": [
+        "checked arithmetic causing revert"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged to reflect the nature of the vulnerability.",
+      "suggested_tag": "denial_of_service",
+      "alternative_tags": [
+        "arithmetic"
+      ],
+      "correction_explanation": "The issue causes a denial of service due to arithmetic overflow checks, so 'denial_of_service' is appropriate."
+    },
+    "mando_classification": {
+      "primary_category": "denial_of_service",
+      "secondary_categories": [
+        "arithmetic"
+      ],
+      "confidence": 95,
+      "mando_applicable": true,
+      "reasoning": "The vulnerability directly leads to a denial of service by causing reverts due to arithmetic overflow checks."
+    },
+    "scsvs_classification": {
+      "primary_category": "G8",
+      "primary_category_name": "Denial of service",
+      "secondary_categories": [
+        "G7"
+      ],
+      "confidence": 95,
+      "use_scsvs_instead": false,
+      "reasoning": "The issue is primarily a denial of service due to arithmetic overflow checks, which fits well within the MANDO category. SCSVS G8 also covers this adequately.",
+      "vulnerability_type": "Arithmetic overflow causing denial of service"
+    },
+    "fix_code_source": "provided",
+    "validated_at": "2026-03-20T15:20:36.580143",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "id": "c4-2026-01-olas-M-11",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/valory-xyz/autonolas-tokenomics/blob/bbec5ac12721a62672fb7a5ffba5c40f5a46d8cb/contracts/utils/BuyBackBurnerBalancer.sol#L106",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      106,
+      106
+    ]
+  ],
+  "filename": "c4-2026-01-olas-M-11_BuyBackBurnerBalancer.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 181,
+  "vulnerability_title": "[M-11] No slippage protection on Uniswap swap",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "balancerVault",
+        "start_line": 78,
+        "end_line": 181,
+        "code": "    function balancerVault() external view returns (address);\n\n    /// @dev Gets balancer pool Id.\n    function balancerPoolId() external view returns (bytes32);\n}\n\n/// @title BuyBackBurnerBalancer - BuyBackBurner implementation contract for interaction with Balancer for V2-like\n///        full range pools and Slipstream for V3-like concentrated liquidity pools\ncontract BuyBackBurnerBalancer is BuyBackBurner {\n    // Deprecated (proxy legacy): Balancer vault address\n    address public balancerVault;\n    // Deprecated (proxy legacy): Balancer pool Id\n    bytes32 public balancerPoolId;\n\n    /// @dev BuyBackBurnerBalancer constructor.\n    /// @param _liquidityManager LiquidityManager address.\n    /// @param _bridge2Burner Bridge2Burner address.\n    /// @param _treasury Treasury address.\n    /// @param _swapRouter Concentrated liquidity swap router.\n    constructor(address _liquidityManager, address _bridge2Burner, address _treasury, address _swapRouter)\n        BuyBackBurner(_liquidityManager, _bridge2Burner, _treasury, _swapRouter)\n    {}\n\n    /// @dev Performs swap for OLAS on Balancer DEX.\n    /// @param secondToken Second token address.\n    /// @param secondTokenAmount Second token amount.\n    /// @param poolOracle Pool oracle address.\n    /// @return olasAmount Obtained OLAS amount.\n    function _performSwap(address secondToken, uint256 secondTokenAmount, address poolOracle) internal virtual override returns (uint256 olasAmount) {\n        // Get balancer vault address\n        address balVault = IOracleBalancer(poolOracle).balancerVault();\n\n        // Get balancer pool Id\n        bytes32 balPoolId = IOracleBalancer(poolOracle).balancerPoolId();\n\n        // Approve secondToken for the Balancer Vault\n        IERC20(secondToken).approve(balVault, secondTokenAmount);\n\n        // Prepare Balancer data for the secondToken-OLAS pool\n        IBalancer.SingleSwap memory singleSwap = IBalancer.SingleSwap(\n            balPoolId, IBalancer.SwapKind.GIVEN_IN, secondToken, olas, secondTokenAmount, \"0x\"\n        );\n        IBalancer.FundManagement memory fundManagement =\n            IBalancer.FundManagement(address(this), false, payable(address(this)), false);\n\n        // Perform swap\n        olasAmount = IBalancer(balVault).swap(singleSwap, fundManagement, 0, block.timestamp);\n    }\n\n    /// @dev Performs swap for OLAS on Slipstream CL DEX.\n    /// @param secondToken Second token address.\n    /// @param secondTokenAmount Second token amount.\n    /// @param tickSpacing Tick spacing.\n    /// @return olasAmount Obtained OLAS amount.\n    function _performSwap(address secondToken, uint256 secondTokenAmount, int24 tickSpacing)\n        internal\n        virtual\n        override\n        returns (uint256 olasAmount)\n    {\n        IERC20(secondToken).approve(swapRouter, secondTokenAmount);\n\n        ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({\n            tokenIn: secondToken,\n            tokenOut: olas,\n            tickSpacing: tickSpacing,\n            recipient: address(this),\n            deadline: block.timestamp,\n            amountIn: secondTokenAmount,\n            amountOutMinimum: 1,\n            sqrtPriceLimitX96: 0\n        });\n\n        // Swap tokens\n        olasAmount = ISwapRouter(swapRouter).exactInputSingle(params);\n    }\n\n    /// @dev BuyBackBurner initializer.\n    /// @param payload Initializer payload.\n    function _initialize(bytes memory payload) internal virtual override {\n        address[] memory accounts;\n        (accounts, balancerPoolId, maxSlippage) = abi.decode(payload, (address[], bytes32, uint256));\n\n        olas = accounts[0];\n        nativeToken = accounts[1];\n        oracle = accounts[2];\n        balancerVault = accounts[3];\n    }\n\n    /// @dev Gets Slipstream CL pool based on factory, token addresses and tick spacing.\n    /// @param factory Factory address.\n    /// @param tokens Token addresses.\n    /// @param tickSpacing Tick spacing.\n    /// @return Pool address.\n    function getV3Pool(address factory, address[] memory tokens, int24 tickSpacing)\n        public\n        view\n        virtual\n        override\n        returns (address)\n    {\n        return ICLFactory(factory).getPool(tokens[0], tokens[1], tickSpacing);\n    }\n}",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            106,
+            106
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:43:37.057775",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 85,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "The concentrated-liquidity overload of _performSwap sets amountOutMinimum to 1, and the Balancer overload at the linked line passes a limit of 0. Neither swap has a real minimum output.",
+      "functions_found": [
+        "_performSwap"
+      ],
+      "variables_found": [
+        "amountOutMinimum"
+      ],
+      "patterns_found": [
+        "amountOutMinimum hard-coded to 1",
+        "Balancer swap limit set to 0"
+      ],
+      "issues": [
+        "The swap goes through a Slipstream router, not a Uniswap router as the title says. Any oracle check in the BuyBackBurner base contract is not in this file."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": "front_running",
+      "mando_applicable": true
+    },
+    "scsvs_classification": {
+      "primary_category": "C8",
+      "primary_category_name": "Liquidity pool",
+      "vulnerability_type": "swap without a minimum output amount"
+    },
+    "fix_code_source": "none"
+  }
+}

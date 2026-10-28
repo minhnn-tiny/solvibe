@@ -1,0 +1,90 @@
+{
+  "id": "codespect-2025-10-01-betterbank-M-03",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/grape-finance/BB-Custom-contracts/blob/43fba5ed6a5f47d6ae997660a7fe656c57f44b30/contracts/FavorTreasury.sol#L312",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      312,
+      312
+    ]
+  ],
+  "filename": "codespect-2025-10-01-betterbank-M-03_FavorTreasury.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 354,
+  "vulnerability_title": "Pausing of FavorTreasury queues outstanding epochs to be executed",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "allocateSeigniorage",
+        "start_line": 311,
+        "end_line": 342,
+        "code": "\n    function allocateSeigniorage() external nonReentrant checkCondition checkEpoch whenNotPaused {\n        _updateFavorPrice();\n\n        uint256 favorSupply = getFavorCirculatingSupply();\n\n        // Calculate a simple average supply over the epoch window to use for expansion, first epoch uses only the current supply\n        uint256 avgSupply = lastEpochCirculatingSupply == 0\n        ? favorSupply\n        : (favorSupply + lastEpochCirculatingSupply) / 2;\n\n        lastEpochCirculatingSupply = favorSupply;\n\n        uint256 _percentage = getFavorPrice() / 100;\n        require(_percentage > 0, \"Invalid favor price\");\n\n        uint256 min = minSupplyExpansionPercent * 1e13;\n        uint256 max = maxSupplyExpansionPercent * 1e13;\n\n        if (_percentage > max) {\n            _percentage = max;\n        } else if (_percentage < min) {\n            _percentage = min;\n        }\n\n        uint256 _savedForGrove = (avgSupply * _percentage) / 1e18 / 24; // divide by 24 for each epoch per day\n\n        if (_savedForGrove > 0) {\n            _sendToGrove(_savedForGrove);\n        }\n\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            312,
+            312
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:44:09.304823",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "The checkEpoch modifier only requires that block.timestamp has reached nextEpochPoint and then adds one to epoch, and nextEpochPoint is startTime plus epoch times PERIOD. After a long pause, allocateSeigniorage can be called once for every missed hour, as the finding says.",
+      "functions_found": [
+        "allocateSeigniorage",
+        "nextEpochPoint",
+        "pause",
+        "unpause"
+      ],
+      "variables_found": [
+        "epoch",
+        "PERIOD",
+        "startTime"
+      ],
+      "patterns_found": [
+        "epoch advanced by one per call instead of computed from elapsed time"
+      ],
+      "issues": [
+        "The reward claim through Staking.sol mentioned in the impact is in another file."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": null,
+      "mando_applicable": false
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "vulnerability_type": "epoch counter catches up one step per call after a pause"
+    },
+    "fix_code_source": "none"
+  }
+}

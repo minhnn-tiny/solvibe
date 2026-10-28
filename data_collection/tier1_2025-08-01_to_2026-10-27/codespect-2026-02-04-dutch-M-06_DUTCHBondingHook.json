@@ -1,0 +1,86 @@
+{
+  "id": "codespect-2026-02-04-dutch-M-06",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/dutch-protocol/Protocol-Contracts/tree/cec8b243aa645fdbe80e05e613eca69542b62a2e/src/DUTCHBondingHook.sol#L734",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      734,
+      734
+    ]
+  ],
+  "filename": "codespect-2026-02-04-dutch-M-06_DUTCHBondingHook.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 1335,
+  "vulnerability_title": "The swapETHForDUTCH function does not charge royalty fees",
+  "recommendation": {
+    "has_recommendation": false,
+    "recommendation_text": "",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "swapETHForDUTCH",
+        "start_line": 721,
+        "end_line": 761,
+        "code": "    function swapETHForDUTCH(uint256 exactDutchAmount_, address recipient_)\n        external\n        payable\n        whenNotPaused\n        nonReentrant\n        returns (uint256 ethUsed_)\n    {\n        if (msg.sender != _marketplace) revert Unauthorized();\n        if (msg.value == 0) revert InvalidAmount();\n        if (exactDutchAmount_ == 0) revert InvalidAmount();\n        if (recipient_ == address(0)) revert InvalidAddress();\n\n        // 1. Calculate ETH needed (no tax for marketplace).\n        ethUsed_ = _calculateMintCost(exactDutchAmount_);\n\n        // 2. Verify sufficient ETH sent.\n        if (ethUsed_ > msg.value) revert SlippageExceeded();\n\n        // 3. Wrap ETH to WETH before adding to reserve.\n        IWETH9 weth = IWETH9(Currency.unwrap(_wethCurrency));\n        weth.deposit{value: ethUsed_}();\n\n        // 4. Update hook state.\n        _wethReserve += ethUsed_;\n        _wethInflow += ethUsed_;\n        _totalMinted += exactDutchAmount_;\n        ++_totalMintOperations;\n\n        // 5. Mint DUTCH tokens to recipient.\n        dutchToken.mint(recipient_, exactDutchAmount_);\n\n        // 6. Emit event (no tax).\n        emit Minted(ethUsed_, exactDutchAmount_, 0, getCurrentPrice());\n\n        // 7. Refund excess ETH to marketplace.\n        uint256 excess_ = msg.value - ethUsed_;\n        if (excess_ > 0) {\n            (bool success_, ) = payable(msg.sender).call{value: excess_}(\"\");\n            if (!success_) revert InvalidAmount();\n        }\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            734,
+            734
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-10-27T04:46:06.313797",
+  "validation": {
+    "validated_at": "2026-10-27T05:07:23",
+    "model": "claude-opus-5-5 (review, no API)",
+    "code_input_source": "github_line_refs_function_scope",
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 72,
+      "summary_matches": true,
+      "content_matches": true,
+      "content_reasoning": "swapETHForDUTCH computes the ETH needed with _calculateMintCost and charges no tax, as line 734 shows. The way a user reaches it through self-listing and settleWithETH is in the marketplace contract, which is not in this file.",
+      "functions_found": [
+        "swapETHForDUTCH"
+      ],
+      "variables_found": [
+        "ethUsed_",
+        "_marketplace"
+      ],
+      "patterns_found": [
+        "mint cost computed with no tax for calls from the marketplace"
+      ],
+      "issues": [
+        "The self-purchase path (settleWithETH, minPrice and the missing access control on listing) is in DutchAuctionMarketplace.sol, another file."
+      ]
+    },
+    "mando_classification": {
+      "primary_category": "access_control",
+      "mando_applicable": true
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "vulnerability_type": "tax-free mint path open to any user through the marketplace"
+    },
+    "fix_code_source": "none"
+  }
+}

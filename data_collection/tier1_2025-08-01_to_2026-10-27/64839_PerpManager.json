@@ -1,0 +1,136 @@
+{
+  "id": "64839",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-gte-perps/blob/f43e1eedb65e7e0327cfaf4d7608a37d85d2fae7/contracts/perps/PerpManager.sol# L176-L219",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      176,
+      219
+    ]
+  ],
+  "filename": "64839_PerpManager.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 399,
+  "vulnerability_title": "[M-04] Leverage Increase Breaks Margin Removal Invariant",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "To prevent excessive margin reduction for profitable positions, ensure that a reduction of leverage is always possible. But if the leverage is increased, make sure to apply the same margin restrictions as `removeMargin()`. Keep in mind, that this might prevent the user from increasing his leverage above 10 if there is little to no unrealized pnl in the account.\n\nAlternatively ensure that the `indentedMargin` with the new leverage is fully covered by the existing margin of the account, ignoring the unrealized pnl. This would still allow the user to increase his leverage (which is legitimate) but ensure that there is still enough \u201creal\u201d margin in the account to account for the intended leverage.\n\n[View detailed Proof of Concept](https://code4rena.com/audits/2025-08-gte-perps-and-launchpad/submissions/F-126)\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "removeMargin",
+        "start_line": 175,
+        "end_line": 219,
+        "code": "\n    function removeMargin(address account, uint256 subaccount, uint256 amount)\n        external\n        onlySenderOrOperator(account, PerpsOperatorRoles.WITHDRAW_MARGIN)\n    {\n        ClearingHouse storage clearingHouse = StorageLib.loadClearingHouse();\n\n        __MarginUpdateCache__ memory cache;\n\n        // load account\n        (cache.assets, cache.positions) = clearingHouse.getAccount(account, subaccount);\n\n        if (amount == 0) revert InvalidWithdraw();\n        if (cache.positions.length == 0) revert InvalidWithdraw();\n\n        // realize funding payment\n        cache.fundingPayment = ClearingHouseLib.realizeFundingPayment(cache.assets, cache.positions);\n\n        // settle margin update\n        int256 remainingMargin = StorageLib.loadCollateralManager().settleMarginUpdate({\n            account: account,\n            subaccount: subaccount,\n            marginDelta: -amount.toInt256(),\n            fundingPayment: cache.fundingPayment\n        });\n\n        // assert post withdraw margin requirement (margin + upnl) >= max(intendedMargin, totalNotional / 10)\n        // where intendedMargin is the sum of notional / leverage for open positions\n        clearingHouse.assertPostWithdrawalMarginRequired({\n            assets: cache.assets,\n            positions: cache.positions,\n            margin: remainingMargin\n        });\n\n        // set position update (note: this will just be the new position.lastCumulativeFunding)\n        clearingHouse.setPositions({\n            tradedAsset: \"\",\n            account: account,\n            subaccount: subaccount,\n            assets: cache.assets,\n            positions: cache.positions\n        });\n\n        emit MarginRemoved(account, subaccount, amount, remainingMargin, StorageLib.incNonce());\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            176,
+            219
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-03-20T14:34:48.901140",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 95,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue with the `setPositionLeverage()` function allowing margin extraction that bypasses the restrictions in `removeMargin()`.",
+      "content_reasoning": "The content mentions the `removeMargin()` function and its safeguards, which are present in the extracted code. The vulnerability arises from the lack of similar safeguards in `setPositionLeverage()`.",
+      "functions_found": [
+        "removeMargin"
+      ],
+      "variables_found": [
+        "account",
+        "subaccount",
+        "amount",
+        "remainingMargin"
+      ],
+      "patterns_found": [
+        "assertPostWithdrawalMarginRequired"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "null",
+      "tag_present": false,
+      "tag_correct": null,
+      "confidence": 90,
+      "reasoning": "The report currently lacks a tag, but it should be tagged to reflect the business logic flaw.",
+      "suggested_tag": "business_logic_flaw",
+      "alternative_tags": [
+        "risk_management"
+      ],
+      "correction_explanation": "The issue is primarily a business logic flaw related to margin management and risk controls."
+    },
+    "mando_classification": {
+      "primary_category": "null",
+      "secondary_categories": [],
+      "confidence": 70,
+      "mando_applicable": false,
+      "reasoning": "The issue does not fit well into any of the MANDO categories as it is primarily a business logic flaw rather than a technical vulnerability like access control or arithmetic errors."
+    },
+    "scsvs_classification": {
+      "primary_category": "G4",
+      "primary_category_name": "Business logic",
+      "secondary_categories": [],
+      "confidence": 95,
+      "use_scsvs_instead": true,
+      "reasoning": "The vulnerability is a business logic issue where the function `setPositionLeverage()` allows bypassing margin restrictions, which is critical for maintaining protocol stability.",
+      "vulnerability_type": "Business logic flaw in margin management"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Implement margin checks in setPositionLeverage() similar to removeMargin() to ensure margin requirements are met when leverage is increased.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "setPositionLeverage",
+          "fixed_function_code": "function setPositionLeverage(address account, uint256 subaccount, uint256 newLeverage) external onlySenderOrOperator(account, PerpsOperatorRoles.SET_LEVERAGE) {\n    ClearingHouse storage clearingHouse = StorageLib.loadClearingHouse();\n\n    __MarginUpdateCache__ memory cache;\n\n    // load account\n    (cache.assets, cache.positions) = clearingHouse.getAccount(account, subaccount);\n\n    if (newLeverage == 0) revert InvalidLeverage();\n    if (cache.positions.length == 0) revert InvalidLeverage();\n\n    // realize funding payment\n    cache.fundingPayment = ClearingHouseLib.realizeFundingPayment(cache.assets, cache.positions);\n\n    // calculate intended margin based on new leverage\n    uint256 intendedMargin = calculateIntendedMargin(cache.positions, newLeverage);\n\n    // ensure the intended margin is covered by existing margin\n    int256 remainingMargin = StorageLib.loadCollateralManager().settleMarginUpdate({\n        account: account,\n        subaccount: subaccount,\n        marginDelta: 0, // no margin change, just checking\n        fundingPayment: cache.fundingPayment\n    });\n\n    // assert post leverage change margin requirement\n    clearingHouse.assertPostLeverageChangeMarginRequired({\n        assets: cache.assets,\n        positions: cache.positions,\n        margin: remainingMargin,\n        intendedMargin: intendedMargin\n    });\n\n    // update leverage\n    clearingHouse.updateLeverage({\n        account: account,\n        subaccount: subaccount,\n        newLeverage: newLeverage\n    });\n\n    emit LeverageUpdated(account, subaccount, newLeverage, remainingMargin, StorageLib.incNonce());\n}",
+          "reasoning": "This fix ensures that when leverage is increased, the intended margin is fully covered by the existing margin, preventing users from bypassing margin restrictions and ensuring stability in the protocol."
+        }
+      ],
+      "key_changes": [
+        "Added intended margin calculation based on new leverage.",
+        "Implemented margin checks similar to removeMargin() to ensure margin requirements are met.",
+        "Updated leverage only if margin requirements are satisfied."
+      ],
+      "security_improvements": [
+        "Prevents excessive leverage increase without sufficient margin.",
+        "Ensures protocol stability by maintaining margin requirements.",
+        "Reduces liquidation risk by enforcing stricter margin checks."
+      ],
+      "additional_recommendations": "Regularly audit margin-related functions to ensure they adhere to updated security standards and business logic.",
+      "confidence": 95,
+      "fix_code": "function setPositionLeverage(address account, uint256 subaccount, uint256 newLeverage) external onlySenderOrOperator(account, PerpsOperatorRoles.SET_LEVERAGE) {\n    ClearingHouse storage clearingHouse = StorageLib.loadClearingHouse();\n\n    __MarginUpdateCache__ memory cache;\n\n    // load account\n    (cache.assets, cache.positions) = clearingHouse.getAccount(account, subaccount);\n\n    if (newLeverage == 0) revert InvalidLeverage();\n    if (cache.positions.length == 0) revert InvalidLeverage();\n\n    // realize funding payment\n    cache.fundingPayment = ClearingHouseLib.realizeFundingPayment(cache.assets, cache.positions);\n\n    // calculate intended margin based on new leverage\n    uint256 intendedMargin = calculateIntendedMargin(cache.positions, newLeverage);\n\n    // ensure the intended margin is covered by existing margin\n    int256 remainingMargin = StorageLib.loadCollateralManager().settleMarginUpdate({\n        account: account,\n        subaccount: subaccount,\n        marginDelta: 0, // no margin change, just checking\n        fundingPayment: cache.fundingPayment\n    });\n\n    // assert post leverage change margin requirement\n    clearingHouse.assertPostLeverageChangeMarginRequired({\n        assets: cache.assets,\n        positions: cache.positions,\n        margin: remainingMargin,\n        intendedMargin: intendedMargin\n    });\n\n    // update leverage\n    clearingHouse.updateLeverage({\n        account: account,\n        subaccount: subaccount,\n        newLeverage: newLeverage\n    });\n\n    emit LeverageUpdated(account, subaccount, newLeverage, remainingMargin, StorageLib.incNonce());\n}",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-03-20T15:39:17.414819"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-03-20T15:39:17.414841",
+    "model": "gpt-4o",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}

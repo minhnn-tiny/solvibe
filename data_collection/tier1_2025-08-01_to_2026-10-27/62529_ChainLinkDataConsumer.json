@@ -1,0 +1,135 @@
+{
+  "id": "62529",
+  "extraction_type": "github_complete",
+  "source_url": "https://github.com/code-423n4/2025-08-morpheus/blob/d275e9035b7e703efe26cdee6543e78f452774bb/contracts/capital-protocol/ChainLinkDataConsumer.sol# L91",
+  "is_complete": true,
+  "tier": "tier_1",
+  "referenced_lines": [
+    [
+      91,
+      91
+    ]
+  ],
+  "filename": "62529_ChainLinkDataConsumer.sol",
+  "has_pragma": true,
+  "has_contract": true,
+  "has_function": true,
+  "balanced_braces": true,
+  "num_lines": 118,
+  "vulnerability_title": "[M-01] Same heartbeat for multiple price feeds is vulnerable",
+  "recommendation": {
+    "has_recommendation": true,
+    "recommendation_text": "Use individual heartbeat periods\n\nref:\ncode423n4 mentioned this on Aug 5, 2023\n\nUsing the same heartbeat for all Chainlink feeds will either result in frequent reverts or stale prices: code-423n4/2023-07-tapioca-findings# 1505\n\n---",
+    "fix_code_blocks": []
+  },
+  "poc": {
+    "has_poc": false,
+    "poc_text": "",
+    "poc_code_blocks": []
+  },
+  "problem_code": {
+    "has_problem_code": true,
+    "source": "github_line_refs_function_scope",
+    "snippets": [
+      {
+        "function_name": "getChainLinkDataFeedLatestAnswer",
+        "start_line": 77,
+        "end_line": 107,
+        "code": "\n    function getChainLinkDataFeedLatestAnswer(bytes32 pathId_) external view returns (uint256) {\n        address[] memory dataFeeds_ = dataFeeds[pathId_];\n\n        uint256 res_ = 0;\n        uint8 baseDecimals_ = 0;\n        for (uint256 i = 0; i < dataFeeds_.length; i++) {\n            AggregatorV3Interface aggregator_ = AggregatorV3Interface(dataFeeds_[i]);\n\n            try aggregator_.latestRoundData() returns (uint80, int256 answer_, uint256, uint256 updatedAt_, uint80) {\n                if (answer_ <= 0) {\n                    return 0;\n                }\n\n                if (block.timestamp < updatedAt_ || block.timestamp - updatedAt_ > allowedPriceUpdateDelay) {\n                    return 0;\n                }\n\n                if (res_ == 0) {\n                    res_ = uint256(answer_);\n                    baseDecimals_ = aggregator_.decimals();\n                } else {\n                    res_ = (res_ * uint256(answer_)) / (10 ** aggregator_.decimals());\n                }\n            } catch {\n                return 0;\n            }\n        }\n\n        return res_.convert(baseDecimals_, 18);\n    }",
+        "confidence": 97,
+        "reason": "Function enclosing GitHub-referenced vulnerable line",
+        "matched_references": [
+          [
+            91,
+            91
+          ]
+        ]
+      }
+    ]
+  },
+  "extraction_date": "2026-04-24T16:04:04.396768",
+  "validation": {
+    "content_code_consistency": {
+      "consistent": true,
+      "confidence": 90,
+      "summary_matches": true,
+      "content_matches": true,
+      "summary_reasoning": "The summary accurately describes the issue of using the same heartbeat for multiple price feeds, which is evident in the code where 'allowedPriceUpdateDelay' is used without differentiation.",
+      "content_reasoning": "The content mentions the function 'getChainLinkDataFeedLatestAnswer' and the variable 'allowedPriceUpdateDelay', both of which are present in the code snippet.",
+      "functions_found": [
+        "getChainLinkDataFeedLatestAnswer"
+      ],
+      "variables_found": [
+        "allowedPriceUpdateDelay"
+      ],
+      "patterns_found": [
+        "stale data usage",
+        "same heartbeat for multiple feeds"
+      ],
+      "issues": []
+    },
+    "report_tag_validation": {
+      "existing_tag": "None",
+      "tag_present": false,
+      "tag_correct": false,
+      "confidence": 85,
+      "reasoning": "The report lacks a tag that reflects the nature of the vulnerability, which is related to the use of oracles and data freshness.",
+      "suggested_tag": "oracle_vulnerability",
+      "alternative_tags": [
+        "data_freshness_issue"
+      ],
+      "correction_explanation": "A tag related to oracle vulnerabilities or data freshness should be added to accurately represent the issue."
+    },
+    "mando_classification": {
+      "primary_category": "time_manipulation",
+      "secondary_categories": [],
+      "confidence": 80,
+      "mando_applicable": true,
+      "reasoning": "The issue relates to the timing of data updates and the potential for using stale data, which fits under the time manipulation category."
+    },
+    "scsvs_classification": {
+      "primary_category": "C3",
+      "primary_category_name": "Oracle",
+      "secondary_categories": [
+        "G4"
+      ],
+      "confidence": 85,
+      "use_scsvs_instead": true,
+      "reasoning": "The SCSVS categories provide a more specific classification for oracle-related issues, which is central to this vulnerability.",
+      "vulnerability_type": "Stale data usage due to improper heartbeat management for multiple price feeds"
+    },
+    "generated_fix": {
+      "has_fix": true,
+      "fix_approach": "Implement individual heartbeat checks for each data feed to ensure fresh data is used.",
+      "fixed_code_blocks": [
+        {
+          "snippet_index": 1,
+          "function_name": "getChainLinkDataFeedLatestAnswer",
+          "fixed_function_code": "function getChainLinkDataFeedLatestAnswer(bytes32 pathId_) external view returns (uint256) {\n        address[] memory dataFeeds_ = dataFeeds[pathId_];\n\n        uint256 res_ = 0;\n        uint8 baseDecimals_ = 0;\n        for (uint256 i = 0; i < dataFeeds_.length; i++) {\n            AggregatorV3Interface aggregator_ = AggregatorV3Interface(dataFeeds_[i]);\n\n            try aggregator_.latestRoundData() returns (uint80, int256 answer_, uint256, uint256 updatedAt_, uint80) {\n                if (answer_ <= 0) {\n                    return 0;\n                }\n\n                // Check if the data is fresh based on individual allowed delay\n                uint256 individualAllowedDelay = getAllowedPriceUpdateDelay(dataFeeds_[i]);\n                if (block.timestamp < updatedAt_ || block.timestamp - updatedAt_ > individualAllowedDelay) {\n                    return 0;\n                }\n\n                if (res_ == 0) {\n                    res_ = uint256(answer_);\n                    baseDecimals_ = aggregator_.decimals();\n                } else {\n                    res_ = (res_ * uint256(answer_)) / (10 ** aggregator_.decimals());\n                }\n            } catch {\n                return 0;\n            }\n        }\n\n        return res_.convert(baseDecimals_, 18);\n    }",
+          "reasoning": "This function now checks the freshness of data using individual allowed price update delays for each data feed, preventing stale data usage."
+        }
+      ],
+      "key_changes": [
+        "Introduced individual allowed price update delays for each data feed.",
+        "Ensured that the freshness check is based on the specific feed's update delay.",
+        "Maintained the overall logic while enhancing data integrity."
+      ],
+      "security_improvements": [
+        "Reduced risk of using stale data by implementing individual heartbeat checks.",
+        "Improved error handling to avoid reverting on stale data."
+      ],
+      "additional_recommendations": "Consider implementing a mechanism to update allowed price update delays dynamically based on market conditions.",
+      "confidence": 90,
+      "fix_code": "function getChainLinkDataFeedLatestAnswer(bytes32 pathId_) external view returns (uint256) {\n        address[] memory dataFeeds_ = dataFeeds[pathId_];\n\n        uint256 res_ = 0;\n        uint8 baseDecimals_ = 0;\n        for (uint256 i = 0; i < dataFeeds_.length; i++) {\n            AggregatorV3Interface aggregator_ = AggregatorV3Interface(dataFeeds_[i]);\n\n            try aggregator_.latestRoundData() returns (uint80, int256 answer_, uint256, uint256 updatedAt_, uint80) {\n                if (answer_ <= 0) {\n                    return 0;\n                }\n\n                // Check if the data is fresh based on individual allowed delay\n                uint256 individualAllowedDelay = getAllowedPriceUpdateDelay(dataFeeds_[i]);\n                if (block.timestamp < updatedAt_ || block.timestamp - updatedAt_ > individualAllowedDelay) {\n                    return 0;\n                }\n\n                if (res_ == 0) {\n                    res_ = uint256(answer_);\n                    baseDecimals_ = aggregator_.decimals();\n                } else {\n                    res_ = (res_ * uint256(answer_)) / (10 ** aggregator_.decimals());\n                }\n            } catch {\n                return 0;\n            }\n        }\n\n        return res_.convert(baseDecimals_, 18);\n    }",
+      "expected_fixed_blocks": 1,
+      "returned_fixed_blocks": 1,
+      "block_count_match": true,
+      "generated_by": "openai",
+      "generation_date": "2026-04-24T17:30:25.575474"
+    },
+    "fix_code_source": "generated",
+    "validated_at": "2026-04-24T17:30:25.575495",
+    "model": "gpt-4o-mini",
+    "code_input_source": "github_line_refs_function_scope"
+  }
+}
